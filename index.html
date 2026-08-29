@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SeeMyGame - Stream P2P</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #0b0b0e;
+      color: #efeff1;
+      padding: 16px 24px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Barra Superior */
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      justify-content: space-between;
+      align-items: center;
+      background: #18181c;
+      padding: 14px 20px;
+      border-radius: 10px;
+      border: 1px solid #282830;
+      margin-bottom: 20px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 800;
+      font-size: 1.25rem;
+      letter-spacing: -0.5px;
+      color: #fff;
+    }
+    .brand span { color: #8b5cf6; }
+
+    .actions-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .room-actions, .stream-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    input[type="text"] {
+      background: #0b0b0e;
+      border: 1px solid #363642;
+      color: #fff;
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+    }
+    input[type="text"]:focus { border-color: #8b5cf6; }
+
+    button {
+      background: #8b5cf6;
+      color: white;
+      border: none;
+      padding: 9px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.15s ease;
+    }
+    button:hover { background: #7c3aed; }
+    button:disabled { background: #282830; cursor: not-allowed; color: #6b6b7a; }
+
+    .id-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 7px 12px;
+      border-radius: 6px;
+      background: #23232b;
+      border: 1px solid #363642;
+      color: #10b981;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .id-badge:hover { background: #2c2c36; }
+
+    /* Grade Multi-Stream */
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 16px;
+      width: 100%;
+      flex: 1;
+    }
+
+    .video-card {
+      background: #18181c;
+      border: 1px solid #282830;
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .video-card header {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: #1d1d23;
+      border-radius: 0;
+      border: none;
+      border-bottom: 1px solid #282830;
+      margin-bottom: 0;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .card-controls { display: flex; gap: 6px; }
+
+    .card-btn {
+      background: #2b2b36;
+      padding: 5px 10px;
+      font-size: 11px;
+      border-radius: 4px;
+      color: #ddd;
+    }
+    .card-btn:hover { background: #3c3c4a; color: #fff; }
+
+    video {
+      width: 100%;
+      height: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      display: block;
+      object-fit: contain;
+    }
+
+    footer {
+      text-align: center;
+      padding: 20px 0 10px 0;
+      font-size: 12px;
+      color: #6b6b7a;
+    }
+    footer a { color: #8b5cf6; text-decoration: none; cursor: pointer; }
+    footer a:hover { text-decoration: underline; }
+
+    /* Modal / Pop-up de Termos de Uso */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(5px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      padding: 20px;
+    }
+
+    .modal-content {
+      background: #18181c;
+      border: 1px solid #363642;
+      border-radius: 12px;
+      max-width: 580px;
+      width: 100%;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    .modal-content h3 {
+      font-size: 1.25rem;
+      margin-bottom: 12px;
+      color: #fff;
+    }
+
+    .terms-box {
+      background: #0b0b0e;
+      border: 1px solid #282830;
+      border-radius: 6px;
+      padding: 14px;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #adadb8;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-bottom: 16px;
+    }
+    .terms-box p { margin-bottom: 10px; }
+    .terms-box strong { color: #fff; }
+
+    .checkbox-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #efeff1;
+    }
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .checkbox-item input {
+      width: 16px;
+      height: 16px;
+      accent-color: #8b5cf6;
+      cursor: pointer;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+  </style>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body>
+
+  <!-- Modal de Termos de Uso e Idade -->
+  <div id="terms-modal" class="modal-overlay">
+    <div class="modal-content">
+      <h3>Termos de Uso & Responsabilidade</h3>
+      
+      <div class="terms-box">
+        <p><strong>1. Natureza da Aplicação:</strong> O <em>SeeMyGame</em> é uma ferramenta técnica de comunicação direta ponto-a-ponto (Peer-to-Peer - WebRTC). Todo o tráfego audiovisual ocorre exclusivamente entre os dispositivos conectados, sem armazenamento, moderação ou retenção de dados em servidores centrais.</p>
+        <p><strong>2. Isenção Total de Responsabilidade do Desenvolvedor:</strong> O desenvolvedor/mantenedor desta aplicação não tem acesso nem controle sobre as telas, transmissões, áudios ou informações compartilhadas. O desenvolvedor <strong>isenta-se integralmente</strong> de qualquer responsabilidade legal, cível ou criminal decorrente de conteúdos ilícitos, direitos autorais violados, dados confidenciais expostos ou condutas inadequadas praticadas pelos usuários.</p>
+        <p><strong>3. Responsabilidade do Usuário:</strong> Você é o único e exclusivo responsável por todo o conteúdo que decidir transmitir e pelas conexões que estabelecer.</p>
+      </div>
+
+      <div class="checkbox-group">
+        <label class="checkbox-item">
+          <input type="checkbox" id="check-age">
+          <span>Declaro que sou <strong>maior de 18 anos</strong>.</span>
+        </label>
+        <label class="checkbox-item">
+          <input type="checkbox" id="check-terms">
+          <span>Li e concordo com a isenção de responsabilidade e termos de uso.</span>
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <button id="accept-btn" disabled>Aceitar e Continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <header>
+    <div class="brand">🎮 See<span>MyGame</span></div>
+
+    <div class="actions-container">
+      <div class="room-actions">
+        <input type="text" id="target-id" placeholder="Cole o ID de um amigo">
+        <button id="connect-btn">Assistir Amigo</button>
+      </div>
+
+      <div class="stream-actions">
+        <span id="copy-badge" class="id-badge" title="Clique para copiar">Iniciando ID...</span>
+        <button id="stream-btn" disabled>Transmitir Meu Jogo (60 FPS)</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="video-grid" class="video-grid"></div>
+
+  <footer>
+    <span>SeeMyGame • Transmissão P2P ponta-a-ponta • </span>
+    <a id="open-terms-link">Ver Termos de Uso</a>
+  </footer>
+
+  <script>
+    // Gerenciamento de Termos e Bloqueio de Idade
+    const modal = document.getElementById('terms-modal');
+    const checkAge = document.getElementById('check-age');
+    const checkTerms = document.getElementById('check-terms');
+    const acceptBtn = document.getElementById('accept-btn');
+    const openTermsLink = document.getElementById('open-terms-link');
+
+    function updateAcceptButton() {
+      acceptBtn.disabled = !(checkAge.checked && checkTerms.checked);
+    }
+
+    checkAge.addEventListener('change', updateAcceptButton);
+    checkTerms.addEventListener('change', updateAcceptButton);
+
+    // Se já aceitou anteriormente, fecha o modal
+    if (localStorage.getItem('seemygame_terms_accepted') === 'true') {
+      modal.style.display = 'none';
+    }
+
+    acceptBtn.addEventListener('click', () => {
+      localStorage.setItem('seemygame_terms_accepted', 'true');
+      modal.style.display = 'none';
+    });
+
+    openTermsLink.addEventListener('click', () => {
+      checkAge.checked = true;
+      checkTerms.checked = true;
+      updateAcceptButton();
+      modal.style.display = 'flex';
+    });
+
+    // Lógica P2P / WebRTC
+    let peer = null;
+    let localStream = null;
+    const activeCalls = new Map();
+    const grid = document.getElementById('video-grid');
+    const copyBadge = document.getElementById('copy-badge');
+    const streamBtn = document.getElementById('stream-btn');
+
+    peer = new Peer();
+
+    peer.on('open', (id) => {
+      copyBadge.innerText = `📋 Seu ID: ${id} (Copiar)`;
+      streamBtn.disabled = false;
+      
+      copyBadge.onclick = () => {
+        navigator.clipboard.writeText(id);
+        const originalText = copyBadge.innerText;
+        copyBadge.innerText = "✓ Copiado!";
+        setTimeout(() => { copyBadge.innerText = originalText; }, 2000);
+      };
+    });
+
+    peer.on('error', (err) => {
+      console.error(err);
+      alert(`Erro de conexão P2P: ${err.type}`);
+    });
+
+    // 1. Recebe transmissões de amigos
+    peer.on('call', (call) => {
+      call.answer(localStream || new MediaStream());
+
+      call.on('stream', (remoteStream) => {
+        if (remoteStream.getVideoTracks().length > 0) {
+          addVideoCard(remoteStream, call.peer, `Tela de ${call.peer.slice(0, 6)}`);
+        }
+      });
+
+      activeCalls.set(call.peer, call);
+    });
+
+    // 2. Conectar ao ID de um amigo
+    document.getElementById('connect-btn').addEventListener('click', () => {
+      const targetId = document.getElementById('target-id').value.trim();
+      if (!targetId || targetId === peer.id) return alert("Insira um ID válido de outro participante.");
+
+      const call = peer.call(targetId, localStream || new MediaStream());
+      
+      call.on('stream', (remoteStream) => {
+        if (remoteStream.getVideoTracks().length > 0) {
+          addVideoCard(remoteStream, targetId, `Tela de ${targetId.slice(0, 6)}`);
+        }
+      });
+
+      activeCalls.set(targetId, call);
+      document.getElementById('target-id').value = '';
+    });
+
+    // 3. Transmissão com otimizações para gameplay (60 FPS + áudio estéreo)
+    streamBtn.addEventListener('click', async () => {
+      try {
+        localStream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            width: { ideal: 1920, max: 1920 },
+            height: { ideal: 1080, max: 1080 },
+            frameRate: { ideal: 60, max: 60 }
+          },
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            channelCount: 2
+          }
+        });
+
+        const videoTrack = localStream.getVideoTracks()[0];
+        if ('contentHint' in videoTrack) {
+          videoTrack.contentHint = 'motion';
+        }
+
+        addVideoCard(localStream, 'local-me', 'Minha Tela (Você)', true);
+        streamBtn.disabled = true;
+        streamBtn.innerText = "Transmitindo...";
+
+        activeCalls.forEach((call) => {
+          peer.call(call.peer, localStream);
+        });
+
+        videoTrack.onended = () => {
+          removeVideoCard('local-me');
+          localStream = null;
+          streamBtn.disabled = false;
+          streamBtn.innerText = "Transmitir Meu Jogo (60 FPS)";
+        };
+
+      } catch (err) {
+        console.error("Erro ao capturar jogo:", err);
+      }
+    });
+
+    function addVideoCard(stream, peerId, label, isMuted = false) {
+      if (document.getElementById(`card-${peerId}`)) return;
+
+      const card = document.createElement('div');
+      card.className = 'video-card';
+      card.id = `card-${peerId}`;
+
+      const cardHeader = document.createElement('header');
+      cardHeader.innerHTML = `<span>${label}</span>`;
+
+      const controls = document.createElement('div');
+      controls.className = 'card-controls';
+
+      const pipBtn = document.createElement('button');
+      pipBtn.className = 'card-btn';
+      pipBtn.innerText = '⧉ PiP';
+      pipBtn.onclick = async () => {
+        try {
+          if (document.pictureInPictureElement) {
+            await document.exitPictureInPicture();
+          } else {
+            await video.requestPictureInPicture();
+          }
+        } catch (err) {
+          alert('PiP não suportado ou bloqueado pelo navegador.');
+        }
+      };
+
+      const fsBtn = document.createElement('button');
+      fsBtn.className = 'card-btn';
+      fsBtn.innerText = '⛶ Full';
+      fsBtn.onclick = () => {
+        if (video.requestFullscreen) video.requestFullscreen();
+      };
+
+      controls.appendChild(pipBtn);
+      controls.appendChild(fsBtn);
+      cardHeader.appendChild(controls);
+
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.controls = !isMuted;
+      video.muted = isMuted;
+
+      card.appendChild(cardHeader);
+      card.appendChild(video);
+      grid.appendChild(card);
+    }
+
+    function removeVideoCard(peerId) {
+      const card = document.getElementById(`card-${peerId}`);
+      if (card) card.remove();
+    }
+  </script>
+</body>
+</html>
