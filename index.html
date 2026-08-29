@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SeeMyGame - Stream P2P Ultra Low Latency (60 FPS)</title>
+  <title>SeeMyGame - Stream P2P Ultra Low Latency (Discord Engine)</title>
   <style>
     :root {
       --bg-dark: #090a0f;
@@ -17,6 +17,7 @@
       --accent-purple-glow: rgba(139, 92, 246, 0.25);
       --accent-green: #10b981;
       --accent-green-glow: rgba(16, 185, 129, 0.2);
+      --accent-cyan: #06b6d4;
       --accent-blue: #38bdf8;
       --accent-red: #ef4444;
       --text-main: #f3f4f6;
@@ -31,7 +32,7 @@
       background-color: var(--bg-dark);
       background-image: 
         radial-gradient(circle at 15% 15%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
-        radial-gradient(circle at 85% 85%, rgba(16, 185, 129, 0.05) 0%, transparent 40%);
+        radial-gradient(circle at 85% 85%, rgba(6, 182, 212, 0.06) 0%, transparent 40%);
       color: var(--text-main);
       padding: 16px 24px;
       min-height: 100vh;
@@ -65,7 +66,7 @@
       color: #fff;
     }
     .brand-icon {
-      background: linear-gradient(135deg, #8b5cf6, #6366f1);
+      background: linear-gradient(135deg, #8b5cf6, #06b6d4);
       width: 34px;
       height: 34px;
       border-radius: 8px;
@@ -177,9 +178,44 @@
       box-shadow: 0 0 12px var(--accent-green-glow);
     }
 
+    /* Painel de Controle Avançado (Discord Tuning) */
+    .tuning-bar {
+      background: #141520;
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 10px 18px;
+      margin-bottom: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12.5px;
+    }
+    .tuning-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .slider-container input[type="range"] {
+      width: 130px;
+      accent-color: var(--accent-purple);
+      cursor: pointer;
+    }
+    .bitrate-value {
+      font-weight: 700;
+      color: var(--accent-cyan);
+      min-width: 65px;
+    }
+
     /* Dica e Notificações de Status */
     .banner-info {
-      background: linear-gradient(90deg, rgba(139, 92, 246, 0.12), rgba(56, 189, 248, 0.08));
+      background: linear-gradient(90deg, rgba(139, 92, 246, 0.12), rgba(6, 182, 212, 0.08));
       border: 1px solid rgba(139, 92, 246, 0.25);
       border-radius: 8px;
       padding: 10px 16px;
@@ -277,6 +313,37 @@
       100% { transform: scale(0.95); opacity: 0.8; }
     }
 
+    /* VU Meter de Áudio Estéreo (L / R) */
+    .vu-meter-container {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: #0e0f17;
+      padding: 3px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+      height: 18px;
+    }
+    .vu-track {
+      width: 28px;
+      height: 6px;
+      background: #1f202e;
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+    }
+    .vu-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #10b981, #06b6d4, #ef4444);
+      transition: width 0.08s ease;
+    }
+    .vu-label {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-dim);
+    }
+
     .card-controls { 
       display: flex; 
       gap: 6px; 
@@ -330,9 +397,9 @@
       position: absolute;
       top: 12px;
       left: 12px;
-      background: rgba(9, 10, 15, 0.82);
+      background: rgba(9, 10, 15, 0.88);
       backdrop-filter: blur(8px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 8px;
       padding: 8px 12px;
       font-size: 11px;
@@ -354,12 +421,13 @@
     .stats-label { color: var(--text-dim); }
     .stats-val { font-weight: 700; color: #38bdf8; }
     .stats-val-green { color: var(--accent-green); }
+    .stats-val-purple { color: #c084fc; }
 
     /* Overlay para desmutar áudio caso bloqueado pelo navegador */
     .audio-unmute-overlay {
       position: absolute;
       inset: 0;
-      background: rgba(0, 0, 0, 0.7);
+      background: rgba(0, 0, 0, 0.75);
       backdrop-filter: blur(4px);
       display: none;
       flex-direction: column;
@@ -567,12 +635,6 @@
       </div>
 
       <div class="stream-actions">
-        <select id="quality-preset" title="Selecione o perfil de latência e qualidade">
-          <option value="ultra">⚡ Ultra Baixa Latência (720p60 - 5.5 Mbps)</option>
-          <option value="balanced" selected>🎮 Equilibrado (1080p60 - 8.5 Mbps)</option>
-          <option value="high">💎 Alta Fidelidade (1080p60 - 14 Mbps)</option>
-        </select>
-
         <span id="copy-badge" class="id-badge" title="Clique para copiar seu ID">
           <span>⏳</span> Gerando ID...
         </span>
@@ -586,9 +648,33 @@
     </div>
   </header>
 
+  <!-- Painel de Tuning em Tempo Real (Padrão Discord) -->
+  <div class="tuning-bar">
+    <div class="tuning-group">
+      <span>⚡ <strong>Engine de Vídeo:</strong></span>
+      <select id="quality-preset">
+        <option value="ultra">⚡ Competitivo (720p @ 60 FPS - Resposta Imediata)</option>
+        <option value="balanced" selected>🎮 Equilibrado (1080p @ 60 FPS - Padrão Discord)</option>
+        <option value="high">💎 Alta Definição (1080p @ 60 FPS - Alta Fidelidade)</option>
+        <option value="cinema">🚀 Cinema 2K/4K (Máximo Bitrate)</option>
+      </select>
+    </div>
+
+    <div class="tuning-group slider-container">
+      <span>🎯 <strong>Bitrate ao Vivo:</strong></span>
+      <input type="range" id="bitrate-slider" min="3000" max="22000" step="500" value="8500">
+      <span class="bitrate-value" id="bitrate-display">8.5 Mbps</span>
+    </div>
+
+    <div class="tuning-group">
+      <span>🎧 <strong>Áudio:</strong></span>
+      <span style="color:var(--accent-green); font-weight:600;">Opus Gamer 128k Stereo</span>
+    </div>
+  </div>
+
   <div class="banner-info" id="audio-tip-banner">
     <div>
-      ⚡ <strong>Modo Ultra Low-Latency Ativo:</strong> Buffer de reprodução ajustado para <strong>0ms</strong> com aceleração de GPU (H.264). Lembre-se de <strong>marcar "Compartilhar áudio do sistema"</strong> ao iniciar a transmissão!
+      💡 <strong>Áudio Estéreo de Jogo:</strong> Ao compartilhar sua tela, selecione a aba ou janela do jogo e <strong>marque "Compartilhar áudio do sistema"</strong> para transmitir o som em estéreo 48 kHz de 128 kbps.
     </div>
     <button class="card-btn" id="close-banner-btn" style="background:transparent; border:none; color:#c4b5fd;">✕</button>
   </div>
@@ -597,14 +683,14 @@
     <div class="empty-state" id="empty-state">
       <div class="empty-state-icon">⚡🎮📺</div>
       <h3>Nenhuma transmissão ativa no momento</h3>
-      <p>Clique em <strong>"Transmitir Jogo"</strong> para compartilhar sua tela a 60 FPS com ultra baixa latência, ou cole o ID do seu amigo acima para assistir em tempo real.</p>
+      <p>Clique em <strong>"Transmitir Jogo"</strong> para transmitir sua tela em 60 FPS com motor de baixa latência estilo Discord, ou cole o ID do seu amigo acima para assistir em tempo real.</p>
     </div>
   </main>
 
   <div id="toast-container"></div>
 
   <footer>
-    <span>SeeMyGame • Transmissão P2P ponta-a-ponta de ultra baixa latência • </span>
+    <span>SeeMyGame • Transmissão P2P ponta-a-ponta com motor de baixa latência estilo Discord • </span>
     <a id="open-terms-link">Termos de Uso</a>
   </footer>
 
@@ -625,15 +711,15 @@
       }
     };
 
-    // Perfis de Qualidade e Latência
+    // Perfis de Qualidade
     const QUALITY_PROFILES = {
       ultra: {
         id: 'ultra',
-        label: 'Ultra Baixa Latência',
+        label: 'Competitivo',
         width: 1280,
         height: 720,
         fps: 60,
-        bitrate: 5500000 // 5.5 Mbps
+        bitrate: 5500000
       },
       balanced: {
         id: 'balanced',
@@ -641,30 +727,41 @@
         width: 1920,
         height: 1080,
         fps: 60,
-        bitrate: 8500000 // 8.5 Mbps
+        bitrate: 8500000
       },
       high: {
         id: 'high',
-        label: 'Alta Fidelidade',
+        label: 'Alta Definição',
         width: 1920,
         height: 1080,
         fps: 60,
-        bitrate: 14000000 // 14 Mbps
+        bitrate: 14000000
+      },
+      cinema: {
+        id: 'cinema',
+        label: 'Cinema 2K/4K',
+        width: 2560,
+        height: 1440,
+        fps: 60,
+        bitrate: 20000000
       }
     };
 
     let selectedProfile = QUALITY_PROFILES.balanced;
+    let customBitrateBps = 8500000;
 
     // Estado da Aplicação
     let peer = null;
     let myId = null;
     let localStream = null;
+    let audioCtx = null;
     
     // Conexões ativas
     const connectedViewers = new Map(); // PeerId -> DataConnection
     const activeMediaCalls = new Map(); // PeerId -> MediaConnection
     const watchingHosts = new Map();    // HostId -> { conn, call, stream }
     const statsIntervals = new Map();   // PeerId -> intervalId
+    const vuIntervals = new Map();      // PeerId -> animationFrameId
 
     // Elementos DOM
     const modal = document.getElementById('terms-modal');
@@ -680,25 +777,40 @@
     const connectBtn = document.getElementById('connect-btn');
     const targetInput = document.getElementById('target-id');
     const qualityPresetSelect = document.getElementById('quality-preset');
+    const bitrateSlider = document.getElementById('bitrate-slider');
+    const bitrateDisplay = document.getElementById('bitrate-display');
     const audioTipBanner = document.getElementById('audio-tip-banner');
     const closeBannerBtn = document.getElementById('close-banner-btn');
 
     // Troca de Preset de Qualidade
     qualityPresetSelect.addEventListener('change', (e) => {
       selectedProfile = QUALITY_PROFILES[e.target.value] || QUALITY_PROFILES.balanced;
-      showToast(`Perfil alterado: ${selectedProfile.label}`, 'info');
+      customBitrateBps = selectedProfile.bitrate;
+      bitrateSlider.value = Math.round(customBitrateBps / 1000);
+      bitrateDisplay.innerText = `${(customBitrateBps / 1000000).toFixed(1)} Mbps`;
+      
+      showToast(`Perfil selecionado: ${selectedProfile.label}`, 'info');
+      applyLiveBitrateChange();
+    });
 
-      // Se já estiver transmitindo, atualiza parâmetros em tempo real para os espectadores
+    // Slider de Bitrate Dinâmico em Tempo Real
+    bitrateSlider.addEventListener('input', (e) => {
+      const kbps = parseInt(e.target.value, 10);
+      customBitrateBps = kbps * 1000;
+      bitrateDisplay.innerText = `${(kbps / 1000).toFixed(1)} Mbps`;
+      applyLiveBitrateChange();
+    });
+
+    function applyLiveBitrateChange() {
       if (localStream) {
         activeMediaCalls.forEach((call) => {
           if (call && call.peerConnection) {
-            applySenderOptimizations(call.peerConnection, selectedProfile);
+            applySenderOptimizations(call.peerConnection, customBitrateBps, selectedProfile.fps);
           }
         });
       }
-    });
+    }
 
-    // Fechar Banner
     closeBannerBtn.addEventListener('click', () => {
       audioTipBanner.style.display = 'none';
     });
@@ -751,27 +863,85 @@
     });
 
     // ==========================================
-    // OTIMIZAÇÕES DE BAIXA LATÊNCIA WEBRTC
+    // TÉCNICAS DISCORD: SDP MUNGING & LOW LATENCY
     // ==========================================
 
-    // 1. Otimiza o Transceiver e prioriza Codec H.264 por Hardware
+    // Injeta parâmetros de início em alta taxa no SDP (Sem esperar o ramp-up de 15s do WebRTC)
+    function tuneSdpForGaming(sdp, bitrateBps) {
+      if (!sdp) return sdp;
+
+      let lines = sdp.split('\r\n');
+      let newLines = [];
+      let inAudio = false;
+      let inVideo = false;
+      const kbps = Math.round(bitrateBps / 1000);
+
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+
+        if (line.startsWith('m=audio')) {
+          inAudio = true;
+          inVideo = false;
+        } else if (line.startsWith('m=video')) {
+          inVideo = true;
+          inAudio = false;
+        }
+
+        // 1. ÁUDIO OPUS GAMER: Estéreo Real 128 kbps CBR sem corte de silêncio (DTX=0)
+        if (inAudio && line.startsWith('a=fmtp:') && line.includes('opus')) {
+          if (!line.includes('stereo=1')) {
+            line += ';stereo=1;sprop-stereo=1;maxaveragebitrate=128000;cbr=1;usedtx=0;maxplaybackrate=48000';
+          }
+        }
+
+        // 2. VÍDEO DISCORD-STYLE: Início imediato em 60 FPS em alta definição
+        if (inVideo && line.startsWith('a=fmtp:') && (line.includes('42e01f') || line.includes('packetization-mode=1') || line.includes('H264'))) {
+          if (!line.includes('x-google-min-bitrate')) {
+            const minK = Math.round(kbps * 0.6);
+            const startK = Math.round(kbps * 0.85);
+            const maxK = Math.round(kbps * 1.5);
+            line += `;x-google-min-bitrate=${minK};x-google-start-bitrate=${startK};x-google-max-bitrate=${maxK}`;
+          }
+        }
+
+        newLines.push(line);
+
+        // Insere limites b=AS / b=TIAS na seção de vídeo
+        if (line.startsWith('m=video') && !sdp.includes('b=AS:')) {
+          newLines.push(`b=AS:${kbps}`);
+          newLines.push(`b=TIAS:${bitrateBps}`);
+        }
+      }
+
+      return newLines.join('\r\n');
+    }
+
+    // Intercepta e aplica o SDP Munging na conexão P2P
+    function hookPeerConnectionSdp(pc) {
+      if (!pc || pc._sdpHooked) return;
+      pc._sdpHooked = true;
+
+      const originalSetLocal = pc.setLocalDescription.bind(pc);
+      pc.setLocalDescription = async function(desc) {
+        if (desc && desc.sdp) {
+          desc.sdp = tuneSdpForGaming(desc.sdp, customBitrateBps);
+        }
+        return originalSetLocal(desc);
+      };
+    }
+
+    // Otimiza Transceivers e zera o Jitter Buffer
     function applyTransceiverOptimizations(pc) {
       if (!pc || !pc.getTransceivers) return;
 
       try {
         const transceivers = pc.getTransceivers();
         transceivers.forEach((t) => {
-          // Otimizações no Receptor (Elimina o Jitter Buffer artificial de 300ms para 0ms)
           if (t.receiver) {
-            if ('jitterBufferTarget' in t.receiver) {
-              t.receiver.jitterBufferTarget = 0;
-            }
-            if ('playoutDelayHint' in t.receiver) {
-              t.receiver.playoutDelayHint = 0;
-            }
+            if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = 0;
+            if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = 0;
           }
 
-          // Otimização no Transmissor (Prioridade H264 de alta eficiência GPU)
           if (t.sender && RTCRtpSender.getCapabilities) {
             const capabilities = RTCRtpSender.getCapabilities('video');
             if (capabilities && capabilities.codecs) {
@@ -780,20 +950,18 @@
               if (h264Codecs.length > 0 && 'setCodecPreferences' in t) {
                 try {
                   t.setCodecPreferences([...h264Codecs, ...otherCodecs]);
-                } catch (err) {
-                  console.warn('Erro em setCodecPreferences:', err);
-                }
+                } catch (e) {}
               }
             }
           }
         });
       } catch (err) {
-        console.warn('Erro ao otimizar transceivers:', err);
+        console.warn('Erro em applyTransceiverOptimizations:', err);
       }
     }
 
-    // 2. Aplica Parâmetros no Sender (DegradationPreference e Bitrate/FPS alto)
-    async function applySenderOptimizations(pc, profile) {
+    // Aplica Parâmetros no Sender (DegradationPreference e Bitrate Dinâmico)
+    async function applySenderOptimizations(pc, bitrateBps, fps = 60) {
       if (!pc) return;
 
       try {
@@ -805,39 +973,18 @@
               params.encodings = [{}];
             }
 
-            // CRUCIAL PARA JOGOS: Não reduz FPS para manter texto estático
             params.degradationPreference = 'maintain-framerate';
-
-            params.encodings[0].maxBitrate = profile.bitrate;
-            params.encodings[0].maxFramerate = profile.fps;
+            params.encodings[0].maxBitrate = bitrateBps;
+            params.encodings[0].maxFramerate = fps;
             params.encodings[0].priority = 'high';
             params.encodings[0].networkPriority = 'high';
 
             await sender.setParameters(params);
-            console.log('Parâmetros de ultra baixa latência aplicados:', params);
+            console.log(`Bitrate ajustado para ${(bitrateBps / 1000000).toFixed(1)} Mbps.`);
           }
         }
       } catch (err) {
         console.warn('Erro ao aplicar parâmetros no sender:', err);
-      }
-    }
-
-    // 3. Otimizações no Receptor ao receber trilha remota
-    function applyReceiverOptimizations(pc) {
-      if (!pc || !pc.getReceivers) return;
-
-      try {
-        const receivers = pc.getReceivers();
-        receivers.forEach((r) => {
-          if ('jitterBufferTarget' in r) {
-            r.jitterBufferTarget = 0;
-          }
-          if ('playoutDelayHint' in r) {
-            r.playoutDelayHint = 0;
-          }
-        });
-      } catch (err) {
-        console.warn('Erro ao aplicar otimizações no receiver:', err);
       }
     }
 
@@ -850,7 +997,7 @@
         copyBadge.innerHTML = `<span>📋</span> Seu ID: <strong>${id}</strong>`;
         shareLinkBtn.style.display = 'inline-flex';
         streamBtn.disabled = false;
-        showToast('Conectado à rede P2P de baixa latência!', 'success');
+        showToast('Engine de baixa latência conectada à rede P2P!', 'success');
 
         // Copiar ID
         copyBadge.onclick = () => {
@@ -868,7 +1015,6 @@
           showToast('Link de convite direto copiado! Envie para seus amigos.', 'success');
         };
 
-        // Verificar link de convite (#watch=ID)
         checkAutoWatchUrl();
       });
 
@@ -896,7 +1042,7 @@
     // Controle: Transmissor recebe pedido de espectador
     function setupIncomingDataConnection(conn) {
       conn.on('open', () => {
-        console.log(`Espectador conectado ao canal de dados: ${conn.peer}`);
+        console.log(`Espectador conectado ao canal de controle: ${conn.peer}`);
         connectedViewers.set(conn.peer, conn);
 
         if (localStream) {
@@ -919,7 +1065,6 @@
       });
 
       conn.on('close', () => {
-        console.log(`Espectador desconectou: ${conn.peer}`);
         connectedViewers.delete(conn.peer);
         stopStatsMonitor(conn.peer);
       });
@@ -931,26 +1076,22 @@
       });
     }
 
-    // Transmissor envia o vídeo com configurações de baixa latência
+    // Transmissor envia o vídeo com SDP Munging e 60 FPS acelerado por GPU
     function initiateMediaCallToViewer(viewerPeerId) {
       if (!localStream) return;
 
-      console.log(`Iniciando chamada otimizada para: ${viewerPeerId}`);
+      console.log(`Iniciando chamada para: ${viewerPeerId}`);
       const call = peer.call(viewerPeerId, localStream);
       
       if (call) {
         activeMediaCalls.set(viewerPeerId, call);
 
         if (call.peerConnection) {
+          hookPeerConnectionSdp(call.peerConnection);
           applyTransceiverOptimizations(call.peerConnection);
-          
-          call.peerConnection.addEventListener('negotiationneeded', () => {
-            applyTransceiverOptimizations(call.peerConnection);
-          });
 
-          // Aplica bitrate e 60 FPS fixo
           setTimeout(() => {
-            applySenderOptimizations(call.peerConnection, selectedProfile);
+            applySenderOptimizations(call.peerConnection, customBitrateBps, selectedProfile.fps);
           }, 300);
         }
 
@@ -974,8 +1115,8 @@
       call.answer();
 
       if (call.peerConnection) {
+        hookPeerConnectionSdp(call.peerConnection);
         applyTransceiverOptimizations(call.peerConnection);
-        applyReceiverOptimizations(call.peerConnection);
       }
 
       call.on('stream', (remoteStream) => {
@@ -985,7 +1126,7 @@
         addOrUpdateVideoCard(remoteStream, call.peer, `🎮 Tela de ${call.peer.slice(0, 6)}`);
         
         if (call.peerConnection) {
-          applyReceiverOptimizations(call.peerConnection);
+          applyTransceiverOptimizations(call.peerConnection);
           startStatsMonitor(call.peer, call.peerConnection, false);
         }
 
@@ -1086,7 +1227,7 @@
       }
     });
 
-    // Iniciar Transmissão Otimizada (60 FPS + Áudio Estéreo + Zero Latency)
+    // Iniciar Transmissão Otimizada (60 FPS + Áudio Estéreo + SDP Munging)
     streamBtn.addEventListener('click', async () => {
       if (localStream) {
         stopLocalStream();
@@ -1096,18 +1237,20 @@
       try {
         localStream = await navigator.mediaDevices.getDisplayMedia({
           video: {
-            width: { ideal: selectedProfile.width, max: 1920 },
-            height: { ideal: selectedProfile.height, max: 1080 },
+            width: { ideal: selectedProfile.width, max: 2560 },
+            height: { ideal: selectedProfile.height, max: 1440 },
             frameRate: { ideal: selectedProfile.fps, max: 60 },
             cursor: 'always'
           },
           audio: {
+            autoGainControl: false,
             echoCancellation: false,
             noiseSuppression: false,
-            autoGainControl: false,
             channelCount: 2,
-            sampleRate: 48000
-          }
+            sampleRate: 48000,
+            sampleSize: 16
+          },
+          systemAudio: 'include'
         });
 
         const videoTrack = localStream.getVideoTracks()[0];
@@ -1117,7 +1260,7 @@
 
         const hasAudio = localStream.getAudioTracks().length > 0;
         if (hasAudio) {
-          showToast('Áudio do jogo capturado com sucesso!', 'success');
+          showToast('Áudio do jogo capturado em estéreo 48 kHz!', 'success');
         } else {
           showToast('Dica: Transmissão iniciada sem áudio do sistema.', 'info');
         }
@@ -1127,13 +1270,13 @@
         streamBtn.innerHTML = '<span>🛑</span> Parar Transmissão';
         streamBtn.classList.add('btn-stop');
 
-        // Notifica e chama todos os espectadores
+        // Notifica e chama todos os espectadores conectados
         connectedViewers.forEach((conn, viewerId) => {
           conn.send({ type: 'STREAM_STATUS', isStreaming: true });
           initiateMediaCallToViewer(viewerId);
         });
 
-        showToast(`Transmissão iniciada no perfil ${selectedProfile.label}!`, 'success');
+        showToast(`Transmissão ativa a 60 FPS (${(customBitrateBps / 1000000).toFixed(1)} Mbps)!`, 'success');
 
         videoTrack.onended = () => {
           stopLocalStream();
@@ -1243,8 +1386,36 @@
         <span>${label}</span>
       `;
 
+      // VU Meter Estéreo no Header
+      const vuMeter = document.createElement('div');
+      vuMeter.className = 'vu-meter-container';
+      vuMeter.title = 'Medidor Estéreo L / R (Áudio do Jogo)';
+      vuMeter.innerHTML = `
+        <span class="vu-label">L</span>
+        <div class="vu-track"><div class="vu-bar" id="vu-l-${peerId}"></div></div>
+        <span class="vu-label">R</span>
+        <div class="vu-track"><div class="vu-bar" id="vu-r-${peerId}"></div></div>
+      `;
+      title.appendChild(vuMeter);
+
       const controls = document.createElement('div');
       controls.className = 'card-controls';
+
+      // Botão de Re-Sync Ao Vivo
+      if (!isLocal) {
+        const resyncBtn = document.createElement('button');
+        resyncBtn.className = 'card-btn';
+        resyncBtn.innerHTML = '🔄 Sync';
+        resyncBtn.title = 'Forçar sincronização com a borda ao vivo (Zero-Lag)';
+        resyncBtn.onclick = () => {
+          if (video.seekable && video.seekable.length > 0) {
+            video.currentTime = video.seekable.end(0);
+          }
+          video.play();
+          showToast('Sincronizado com a live!', 'success');
+        };
+        controls.appendChild(resyncBtn);
+      }
 
       // Botão de HUD Stats
       const statsBtn = document.createElement('button');
@@ -1330,7 +1501,8 @@
         <div class="stats-row"><span class="stats-label">Taxa de Quadros:</span> <span class="stats-val" id="stat-fps-${peerId}">-- FPS</span></div>
         <div class="stats-row"><span class="stats-label">Bitrate:</span> <span class="stats-val" id="stat-bitrate-${peerId}">-- Mbps</span></div>
         <div class="stats-row"><span class="stats-label">Resolução:</span> <span class="stats-val" id="stat-res-${peerId}">--</span></div>
-        <div class="stats-row"><span class="stats-label">Jitter Buffer:</span> <span class="stats-val stats-val-green">0ms (Ultra Low)</span></div>
+        <div class="stats-row"><span class="stats-label">Áudio Codec:</span> <span class="stats-val stats-val-purple">Opus 128k Stereo</span></div>
+        <div class="stats-row"><span class="stats-label">Jitter Buffer:</span> <span class="stats-val stats-val-green">0ms (Discord Mode)</span></div>
       `;
 
       const video = document.createElement('video');
@@ -1344,20 +1516,27 @@
       const unmuteOverlay = document.createElement('div');
       unmuteOverlay.className = 'audio-unmute-overlay';
       unmuteOverlay.innerHTML = `
-        <p style="font-size: 13px; color: #fff;">O navegador pausou o áudio automático.</p>
-        <button>🔊 Clique para Ativar Áudio</button>
+        <p style="font-size: 13px; color: #fff;">O navegador pausou o áudio automático do jogo.</p>
+        <button>🔊 Clique para Ativar Áudio Estéreo</button>
       `;
 
       unmuteOverlay.onclick = () => {
         video.muted = false;
         video.play();
         unmuteOverlay.style.display = 'none';
+        initAudioAnalyser(stream, peerId);
       };
 
       videoWrapper.appendChild(statsHud);
       videoWrapper.appendChild(video);
       videoWrapper.appendChild(unmuteOverlay);
       card.appendChild(videoWrapper);
+
+      // Auto-Resync anti-drift com requestVideoFrameCallback
+      setupAntiDriftSync(video);
+
+      // Inicia o analisador de VU Meter estéreo
+      initAudioAnalyser(stream, peerId);
 
       const playPromise = video.play();
       if (playPromise !== undefined) {
@@ -1374,10 +1553,105 @@
       updateGridEmptyState();
     }
 
+    // ==========================================
+    // VU METER ESTÉREO (ANALISADOR DE ÁUDIO L/R)
+    // ==========================================
+    function initAudioAnalyser(stream, peerId) {
+      if (!stream || stream.getAudioTracks().length === 0) return;
+
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+
+        const source = audioCtx.createMediaStreamSource(stream);
+        const splitter = audioCtx.createChannelSplitter(2);
+        
+        const analyserL = audioCtx.createAnalyser();
+        const analyserR = audioCtx.createAnalyser();
+        analyserL.fftSize = 64;
+        analyserR.fftSize = 64;
+
+        source.connect(splitter);
+        splitter.connect(analyserL, 0);
+        splitter.connect(analyserR, 1);
+
+        const dataL = new Uint8Array(analyserL.frequencyBinCount);
+        const dataR = new Uint8Array(analyserR.frequencyBinCount);
+
+        const barL = document.getElementById(`vu-l-${peerId}`);
+        const barR = document.getElementById(`vu-r-${peerId}`);
+
+        function renderVU() {
+          if (!document.getElementById(`card-${peerId}`)) return;
+
+          analyserL.getByteFrequencyData(dataL);
+          analyserR.getByteFrequencyData(dataR);
+
+          let sumL = 0;
+          let sumR = 0;
+          for (let i = 0; i < dataL.length; i++) sumL += dataL[i];
+          for (let i = 0; i < dataR.length; i++) sumR += dataR[i];
+
+          const avgL = Math.min(100, Math.round((sumL / dataL.length / 255) * 120));
+          const avgR = Math.min(100, Math.round((sumR / dataR.length / 255) * 120));
+
+          if (barL) barL.style.width = `${avgL}%`;
+          if (barR) barR.style.width = `${avgR}%`;
+
+          vuIntervals.set(peerId, requestAnimationFrame(renderVU));
+        }
+
+        renderVU();
+      } catch (err) {
+        console.warn('Erro ao inicializar VU meter de áudio:', err);
+      }
+    }
+
+    // ==========================================
+    // ANTI-DRIFT: MANTER O PLAYER NA BORDA AO VIVO
+    // ==========================================
+    function setupAntiDriftSync(video) {
+      if ('requestVideoFrameCallback' in video) {
+        let lastTime = performance.now();
+
+        function checkFrame(now, metadata) {
+          if (video.buffered && video.buffered.length > 0) {
+            const liveEdge = video.buffered.end(video.buffered.length - 1);
+            const drift = liveEdge - video.currentTime;
+
+            // Se acumular mais de 100ms de atraso, acelera suavemente ou salta para o ao vivo
+            if (drift > 0.3) {
+              video.currentTime = liveEdge;
+            } else if (drift > 0.08) {
+              video.playbackRate = 1.05;
+            } else {
+              video.playbackRate = 1.0;
+            }
+          }
+
+          if (video.isConnected) {
+            video.requestVideoFrameCallback(checkFrame);
+          }
+        }
+
+        video.requestVideoFrameCallback(checkFrame);
+      }
+    }
+
     function removeVideoCard(peerId) {
       const card = document.getElementById(`card-${peerId}`);
       if (card) card.remove();
       stopStatsMonitor(peerId);
+
+      if (vuIntervals.has(peerId)) {
+        cancelAnimationFrame(vuIntervals.get(peerId));
+        vuIntervals.delete(peerId);
+      }
+
       updateGridEmptyState();
     }
 
@@ -1423,14 +1697,12 @@
           let height = null;
 
           stats.forEach((report) => {
-            // RTT (Ping)
             if (report.type === 'candidate-pair' && report.state === 'succeeded') {
               if (report.currentRoundTripTime !== undefined) {
                 rtt = Math.round(report.currentRoundTripTime * 1000);
               }
             }
 
-            // Inbound (Espectador)
             if (report.type === 'inbound-rtp' && report.kind === 'video') {
               if (report.framesPerSecond !== undefined) fps = Math.round(report.framesPerSecond);
               if (report.bytesReceived !== undefined) bytes = report.bytesReceived;
@@ -1438,7 +1710,6 @@
               if (report.frameHeight !== undefined) height = report.frameHeight;
             }
 
-            // Outbound (Transmissor)
             if (report.type === 'outbound-rtp' && report.kind === 'video') {
               if (report.framesPerSecond !== undefined) fps = Math.round(report.framesPerSecond);
               if (report.bytesSent !== undefined) bytes = report.bytesSent;
@@ -1446,14 +1717,12 @@
               if (report.frameHeight !== undefined) height = report.frameHeight;
             }
 
-            // Track info
             if (report.type === 'track' && report.kind === 'video') {
               if (report.frameWidth) width = report.frameWidth;
               if (report.frameHeight) height = report.frameHeight;
             }
           });
 
-          // Calcula Bitrate (Mbps)
           const now = performance.now();
           const timeDiff = (now - (lastTimestamp[peerId] || now)) / 1000;
           let bitrateMbps = '0.0';
@@ -1464,7 +1733,6 @@
           lastBytes[peerId] = bytes;
           lastTimestamp[peerId] = now;
 
-          // Atualiza HUD no DOM
           const rttElem = document.getElementById(`stat-rtt-${peerId}`);
           const fpsElem = document.getElementById(`stat-fps-${peerId}`);
           const bitElem = document.getElementById(`stat-bitrate-${peerId}`);
@@ -1475,9 +1743,7 @@
           if (bitElem) bitElem.innerText = `${bitrateMbps} Mbps`;
           if (resElem && width && height) resElem.innerText = `${width}x${height}`;
 
-        } catch (err) {
-          // stats error
-        }
+        } catch (err) {}
       }, 1000);
 
       statsIntervals.set(peerId, intervalId);
