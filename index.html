@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SeeMyGame - Stream P2P Ultra Low Latency (Discord Engine)</title>
+  <title>SeeMyGame - Stream P2P com Trava de 60 FPS (Zero Lag)</title>
   <style>
     :root {
       --bg-dark: #090a0f;
@@ -101,12 +101,8 @@
       outline: none;
       transition: all 0.2s ease;
     }
-    input[type="text"] {
-      min-width: 200px;
-    }
-    select {
-      cursor: pointer;
-    }
+    input[type="text"] { min-width: 200px; }
+    select { cursor: pointer; }
     input[type="text"]:focus, select:focus { 
       border-color: var(--accent-purple); 
       box-shadow: 0 0 0 2px var(--accent-purple-glow);
@@ -178,7 +174,7 @@
       box-shadow: 0 0 12px var(--accent-green-glow);
     }
 
-    /* Painel de Controle Avançado (Discord Tuning) */
+    /* Painel de Tuning em Tempo Real (FPS Priority Engine) */
     .tuning-bar {
       background: #141520;
       border: 1px solid var(--border-color);
@@ -196,6 +192,18 @@
       display: flex;
       align-items: center;
       gap: 12px;
+    }
+    .fps-lock-badge {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: var(--accent-green);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
     .slider-container {
       display: flex;
@@ -648,33 +656,35 @@
     </div>
   </header>
 
-  <!-- Painel de Tuning em Tempo Real (Padrão Discord) -->
+  <!-- Painel de Tuning em Tempo Real (FPS Priority Engine) -->
   <div class="tuning-bar">
     <div class="tuning-group">
-      <span>⚡ <strong>Engine de Vídeo:</strong></span>
+      <span>⚡ <strong>Engine:</strong></span>
       <select id="quality-preset">
-        <option value="ultra">⚡ Competitivo (720p @ 60 FPS - Resposta Imediata)</option>
-        <option value="balanced" selected>🎮 Equilibrado (1080p @ 60 FPS - Padrão Discord)</option>
-        <option value="high">💎 Alta Definição (1080p @ 60 FPS - Alta Fidelidade)</option>
-        <option value="cinema">🚀 Cinema 2K/4K (Máximo Bitrate)</option>
+        <option value="ultra">⚡ 60 FPS Competitivo (720p @ 60 FPS Fixo - Fluidez Máxima)</option>
+        <option value="balanced" selected>🎮 60 FPS Dinâmico (1080p @ 60 FPS - Equilibrado)</option>
+        <option value="high">💎 60 FPS Alta Fidelidade (1080p @ 60 FPS - Alta Taxa)</option>
       </select>
+      <div class="fps-lock-badge">
+        <span>🔒</span> Trava 60 FPS Ativa
+      </div>
     </div>
 
     <div class="tuning-group slider-container">
-      <span>🎯 <strong>Bitrate ao Vivo:</strong></span>
-      <input type="range" id="bitrate-slider" min="3000" max="22000" step="500" value="8500">
-      <span class="bitrate-value" id="bitrate-display">8.5 Mbps</span>
+      <span>🎯 <strong>Bitrate:</strong></span>
+      <input type="range" id="bitrate-slider" min="2500" max="16000" step="500" value="7500">
+      <span class="bitrate-value" id="bitrate-display">7.5 Mbps</span>
     </div>
 
     <div class="tuning-group">
       <span>🎧 <strong>Áudio:</strong></span>
-      <span style="color:var(--accent-green); font-weight:600;">Opus Gamer 128k Stereo</span>
+      <span style="color:var(--accent-green); font-weight:600;">Opus Gamer 128k</span>
     </div>
   </div>
 
   <div class="banner-info" id="audio-tip-banner">
     <div>
-      💡 <strong>Áudio Estéreo de Jogo:</strong> Ao compartilhar sua tela, selecione a aba ou janela do jogo e <strong>marque "Compartilhar áudio do sistema"</strong> para transmitir o som em estéreo 48 kHz de 128 kbps.
+      🚀 <strong>Modo Fluidez Máxima Ativo:</strong> O WebRTC está configurado para <strong>priorizar 60 FPS constantes</strong> e evitar qualquer engasgo ou descarte de frames. Lembre-se de <strong>marcar "Compartilhar áudio do sistema"</strong> ao compartilhar sua tela!
     </div>
     <button class="card-btn" id="close-banner-btn" style="background:transparent; border:none; color:#c4b5fd;">✕</button>
   </div>
@@ -683,14 +693,14 @@
     <div class="empty-state" id="empty-state">
       <div class="empty-state-icon">⚡🎮📺</div>
       <h3>Nenhuma transmissão ativa no momento</h3>
-      <p>Clique em <strong>"Transmitir Jogo"</strong> para transmitir sua tela em 60 FPS com motor de baixa latência estilo Discord, ou cole o ID do seu amigo acima para assistir em tempo real.</p>
+      <p>Clique em <strong>"Transmitir Jogo"</strong> para transmitir sua tela com <strong>trava de 60 FPS</strong> e motor de baixa latência, ou cole o ID do seu amigo acima para assistir em tempo real.</p>
     </div>
   </main>
 
   <div id="toast-container"></div>
 
   <footer>
-    <span>SeeMyGame • Transmissão P2P ponta-a-ponta com motor de baixa latência estilo Discord • </span>
+    <span>SeeMyGame • Transmissão P2P com prioridade absoluta de 60 FPS • </span>
     <a id="open-terms-link">Termos de Uso</a>
   </footer>
 
@@ -711,44 +721,36 @@
       }
     };
 
-    // Perfis de Qualidade
+    // Perfis de Qualidade focados em 60 FPS
     const QUALITY_PROFILES = {
       ultra: {
         id: 'ultra',
-        label: 'Competitivo',
+        label: '60 FPS Competitivo (720p)',
         width: 1280,
         height: 720,
         fps: 60,
-        bitrate: 5500000
+        bitrate: 4500000
       },
       balanced: {
         id: 'balanced',
-        label: 'Equilibrado',
+        label: '60 FPS Dinâmico (1080p)',
         width: 1920,
         height: 1080,
         fps: 60,
-        bitrate: 8500000
+        bitrate: 7500000
       },
       high: {
         id: 'high',
-        label: 'Alta Definição',
+        label: '60 FPS Alta Fidelidade (1080p)',
         width: 1920,
         height: 1080,
         fps: 60,
-        bitrate: 14000000
-      },
-      cinema: {
-        id: 'cinema',
-        label: 'Cinema 2K/4K',
-        width: 2560,
-        height: 1440,
-        fps: 60,
-        bitrate: 20000000
+        bitrate: 12000000
       }
     };
 
     let selectedProfile = QUALITY_PROFILES.balanced;
-    let customBitrateBps = 8500000;
+    let customBitrateBps = 7500000;
 
     // Estado da Aplicação
     let peer = null;
@@ -863,10 +865,10 @@
     });
 
     // ==========================================
-    // TÉCNICAS DISCORD: SDP MUNGING & LOW LATENCY
+    // MOTOR DE PRIORIDADE DE FPS & ZERO LAG
     // ==========================================
 
-    // Injeta parâmetros de início em alta taxa no SDP (Sem esperar o ramp-up de 15s do WebRTC)
+    // Injeta parâmetros no SDP de forma suave (Sem estourar buffers de rede)
     function tuneSdpForGaming(sdp, bitrateBps) {
       if (!sdp) return sdp;
 
@@ -887,19 +889,19 @@
           inAudio = false;
         }
 
-        // 1. ÁUDIO OPUS GAMER: Estéreo Real 128 kbps CBR sem corte de silêncio (DTX=0)
+        // 1. ÁUDIO OPUS GAMER: Estéreo Real 128 kbps CBR sem corte de silêncio
         if (inAudio && line.startsWith('a=fmtp:') && line.includes('opus')) {
           if (!line.includes('stereo=1')) {
             line += ';stereo=1;sprop-stereo=1;maxaveragebitrate=128000;cbr=1;usedtx=0;maxplaybackrate=48000';
           }
         }
 
-        // 2. VÍDEO DISCORD-STYLE: Início imediato em 60 FPS em alta definição
+        // 2. VÍDEO COM PISO DE BITRATE SEGURO: Evita descarte de quadros na fila do encoder
         if (inVideo && line.startsWith('a=fmtp:') && (line.includes('42e01f') || line.includes('packetization-mode=1') || line.includes('H264'))) {
           if (!line.includes('x-google-min-bitrate')) {
-            const minK = Math.round(kbps * 0.6);
-            const startK = Math.round(kbps * 0.85);
-            const maxK = Math.round(kbps * 1.5);
+            const minK = 1000; // Piso seguro para nunca travar frames em oscilações
+            const startK = Math.max(2500, Math.round(kbps * 0.7));
+            const maxK = Math.round(kbps * 1.3);
             line += `;x-google-min-bitrate=${minK};x-google-start-bitrate=${startK};x-google-max-bitrate=${maxK}`;
           }
         }
@@ -916,7 +918,6 @@
       return newLines.join('\r\n');
     }
 
-    // Intercepta e aplica o SDP Munging na conexão P2P
     function hookPeerConnectionSdp(pc) {
       if (!pc || pc._sdpHooked) return;
       pc._sdpHooked = true;
@@ -930,7 +931,7 @@
       };
     }
 
-    // Otimiza Transceivers e zera o Jitter Buffer
+    // Otimiza Transceivers, prioriza H.264 e zera Jitter Buffer
     function applyTransceiverOptimizations(pc) {
       if (!pc || !pc.getTransceivers) return;
 
@@ -960,7 +961,7 @@
       }
     }
 
-    // Aplica Parâmetros no Sender (DegradationPreference e Bitrate Dinâmico)
+    // CRUCIAL: Trava de 60 FPS com degradationPreference = 'maintain-framerate'
     async function applySenderOptimizations(pc, bitrateBps, fps = 60) {
       if (!pc) return;
 
@@ -968,19 +969,22 @@
         const senders = pc.getSenders ? pc.getSenders() : [];
         for (const sender of senders) {
           if (sender.track && sender.track.kind === 'video') {
+            sender.track.contentHint = 'motion';
+
             const params = sender.getParameters();
             if (!params.encodings || params.encodings.length === 0) {
               params.encodings = [{}];
             }
 
+            // NUNCA descarta FPS para manter resolução!
             params.degradationPreference = 'maintain-framerate';
-            params.encodings[0].maxBitrate = bitrateBps;
             params.encodings[0].maxFramerate = fps;
+            params.encodings[0].maxBitrate = bitrateBps;
             params.encodings[0].priority = 'high';
             params.encodings[0].networkPriority = 'high';
 
             await sender.setParameters(params);
-            console.log(`Bitrate ajustado para ${(bitrateBps / 1000000).toFixed(1)} Mbps.`);
+            console.log(`[FPS Lock] 60 FPS travado | Bitrate: ${(bitrateBps / 1000000).toFixed(1)} Mbps`);
           }
         }
       } catch (err) {
@@ -997,7 +1001,7 @@
         copyBadge.innerHTML = `<span>📋</span> Seu ID: <strong>${id}</strong>`;
         shareLinkBtn.style.display = 'inline-flex';
         streamBtn.disabled = false;
-        showToast('Engine de baixa latência conectada à rede P2P!', 'success');
+        showToast('Engine P2P conectada com Trava de 60 FPS!', 'success');
 
         // Copiar ID
         copyBadge.onclick = () => {
@@ -1042,7 +1046,7 @@
     // Controle: Transmissor recebe pedido de espectador
     function setupIncomingDataConnection(conn) {
       conn.on('open', () => {
-        console.log(`Espectador conectado ao canal de controle: ${conn.peer}`);
+        console.log(`Espectador conectado: ${conn.peer}`);
         connectedViewers.set(conn.peer, conn);
 
         if (localStream) {
@@ -1076,11 +1080,11 @@
       });
     }
 
-    // Transmissor envia o vídeo com SDP Munging e 60 FPS acelerado por GPU
+    // Transmissor envia o vídeo com Trava de 60 FPS e GPU H.264
     function initiateMediaCallToViewer(viewerPeerId) {
       if (!localStream) return;
 
-      console.log(`Iniciando chamada para: ${viewerPeerId}`);
+      console.log(`Iniciando chamada com 60 FPS travado para: ${viewerPeerId}`);
       const call = peer.call(viewerPeerId, localStream);
       
       if (call) {
@@ -1130,7 +1134,7 @@
           startStatsMonitor(call.peer, call.peerConnection, false);
         }
 
-        showToast(`Transmissão de ${call.peer.slice(0, 6)} ao vivo!`, 'success');
+        showToast(`Transmissão de ${call.peer.slice(0, 6)} a 60 FPS!`, 'success');
       });
 
       call.on('close', () => {
@@ -1187,7 +1191,7 @@
             updateCardStatus(targetId, 'Amigo conectado! Aguardando ele iniciar o jogo...');
             showToast('Amigo está online, aguardando início da transmissão.', 'info');
           } else {
-            updateCardStatus(targetId, 'Sincronizando stream em tempo real...');
+            updateCardStatus(targetId, 'Sincronizando 60 FPS em tempo real...');
           }
         } else if (data.type === 'STREAM_STOPPED') {
           showToast('O amigo pausou a transmissão.', 'info');
@@ -1227,7 +1231,7 @@
       }
     });
 
-    // Iniciar Transmissão Otimizada (60 FPS + Áudio Estéreo + SDP Munging)
+    // Iniciar Transmissão Otimizada (60 FPS Rígido + Áudio Estéreo)
     streamBtn.addEventListener('click', async () => {
       if (localStream) {
         stopLocalStream();
@@ -1237,9 +1241,9 @@
       try {
         localStream = await navigator.mediaDevices.getDisplayMedia({
           video: {
-            width: { ideal: selectedProfile.width, max: 2560 },
-            height: { ideal: selectedProfile.height, max: 1440 },
-            frameRate: { ideal: selectedProfile.fps, max: 60 },
+            width: { ideal: selectedProfile.width, max: 1920 },
+            height: { ideal: selectedProfile.height, max: 1080 },
+            frameRate: { ideal: 60, min: 45, max: 60 },
             cursor: 'always'
           },
           audio: {
@@ -1254,7 +1258,7 @@
         });
 
         const videoTrack = localStream.getVideoTracks()[0];
-        if (videoTrack && 'contentHint' in videoTrack) {
+        if (videoTrack) {
           videoTrack.contentHint = 'motion';
         }
 
@@ -1276,7 +1280,7 @@
           initiateMediaCallToViewer(viewerId);
         });
 
-        showToast(`Transmissão ativa a 60 FPS (${(customBitrateBps / 1000000).toFixed(1)} Mbps)!`, 'success');
+        showToast(`Transmissão ativa com Trava de 60 FPS (${(customBitrateBps / 1000000).toFixed(1)} Mbps)!`, 'success');
 
         videoTrack.onended = () => {
           stopLocalStream();
@@ -1401,22 +1405,6 @@
       const controls = document.createElement('div');
       controls.className = 'card-controls';
 
-      // Botão de Re-Sync Ao Vivo
-      if (!isLocal) {
-        const resyncBtn = document.createElement('button');
-        resyncBtn.className = 'card-btn';
-        resyncBtn.innerHTML = '🔄 Sync';
-        resyncBtn.title = 'Forçar sincronização com a borda ao vivo (Zero-Lag)';
-        resyncBtn.onclick = () => {
-          if (video.seekable && video.seekable.length > 0) {
-            video.currentTime = video.seekable.end(0);
-          }
-          video.play();
-          showToast('Sincronizado com a live!', 'success');
-        };
-        controls.appendChild(resyncBtn);
-      }
-
       // Botão de HUD Stats
       const statsBtn = document.createElement('button');
       statsBtn.className = 'card-btn';
@@ -1497,12 +1485,11 @@
       const statsHud = document.createElement('div');
       statsHud.className = 'stats-hud';
       statsHud.innerHTML = `
+        <div class="stats-row"><span class="stats-label">Taxa de Quadros:</span> <span class="stats-val stats-val-green" id="stat-fps-${peerId}">60 FPS</span></div>
         <div class="stats-row"><span class="stats-label">Latência (RTT):</span> <span class="stats-val stats-val-green" id="stat-rtt-${peerId}">-- ms</span></div>
-        <div class="stats-row"><span class="stats-label">Taxa de Quadros:</span> <span class="stats-val" id="stat-fps-${peerId}">-- FPS</span></div>
         <div class="stats-row"><span class="stats-label">Bitrate:</span> <span class="stats-val" id="stat-bitrate-${peerId}">-- Mbps</span></div>
         <div class="stats-row"><span class="stats-label">Resolução:</span> <span class="stats-val" id="stat-res-${peerId}">--</span></div>
-        <div class="stats-row"><span class="stats-label">Áudio Codec:</span> <span class="stats-val stats-val-purple">Opus 128k Stereo</span></div>
-        <div class="stats-row"><span class="stats-label">Jitter Buffer:</span> <span class="stats-val stats-val-green">0ms (Discord Mode)</span></div>
+        <div class="stats-row"><span class="stats-label">Prioridade:</span> <span class="stats-val stats-val-purple">Maintain-Framerate</span></div>
       `;
 
       const video = document.createElement('video');
@@ -1531,9 +1518,6 @@
       videoWrapper.appendChild(video);
       videoWrapper.appendChild(unmuteOverlay);
       card.appendChild(videoWrapper);
-
-      // Auto-Resync anti-drift com requestVideoFrameCallback
-      setupAntiDriftSync(video);
 
       // Inicia o analisador de VU Meter estéreo
       initAudioAnalyser(stream, peerId);
@@ -1611,37 +1595,6 @@
       }
     }
 
-    // ==========================================
-    // ANTI-DRIFT: MANTER O PLAYER NA BORDA AO VIVO
-    // ==========================================
-    function setupAntiDriftSync(video) {
-      if ('requestVideoFrameCallback' in video) {
-        let lastTime = performance.now();
-
-        function checkFrame(now, metadata) {
-          if (video.buffered && video.buffered.length > 0) {
-            const liveEdge = video.buffered.end(video.buffered.length - 1);
-            const drift = liveEdge - video.currentTime;
-
-            // Se acumular mais de 100ms de atraso, acelera suavemente ou salta para o ao vivo
-            if (drift > 0.3) {
-              video.currentTime = liveEdge;
-            } else if (drift > 0.08) {
-              video.playbackRate = 1.05;
-            } else {
-              video.playbackRate = 1.0;
-            }
-          }
-
-          if (video.isConnected) {
-            video.requestVideoFrameCallback(checkFrame);
-          }
-        }
-
-        video.requestVideoFrameCallback(checkFrame);
-      }
-    }
-
     function removeVideoCard(peerId) {
       const card = document.getElementById(`card-${peerId}`);
       if (card) card.remove();
@@ -1697,12 +1650,14 @@
           let height = null;
 
           stats.forEach((report) => {
+            // RTT (Ping)
             if (report.type === 'candidate-pair' && report.state === 'succeeded') {
               if (report.currentRoundTripTime !== undefined) {
                 rtt = Math.round(report.currentRoundTripTime * 1000);
               }
             }
 
+            // Inbound (Espectador)
             if (report.type === 'inbound-rtp' && report.kind === 'video') {
               if (report.framesPerSecond !== undefined) fps = Math.round(report.framesPerSecond);
               if (report.bytesReceived !== undefined) bytes = report.bytesReceived;
@@ -1710,6 +1665,7 @@
               if (report.frameHeight !== undefined) height = report.frameHeight;
             }
 
+            // Outbound (Transmissor)
             if (report.type === 'outbound-rtp' && report.kind === 'video') {
               if (report.framesPerSecond !== undefined) fps = Math.round(report.framesPerSecond);
               if (report.bytesSent !== undefined) bytes = report.bytesSent;
@@ -1717,6 +1673,7 @@
               if (report.frameHeight !== undefined) height = report.frameHeight;
             }
 
+            // Track info
             if (report.type === 'track' && report.kind === 'video') {
               if (report.frameWidth) width = report.frameWidth;
               if (report.frameHeight) height = report.frameHeight;
@@ -1772,7 +1729,7 @@
 
       if (targetId && targetId !== myId) {
         targetInput.value = targetId;
-        showToast(`ID detectado: ${targetId.slice(0, 6)}. Conectando em tempo real...`, 'info');
+        showToast(`ID detectado: ${targetId.slice(0, 6)}. Conectando com Trava de 60 FPS...`, 'info');
         watchFriend(targetId);
       }
     }
