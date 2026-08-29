@@ -868,7 +868,7 @@
     // MOTOR DE PRIORIDADE DE FPS & ZERO LAG
     // ==========================================
 
-    // Injeta parâmetros no SDP de forma suave (Sem estourar buffers de rede)
+    // Injeta parâmetros no SDP de forma segura (Sem estourar buffers)
     function tuneSdpForGaming(sdp, bitrateBps) {
       if (!sdp) return sdp;
 
@@ -889,7 +889,7 @@
           inAudio = false;
         }
 
-        // 1. ÁUDIO OPUS GAMER: Estéreo Real 128 kbps CBR sem corte de silêncio
+        // 1. ÁUDIO OPUS GAMER: Estéreo Real 128 kbps CBR
         if (inAudio && line.startsWith('a=fmtp:') && line.includes('opus')) {
           if (!line.includes('stereo=1')) {
             line += ';stereo=1;sprop-stereo=1;maxaveragebitrate=128000;cbr=1;usedtx=0;maxplaybackrate=48000';
@@ -1231,7 +1231,7 @@
       }
     });
 
-    // Iniciar Transmissão Otimizada (60 FPS Rígido + Áudio Estéreo)
+    // Iniciar Transmissão Otimizada (W3C Screen Capture API Compliant - sem 'min' constraint)
     streamBtn.addEventListener('click', async () => {
       if (localStream) {
         stopLocalStream();
@@ -1239,11 +1239,12 @@
       }
 
       try {
+        // Correção de padrão W3C: Apenas ideal e max (sem min que quebrava o navegador)
         localStream = await navigator.mediaDevices.getDisplayMedia({
           video: {
             width: { ideal: selectedProfile.width, max: 1920 },
             height: { ideal: selectedProfile.height, max: 1080 },
-            frameRate: { ideal: 60, min: 45, max: 60 },
+            frameRate: { ideal: 60, max: 60 },
             cursor: 'always'
           },
           audio: {
@@ -1287,7 +1288,7 @@
         };
 
       } catch (err) {
-        console.error("Erro ao capturar tela:", err);
+        console.error('Erro ao capturar tela:', err);
         if (err.name !== 'NotAllowedError') {
           showToast(`Erro ao iniciar stream: ${err.message}`, 'error');
         }
