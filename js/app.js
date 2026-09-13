@@ -371,24 +371,52 @@ export async function startLocalStream() {
     return;
   }
 
+  // Restrições de vídeo com foco em 60 FPS
+  const videoConstraints = {
+    width: { ideal: selectedProfile.width, max: 1920 },
+    height: { ideal: selectedProfile.height, max: 1080 },
+    frameRate: { ideal: 60, max: 60 },
+    cursor: 'always'
+  };
+
   try {
-    localStream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        width: { ideal: selectedProfile.width, max: 1920 },
-        height: { ideal: selectedProfile.height, max: 1080 },
-        frameRate: { ideal: 60, max: 60 },
-        cursor: 'always'
-      },
-      audio: {
-        autoGainControl: false,
-        echoCancellation: false,
-        noiseSuppression: false,
-        channelCount: 2,
-        sampleRate: 48000,
-        sampleSize: 16
-      },
-      systemAudio: 'include'
-    });
+    try {
+      // Tentativa 1: Áudio sem filtros com suporte a loopback WASAPI (sem sampleRate/sampleSize rígidos que causam NotReadableError)
+      localStream = await navigator.mediaDevices.getDisplayMedia({
+        video: videoConstraints,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        },
+        systemAudio: 'include'
+      });
+    } catch (audioErr) {
+      // Caso o Windows/navegador rejeite as restrições ou a janela não suporte captura de áudio
+      if (audioErr.name === 'NotReadableError' || audioErr.message?.includes('audio')) {
+        console.warn('Falha nas restrições de áudio (NotReadableError). Tentando fallback audio: true...', audioErr);
+        try {
+          localStream = await navigator.mediaDevices.getDisplayMedia({
+            video: videoConstraints,
+            audio: true,
+            systemAudio: 'include'
+          });
+        } catch (retryErr) {
+          if (retryErr.name === 'NotReadableError' || retryErr.message?.includes('audio')) {
+            console.warn('Windows não permitiu captura de áudio para a fonte selecionada. Fallback para vídeo...', retryErr);
+            showToast('Aviso: O Windows não permitiu áudio dessa janela. Dica: selecione "Tela inteira" para capturar o áudio.', 'info');
+            localStream = await navigator.mediaDevices.getDisplayMedia({
+              video: videoConstraints,
+              audio: false
+            });
+          } else {
+            throw retryErr;
+          }
+        }
+      } else {
+        throw audioErr;
+      }
+    }
 
     const videoTrack = localStream.getVideoTracks()[0];
     if (videoTrack) {
@@ -397,9 +425,9 @@ export async function startLocalStream() {
 
     const hasAudio = localStream.getAudioTracks().length > 0;
     if (hasAudio) {
-      showToast('Áudio do jogo capturado em estéreo 48 kHz!', 'success');
+      showToast('Áudio do jogo capturado com sucesso!', 'success');
     } else {
-      showToast('Dica: Transmissão iniciada sem áudio do sistema.', 'info');
+      showToast('Transmissão iniciada (apenas vídeo). Para som, selecione "Tela inteira".', 'info');
     }
 
     addOrUpdateVideoCard({
