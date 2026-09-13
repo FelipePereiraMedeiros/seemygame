@@ -1,0 +1,347 @@
+﻿/**
+ * SeeMyGame - Controlador de Interface Estilo Discord (Voz e Chat)
+ */
+
+import { chatManager } from './chat.js';
+import { voiceManager } from './voice.js';
+
+export class DiscordUIController {
+  constructor({ onSendMessage, onJoinVoice, onLeaveVoice } = {}) {
+    this.onSendMessage = onSendMessage || (() => {});
+    this.onJoinVoice = onJoinVoice || (() => {});
+    this.onLeaveVoice = onLeaveVoice || (() => {});
+    this.activeTab = 'chat'; // 'chat' | 'voice'
+    this.isDrawerOpen = false;
+
+    this.elements = {};
+  }
+
+  init() {
+    if (typeof document === 'undefined') return;
+
+    this.elements = {
+      drawer: document.getElementById('discord-drawer'),
+      toggleChatBtn: document.getElementById('toggle-chat-btn'),
+      toggleVoiceBtn: document.getElementById('toggle-voice-btn'),
+      chatBadge: document.getElementById('chat-unread-badge'),
+      voiceBadge: document.getElementById('voice-badge'),
+      closeBtn: document.getElementById('drawer-close-btn'),
+      tabVoice: document.getElementById('tab-btn-voice'),
+      tabChat: document.getElementById('tab-btn-chat'),
+      panelVoice: document.getElementById('drawer-panel-voice'),
+      panelChat: document.getElementById('drawer-panel-chat'),
+      chatMessages: document.getElementById('chat-messages-container'),
+      chatInput: document.getElementById('chat-input'),
+      chatSendBtn: document.getElementById('chat-send-btn'),
+      voiceParticipants: document.getElementById('voice-participants-list'),
+      voiceMuteBtn: document.getElementById('voice-mute-btn'),
+      voiceDeafBtn: document.getElementById('voice-deaf-btn'),
+      voiceConnectBtn: document.getElementById('voice-connect-btn'),
+      voiceStatusBar: document.getElementById('voice-status-bar'),
+    };
+
+    this.bindEvents();
+    this.bindChatEvents();
+    this.bindVoiceEvents();
+  }
+
+  bindEvents() {
+    const { toggleChatBtn, toggleVoiceBtn, closeBtn, tabVoice, tabChat, chatInput, chatSendBtn, voiceMuteBtn, voiceDeafBtn, voiceConnectBtn } = this.elements;
+
+    if (toggleChatBtn) {
+      toggleChatBtn.addEventListener('click', () => this.toggleDrawer('chat'));
+    }
+    if (toggleVoiceBtn) {
+      toggleVoiceBtn.addEventListener('click', () => this.toggleDrawer('voice'));
+    }
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => this.closeDrawer());
+    }
+
+    if (tabVoice) {
+      tabVoice.addEventListener('click', () => this.switchTab('voice'));
+    }
+    if (tabChat) {
+      tabChat.addEventListener('click', () => this.switchTab('chat'));
+    }
+
+    // Envio de chat
+    const handleSend = () => {
+      if (!chatInput) return;
+      const text = chatInput.value.trim();
+      if (!text) return;
+      chatInput.value = '';
+      this.onSendMessage(text);
+      chatInput.focus();
+    };
+
+    if (chatSendBtn) {
+      chatSendBtn.addEventListener('click', handleSend);
+    }
+    if (chatInput) {
+      chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleSend();
+        }
+      });
+    }
+
+    // Controles de voz
+    if (voiceMuteBtn) {
+      voiceMuteBtn.addEventListener('click', () => {
+        voiceManager.toggleMute();
+      });
+    }
+    if (voiceDeafBtn) {
+      voiceDeafBtn.addEventListener('click', () => {
+        voiceManager.toggleDeaf();
+      });
+    }
+    if (voiceConnectBtn) {
+      voiceConnectBtn.addEventListener('click', () => {
+        if (voiceManager.isInVoice) {
+          this.onLeaveVoice();
+        } else {
+          this.onJoinVoice();
+        }
+      });
+    }
+  }
+
+  toggleDrawer(tab = 'chat') {
+    if (this.isDrawerOpen && this.activeTab === tab) {
+      this.closeDrawer();
+    } else {
+      this.openDrawer(tab);
+    }
+  }
+
+  openDrawer(tab = 'chat') {
+    this.isDrawerOpen = true;
+    if (this.elements.drawer) {
+      this.elements.drawer.classList.add('open');
+    }
+    this.switchTab(tab);
+    chatManager.setChatOpen(true);
+    this.updateChatBadge(0);
+  }
+
+  closeDrawer() {
+    this.isDrawerOpen = false;
+    if (this.elements.drawer) {
+      this.elements.drawer.classList.remove('open');
+    }
+    if (this.elements.toggleChatBtn) this.elements.toggleChatBtn.classList.remove('active');
+    if (this.elements.toggleVoiceBtn) this.elements.toggleVoiceBtn.classList.remove('active');
+    chatManager.setChatOpen(false);
+  }
+
+  switchTab(tab) {
+    this.activeTab = tab;
+    const { tabVoice, tabChat, panelVoice, panelChat, toggleChatBtn, toggleVoiceBtn } = this.elements;
+
+    if (tab === 'voice') {
+      if (tabVoice) tabVoice.classList.add('active');
+      if (tabChat) tabChat.classList.remove('active');
+      if (panelVoice) panelVoice.style.display = 'flex';
+      if (panelChat) panelChat.style.display = 'none';
+      if (toggleVoiceBtn) toggleVoiceBtn.classList.add('active');
+      if (toggleChatBtn) toggleChatBtn.classList.remove('active');
+    } else {
+      if (tabChat) tabChat.classList.add('active');
+      if (tabVoice) tabVoice.classList.remove('active');
+      if (panelChat) panelChat.style.display = 'flex';
+      if (panelVoice) panelVoice.style.display = 'none';
+      if (toggleChatBtn) toggleChatBtn.classList.add('active');
+      if (toggleVoiceBtn) toggleVoiceBtn.classList.remove('active');
+      chatManager.markChannelAsRead();
+      this.updateChatBadge(0);
+      if (this.elements.chatInput) this.elements.chatInput.focus();
+    }
+  }
+
+  bindChatEvents() {
+    chatManager.on('message', (msg) => {
+      this.renderChatMessage(msg);
+    });
+
+    chatManager.on('unread', ({ total }) => {
+      if (!this.isDrawerOpen || this.activeTab !== 'chat') {
+        this.updateChatBadge(total);
+      }
+    });
+  }
+
+  renderChatMessage(msg) {
+    const container = this.elements.chatMessages;
+    if (!container || !msg) return;
+
+    if (msg.isSystem) {
+      const sysEl = document.createElement('div');
+      sysEl.className = 'chat-message-system';
+      sysEl.textContent = `ℹ️ ${msg.text}`;
+      container.appendChild(sysEl);
+    } else {
+      const item = document.createElement('div');
+      item.className = 'chat-message-item';
+
+      const initial = (msg.senderName || 'U').charAt(0).toUpperCase();
+      const roleBadge = `<span class="chat-role-badge ${msg.role || 'viewer'}">${(msg.role || 'espectador').toUpperCase()}</span>`;
+
+      item.innerHTML = `
+        <div class="chat-message-avatar">${initial}</div>
+        <div class="chat-message-body">
+          <div class="chat-message-meta">
+            <span class="chat-author">${msg.senderName}</span>
+            ${roleBadge}
+            <span class="chat-timestamp">${msg.formattedTime || ''}</span>
+          </div>
+          <div class="chat-content">${msg.text}</div>
+        </div>
+      `;
+
+      container.appendChild(item);
+    }
+
+    // Auto-scroll para a mensagem mais recente
+    container.scrollTop = container.scrollHeight;
+  }
+
+  updateChatBadge(count) {
+    const badge = this.elements.chatBadge;
+    if (!badge) return;
+    if (count > 0) {
+      badge.textContent = count > 99 ? '99+' : count;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  bindVoiceEvents() {
+    voiceManager.on('participantUpdate', (participants) => {
+      this.renderVoiceParticipants(participants);
+    });
+
+    voiceManager.on('speakingChange', ({ peerId, isSpeaking }) => {
+      const avatar = document.getElementById(`voice-avatar-${peerId}`);
+      if (avatar) {
+        if (isSpeaking) {
+          avatar.classList.add('speaking');
+        } else {
+          avatar.classList.remove('speaking');
+        }
+      }
+    });
+
+    voiceManager.on('voiceStateChange', (state) => {
+      this.updateVoiceControls(state);
+    });
+  }
+
+  renderVoiceParticipants(participants) {
+    const list = this.elements.voiceParticipants;
+    const badge = this.elements.voiceBadge;
+    if (badge) {
+      if (participants.length > 0) {
+        badge.textContent = participants.length;
+        badge.style.display = 'inline-block';
+        badge.classList.add('voice-active-badge');
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    if (!list) return;
+
+    if (!participants || participants.length === 0) {
+      list.innerHTML = `
+        <div style="text-align: center; color: var(--text-muted); padding: 24px 12px; font-size: 13px;">
+          Ninguém na sala de voz no momento.<br>
+          <small>Clique em "Entrar na Voz" abaixo para conversar com microfone.</small>
+        </div>
+      `;
+      return;
+    }
+
+    list.innerHTML = '';
+    participants.forEach((p) => {
+      const card = document.createElement('div');
+      card.className = 'voice-user-card';
+
+      const initial = (p.name || 'U').charAt(0).toUpperCase();
+      const muteIcon = p.isMuted ? '🔇' : '🎙️';
+      const deafIcon = p.isDeafened ? '🎧❌' : '';
+      const isSpeakingClass = p.isSpeaking ? 'speaking' : '';
+
+      card.innerHTML = `
+        <div class="voice-user-info">
+          <div id="voice-avatar-${p.peerId}" class="avatar-circle ${isSpeakingClass}">
+            ${initial}
+          </div>
+          <div class="voice-user-name">
+            ${p.name}
+            <span class="chat-role-badge ${p.role}">${p.role.toUpperCase()}</span>
+          </div>
+        </div>
+        <div class="voice-user-icons">
+          <span title="${p.isMuted ? 'Microfone Mutado' : 'Microfone Ativo'}">${muteIcon}</span>
+          ${deafIcon ? `<span title="Ensurdecido">${deafIcon}</span>` : ''}
+        </div>
+      `;
+
+      list.appendChild(card);
+    });
+  }
+
+  updateVoiceControls(state) {
+    const { voiceMuteBtn, voiceDeafBtn, voiceConnectBtn, voiceStatusBar } = this.elements;
+
+    if (voiceConnectBtn) {
+      if (state.isInVoice) {
+        voiceConnectBtn.textContent = '📞 Desconectar';
+        voiceConnectBtn.className = 'voice-dock-btn leave-btn';
+      } else {
+        voiceConnectBtn.textContent = '📞 Entrar na Voz';
+        voiceConnectBtn.className = 'voice-dock-btn join-btn';
+      }
+    }
+
+    if (voiceMuteBtn) {
+      voiceMuteBtn.disabled = !state.isInVoice;
+      if (state.isMuted) {
+        voiceMuteBtn.innerHTML = '<span>🔇</span> Desmutar';
+        voiceMuteBtn.classList.add('active');
+      } else {
+        voiceMuteBtn.innerHTML = '<span>🎙️</span> Mutar';
+        voiceMuteBtn.classList.remove('active');
+      }
+    }
+
+    if (voiceDeafBtn) {
+      voiceDeafBtn.disabled = !state.isInVoice;
+      if (state.isDeafened) {
+        voiceDeafBtn.innerHTML = '<span>🎧❌</span> Desensurdecer';
+        voiceDeafBtn.classList.add('active');
+      } else {
+        voiceDeafBtn.innerHTML = '<span>🎧</span> Ensurdecer';
+        voiceDeafBtn.classList.remove('active');
+      }
+    }
+
+    if (voiceStatusBar) {
+      if (state.isInVoice) {
+        voiceStatusBar.innerHTML = '<span>🟢 Voz Conectada</span> <span>Canal de Baixa Latência</span>';
+        voiceStatusBar.style.color = 'var(--accent-green)';
+        voiceStatusBar.style.background = 'rgba(16, 185, 129, 0.1)';
+        voiceStatusBar.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+      } else {
+        voiceStatusBar.innerHTML = '<span>⚪ Desconectado da Voz</span> <span>Clique abaixo para entrar</span>';
+        voiceStatusBar.style.color = 'var(--text-muted)';
+        voiceStatusBar.style.background = 'rgba(255, 255, 255, 0.04)';
+        voiceStatusBar.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+      }
+    }
+  }
+}

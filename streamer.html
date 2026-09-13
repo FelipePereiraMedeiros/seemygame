@@ -130,6 +130,12 @@
         <span id="viewer-count" class="id-badge" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: var(--accent-green);" title="Quantidade de espectadores conectados">
           <span>👥</span> <strong>0</strong> espectadores
         </span>
+        <button id="toggle-voice-btn" class="discord-toggle-btn" title="Canal de Voz" aria-label="Abrir canal de voz">
+          <span>🔊</span> Voz <span id="voice-badge" class="counter-badge voice-active-badge" style="display:none;">0</span>
+        </button>
+        <button id="toggle-chat-btn" class="discord-toggle-btn" title="Bate-papo da transmissão" aria-label="Abrir bate-papo">
+          <span>💬</span> Chat <span id="chat-unread-badge" class="counter-badge" style="display:none;">0</span>
+        </button>
       </div>
 
       <a href="viewer.html" class="nav-switch-btn" title="Ir para modo espectador">
@@ -204,6 +210,65 @@
     <span>SeeMyGame • Estúdio do Streamer P2P com prioridade de taxa de quadros • </span>
     <a id="open-terms-link" tabindex="0" role="button">Termos de Uso</a>
   </footer>
+
+  <!-- Drawer Estilo Discord (Voz e Chat) -->
+  <aside id="discord-drawer" class="discord-drawer" aria-label="Painel Discord de Voz e Chat">
+    <div class="drawer-header">
+      <div class="drawer-tabs">
+        <button id="tab-btn-chat" class="drawer-tab active">
+          <span>💬</span> Chat
+        </button>
+        <button id="tab-btn-voice" class="drawer-tab">
+          <span>🔊</span> Voz
+        </button>
+      </div>
+      <button id="drawer-close-btn" class="drawer-close-btn" title="Fechar painel" aria-label="Fechar painel">✕</button>
+    </div>
+
+    <!-- Painel do Chat -->
+    <div id="drawer-panel-chat" class="chat-panel">
+      <div id="chat-messages-container" class="chat-messages-container">
+        <div class="chat-message-system">
+          Bem-vindo ao chat da transmissão! Converse com seus amigos em tempo real.
+        </div>
+      </div>
+      <div class="chat-input-bar">
+        <input 
+          type="text" 
+          id="chat-input" 
+          class="chat-input" 
+          placeholder="Conversar em #geral..." 
+          maxlength="500" 
+          aria-label="Mensagem do chat">
+        <button id="chat-send-btn" class="chat-send-btn" aria-label="Enviar mensagem">Enviar</button>
+      </div>
+    </div>
+
+    <!-- Painel de Voz -->
+    <div id="drawer-panel-voice" class="voice-panel" style="display: none;">
+      <div id="voice-status-bar" class="voice-status-bar">
+        <span>⚪ Desconectado da Voz</span>
+        <span>Clique abaixo para entrar</span>
+      </div>
+      <div id="voice-participants-list" class="voice-participants-list">
+        <div style="text-align: center; color: var(--text-muted); padding: 24px 12px; font-size: 13px;">
+          Ninguém na sala de voz no momento.<br>
+          <small>Clique em "Entrar na Voz" abaixo para conversar com microfone.</small>
+        </div>
+      </div>
+      <div class="voice-dock">
+        <button id="voice-mute-btn" class="voice-dock-btn" disabled>
+          <span>🎙️</span> Mutar
+        </button>
+        <button id="voice-deaf-btn" class="voice-dock-btn" disabled>
+          <span>🎧</span> Ensurdecer
+        </button>
+        <button id="voice-connect-btn" class="voice-dock-btn join-btn">
+          📞 Entrar na Voz
+        </button>
+      </div>
+    </div>
+  </aside>
 
   <!-- Script Modular Principal -->
   <script type="module" src="js/app.js"></script>

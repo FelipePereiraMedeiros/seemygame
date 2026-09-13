@@ -47,6 +47,9 @@ import {
   getCapturableWindows,
   setHighPriority
 } from './desktop.js';
+import { chatManager } from './chat.js';
+import { voiceManager } from './voice.js';
+import { DiscordUIController } from './discord-ui.js';
 
 // Estado da Aplicação
 let selectedProfile = DEFAULT_PROFILE;
@@ -64,7 +67,9 @@ let capturedMicStream = null;
 // Conexões ativas
 const connectedViewers = new Map(); // PeerId -> DataConnection
 const activeMediaCalls = new Map(); // PeerId -> MediaConnection
+const activeVoiceCalls = new Map(); // PeerId -> MediaConnection (Voz)
 const watchingHosts = new Map();    // HostId -> { state: 'CONNECTING'|'CONNECTED'|'CANCELLED'|'CLOSED', conn, call, timeoutTimer }
+export let discordUI = null;
 
 // Reconexão exponencial
 let reconnectAttempts = 0;
@@ -438,6 +443,204 @@ export function initPeer() {
   });
 }
 
+// ==========================================
+// DISCORD VOICE & CHAT P2P INTEGRATION
+// ==========================================
+
+export function broadcastDataMessage(payload, excludePeerId = null) {
+  // Transmissor envia para todos os espectadores conectados
+  connectedViewers.forEach((conn, peerId) => {
+    if (peerId !== excludePeerId && conn && conn.open) {
+      try {
+        conn.send(payload);
+      } catch (e) {}
+    }
+  });
+
+  // Espectador envia para o host
+  watchingHosts.forEach((hostData) => {
+    if (hostData.conn && hostData.conn.open) {
+      try {
+        hostData.conn.send(payload);
+      } catch (e) {}
+    }
+  });
+}
+
+export function setupVoiceMediaCall(call, remotePeerId) {
+  if (!call) return;
+  activeVoiceCalls.set(remotePeerId, call);
+
+  call.on('stream', (remoteVoiceStream) => {
+    const isHost = !window.location.pathname.endsWith('viewer.html');
+    const role = call.metadata?.role || (isHost ? 'viewer' : 'host');
+    const name = call.metadata?.name || (isHost ? `Amigo ${remotePeerId.slice(0, 4)}` : 'Streamer');
+
+    voiceManager.addRemoteParticipant(remotePeerId, {
+      name,
+      role,
+      stream: remoteVoiceStream,
+    });
+  });
+
+  call.on('close', () => {
+    voiceManager.removeRemoteParticipant(remotePeerId);
+    activeVoiceCalls.delete(remotePeerId);
+  });
+
+  call.on('error', (err) => {
+    console.warn(`[Voice Call Error] com ${remotePeerId}:`, err);
+    voiceManager.removeRemoteParticipant(remotePeerId);
+    activeVoiceCalls.delete(remotePeerId);
+  });
+}
+
+export function handleIncomingVoiceCall(call) {
+  const remotePeerId = call.peer;
+  const isAuthorized = connectedViewers.has(remotePeerId) || watchingHosts.has(remotePeerId);
+  if (!isAuthorized) {
+    console.warn(`Chamada de voz não autorizada rejeitada de: ${remotePeerId}`);
+    try { call.close(); } catch (e) {}
+    return;
+  }
+
+  const streamToAnswer = voiceManager.localStream || new MediaStream();
+  call.answer(streamToAnswer);
+  setupVoiceMediaCall(call, remotePeerId);
+}
+
+export function handleIncomingP2PMessage(data, sourceConn) {
+  if (!data || typeof data !== 'object') return;
+
+  if (data.type === 'CHAT_MESSAGE') {
+    if (data.message) {
+      chatManager.addMessage(data.message);
+      if (connectedViewers.size > 0) {
+        broadcastDataMessage(data, sourceConn?.peer);
+      }
+    }
+    return;
+  }
+
+  if (data.type === 'VOICE_STATE_UPDATE') {
+    voiceManager.updateParticipantState(data.peerId, {
+      isSpeaking: data.isSpeaking,
+      isMuted: data.isMuted,
+      isDeafened: data.isDeafened,
+    });
+    if (connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+    return;
+  }
+
+  if (data.type === 'VOICE_SIGNAL') {
+    if (data.action === 'LEAVE') {
+      voiceManager.removeRemoteParticipant(data.peerId);
+      const call = activeVoiceCalls.get(data.peerId);
+      if (call) {
+        try { call.close(); } catch (e) {}
+        activeVoiceCalls.delete(data.peerId);
+      }
+    } else if (data.action === 'HOST_VOICE_ACTIVE') {
+      showToast('O Streamer está na sala de voz!', 'info');
+      if (voiceManager.isInVoice && peer) {
+        const call = peer.call(data.peerId, voiceManager.localStream, {
+          metadata: { type: 'VOICE_CHAT', name: voiceManager.myName, role: voiceManager.myRole },
+        });
+        setupVoiceMediaCall(call, data.peerId);
+      }
+    }
+    if (connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+    return;
+  }
+}
+
+export function initDiscordFeatures() {
+  if (typeof document === 'undefined') return;
+
+  discordUI = new DiscordUIController({
+    onSendMessage: (text) => {
+      const isHost = !window.location.pathname.endsWith('viewer.html');
+      const coopState = getCoopState();
+      const role = isHost ? 'host' : (coopState.isPlayer2 ? 'player2' : 'viewer');
+      const senderName = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+
+      const msg = chatManager.createMessage({
+        senderId: myId,
+        senderName,
+        role,
+        text,
+        channel: chatManager.getActiveChannel(),
+      });
+
+      if (!msg) return;
+      chatManager.addMessage(msg);
+      broadcastDataMessage({ type: 'CHAT_MESSAGE', message: msg });
+    },
+    onJoinVoice: async () => {
+      try {
+        const isHost = !window.location.pathname.endsWith('viewer.html');
+        const coopState = getCoopState();
+        const role = isHost ? 'host' : (coopState.isPlayer2 ? 'player2' : 'viewer');
+        const name = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+
+        const stream = await voiceManager.joinVoice({
+          peerId: myId,
+          name,
+          role,
+        });
+
+        showToast('Conectado à sala de voz!', 'info');
+
+        if (!isHost) {
+          watchingHosts.forEach((hostData, hostId) => {
+            if (hostData.state === 'CONNECTED' && peer) {
+              const call = peer.call(hostId, stream, {
+                metadata: { type: 'VOICE_CHAT', name, role },
+              });
+              setupVoiceMediaCall(call, hostId);
+            }
+          });
+        } else {
+          broadcastDataMessage({ type: 'VOICE_SIGNAL', action: 'HOST_VOICE_ACTIVE', peerId: myId, name, role });
+        }
+      } catch (err) {
+        showToast('Não foi possível acessar o microfone.', 'error');
+      }
+    },
+    onLeaveVoice: () => {
+      activeVoiceCalls.forEach((call) => {
+        try { call.close(); } catch (e) {}
+      });
+      activeVoiceCalls.clear();
+
+      voiceManager.leaveVoice();
+      broadcastDataMessage({ type: 'VOICE_SIGNAL', action: 'LEAVE', peerId: myId });
+      showToast('Você saiu da sala de voz.', 'info');
+    },
+  });
+
+  discordUI.init();
+
+  voiceManager.on('speakingChange', ({ peerId, isSpeaking }) => {
+    if (peerId === myId) {
+      broadcastDataMessage({ type: 'VOICE_STATE_UPDATE', peerId: myId, isSpeaking });
+    }
+  });
+
+  voiceManager.on('voiceStateChange', (state) => {
+    broadcastDataMessage({
+      type: 'VOICE_STATE_UPDATE',
+      peerId: myId,
+      isMuted: state.isMuted,
+      isDeafened: state.isDeafened,
+    });
+  });
+}
+
 // Controle: Transmissor recebe pedido de espectador
 function setupIncomingDataConnection(conn) {
   // Limite de espectadores simultâneos
@@ -480,6 +683,11 @@ function setupIncomingDataConnection(conn) {
 
   conn.on('data', (data) => {
     if (!data || typeof data !== 'object') return;
+
+    if (data.type === 'CHAT_MESSAGE' || data.type === 'VOICE_STATE_UPDATE' || data.type === 'VOICE_SIGNAL') {
+      handleIncomingP2PMessage(data, conn);
+      return;
+    }
 
     if (data.type === 'REQUEST_STREAM') {
       showToast(`Amigo (${conn.peer.slice(0, 6)}) solicitou o stream.`, 'info');
@@ -568,6 +776,12 @@ function initiateMediaCallToViewer(viewerPeerId) {
 // Espectador recebe o stream do amigo (Rejeita chamadas não solicitadas)
 function handleIncomingMediaCall(call) {
   console.log(`Recebendo chamada de mídia de: ${call.peer}`);
+
+  // Se for chamada de áudio da Sala de Voz
+  if (call.metadata?.type === 'VOICE_CHAT') {
+    handleIncomingVoiceCall(call);
+    return;
+  }
 
   // Rejeição de chamadas não solicitadas: só aceita se o host estiver cadastrado em watchingHosts
   if (!watchingHosts.has(call.peer)) {
@@ -726,6 +940,11 @@ export function watchFriend(rawTargetId) {
 
   conn.on('data', (data) => {
     if (!data || typeof data !== 'object') return;
+
+    if (data.type === 'CHAT_MESSAGE' || data.type === 'VOICE_STATE_UPDATE' || data.type === 'VOICE_SIGNAL') {
+      handleIncomingP2PMessage(data, conn);
+      return;
+    }
 
     if (data.type === 'STREAM_STATUS') {
       if (!data.isStreaming) {
@@ -1175,6 +1394,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Inicializa suporte e prioridade nativa se estiver rodando em Desktop Tauri
   initDesktopSupport().catch((err) => console.warn('[Desktop Init]', err));
+
+  // Inicializa recursos Discord (Chat e Voz P2P)
+  initDiscordFeatures();
 
   initTermsModal(() => {
     initPeer();
