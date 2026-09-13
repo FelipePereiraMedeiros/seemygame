@@ -1,7 +1,7 @@
 {
   "name": "seemygame",
   "version": "1.0.0",
-  "description": "Plataforma de streaming P2P em tempo real com foco em 60 FPS e baixa latência",
+  "description": "Plataforma de streaming P2P em tempo real com foco em alta fluidez e baixa latência",
   "type": "module",
   "scripts": {
     "test": "vitest run",
@@ -12,7 +12,7 @@
     "webrtc",
     "p2p",
     "gaming",
-    "60fps",
+    "ultra-smooth",
     "streaming"
   ],
   "author": "",

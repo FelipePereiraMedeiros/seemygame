@@ -319,7 +319,7 @@ describe('Módulo: app.js', () => {
       expect(card.textContent).toContain('Aguardando ele iniciar o jogo');
 
       conn.emit('data', { type: 'STREAM_STATUS', isStreaming: true });
-      expect(card.textContent).toContain('Sincronizando 60 FPS');
+      expect(card.textContent).toContain('Sincronizando stream');
 
       conn.emit('data', { type: 'STREAM_STOPPED' });
       expect(card.textContent).toContain('Transmissão pausada');
@@ -330,7 +330,7 @@ describe('Módulo: app.js', () => {
   });
 
   describe('startLocalStream e stopLocalStream', () => {
-    it('deve iniciar transmissão de tela a 60 FPS e atualizar UI', async () => {
+    it('deve iniciar transmissão de tela em alta fluidez e atualizar UI', async () => {
       const videoTrack = new MockMediaStreamTrack('video');
       const audioTrack = new MockMediaStreamTrack('audio');
       const mockStream = new MockMediaStream([videoTrack, audioTrack]);

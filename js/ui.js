@@ -438,7 +438,7 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
     <div class="stats-row"><span class="stats-label">Latência (RTT):</span> <span class="stats-val stats-val-green" id="stat-rtt-${peerId}">-- ms</span></div>
     <div class="stats-row"><span class="stats-label">Bitrate:</span> <span class="stats-val" id="stat-bitrate-${peerId}">-- Mbps</span></div>
     <div class="stats-row"><span class="stats-label">Resolução:</span> <span class="stats-val" id="stat-res-${peerId}">--</span></div>
-    <div class="stats-row"><span class="stats-label">Prioridade:</span> <span class="stats-val stats-val-purple">Alvo 60 FPS</span></div>
+    <div class="stats-row"><span class="stats-label">Prioridade:</span> <span class="stats-val stats-val-purple">Máxima Fluidez</span></div>
   `;
 
   const video = document.createElement('video');

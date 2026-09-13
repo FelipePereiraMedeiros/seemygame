@@ -1,6 +1,6 @@
 # 🎮 SeeMyGame
 
-Plataforma de streaming P2P (*Peer-to-Peer*) em tempo real no navegador com foco em **alta fluidez (Alvo de 60 FPS)** e **baixa latência**.
+Plataforma de streaming P2P (*Peer-to-Peer*) em tempo real no navegador com foco em **máxima fluidez** e **baixa latência**.
 
 Desenvolvido para transmitir jogos e telas diretamente entre navegadores usando WebRTC e sinalização via PeerJS, sem necessidade de servidores de mídia intermediários centralizados.
 
@@ -8,12 +8,12 @@ Desenvolvido para transmitir jogos e telas diretamente entre navegadores usando 
 
 ## ⚡ Principais Recursos & Diretrizes Técnicas
 
-- **Prioridade de Taxa de Quadros (Alvo 60 FPS):** Configuração WebRTC com `degradationPreference = 'maintain-framerate'` e `contentHint = 'motion'`, instruindo o navegador e o codificador a priorizarem 60 FPS mesmo sob pequenas variações de banda.
+- **Prioridade de Taxa de Quadros (Máxima Fluidez):** Configuração WebRTC com `degradationPreference = 'maintain-framerate'` e `contentHint = 'motion'`, instruindo o navegador e o codificador a priorizarem fluidez contínua mesmo sob pequenas variações de banda.
 - **Preferência por H.264:** Priorização do codec H.264 via `setCodecPreferences` em transceivers de vídeo para permitir aceleração por hardware (NVENC, Intel QuickSync, AMD AMF) quando suportada pelo navegador e GPU do sistema.
 - **Controle de Jitter Buffer & Latência:** Configuração de `jitterBufferTarget = 0` e `playoutDelayHint = 0` para modo ultra baixa latência, ou `0.05` para redes com oscilação moderada.
 - **Áudio Estéreo Opus Gamer 128 kbps:** Injeção no SDP em conformidade com a RFC 8866 para áudio estéreo real em 48 kHz CBR (`stereo=1;sprop-stereo=1;maxaveragebitrate=128000;cbr=1`).
 - **VU Meter Estéreo L / R com Liberação de Recursos:** Analisador visual de áudio Web Audio API (`AudioContext`, `ChannelSplitterNode`), com desconexão explícita de todos os nós ao encerrar o player para evitar vazamentos de memória.
-- **Tuning Dinâmico e Restrições em Tempo Real:** Slider de bitrate (2.5 a 16 Mbps) e perfis (720p60 e 1080p60) que atualizam ativamente as constraints da trilha (`applyConstraints`) e o encoder durante a transmissão.
+- **Tuning Dinâmico e Restrições em Tempo Real:** Slider de bitrate (2.5 a 16 Mbps) e perfis (720p e 1080p fluidos) que atualizam ativamente as constraints da trilha (`applyConstraints`) e o encoder durante a transmissão.
 - **Telemetria WebRTC Real (HUD):** Medição ao vivo de FPS, ping/latência RTT (ms) a partir do candidate-pair ativo/nomeado, bitrate consumido (Mbps), pacotes perdidos e resolução atual via `RTCPeerConnection.getStats()`.
 - **Blindagem contra Injeção de HTML (XSS):** Validação estrita de Peer IDs (`^[a-zA-Z0-9_-]{1,64}$`) e manipulação de DOM através de APIs nativas seguras com `textContent`.
 - **Gerenciamento Idempotente de Chamadas:** Prevenção de chamadas duplicadas por espectador, encerramento completo de conexões WebRTC ao parar a transmissão e máquina de estados para cancelamento de conexões pendentes.
@@ -42,8 +42,8 @@ Desenvolvido para transmitir jogos e telas diretamente entre navegadores usando 
 ```
 SeeMyGame/
 ├── index.html            # Portal inicial: seleção de modo e roteamento inteligente
-├── streamer.html         # Estúdio do Streamer: transmissão, presets 60 FPS, áudio e telemetria
-├── viewer.html           # Sala do Espectador: conexão por ID/link, reprodução a 60 FPS e Co-op
+├── streamer.html         # Estúdio do Streamer: transmissão, presets de fluidez, áudio e telemetria
+├── viewer.html           # Sala do Espectador: conexão por ID/link, reprodução fluida e Co-op
 ├── api/
 │   └── turn.js           # Serverless Function: credenciais TURN dinâmicas (Vercel/Node)
 ├── tools/
@@ -98,7 +98,7 @@ npm run test:coverage
 ## 🌐 Como Compartilhar com Amigos
 
 1. Acesse o **Estúdio do Streamer** (`streamer.html`) ou escolha "Quero Transmitir" na página inicial.
-2. Configure a qualidade desejada (presets 60 FPS e bitrate) e fonte de áudio.
+2. Configure a qualidade desejada (presets de fluidez e bitrate) e fonte de áudio.
 3. Clique em **"Transmitir Jogo"** e selecione a janela ou tela desejada (lembre-se de marcar a opção de compartilhar áudio do sistema).
 4. Clique no botão **"Copiar Link"** (que gera um link direto para a sala do espectador `viewer.html#watch=SEU_ID`).
 5. Envie o link para seus amigos. Quando eles abrirem o link, serão direcionados para a página dedicada do espectador e a conexão iniciará automaticamente, sem botões confusos de transmissão!

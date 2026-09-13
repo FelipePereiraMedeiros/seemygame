@@ -204,7 +204,7 @@ export function initPeer() {
     if (shareLinkBtn) shareLinkBtn.style.display = 'inline-flex';
     if (streamBtn) streamBtn.disabled = false;
     if (connectBtn) connectBtn.disabled = false;
-    showToast('Engine P2P conectada com Alvo de 60 FPS!', 'success');
+    showToast('Engine P2P conectada em alta fluidez!', 'success');
 
     // Copiar ID com suporte a teclado e tratamento assíncrono
     const copyIdAction = async () => {
@@ -365,7 +365,7 @@ function setupIncomingDataConnection(conn) {
   });
 }
 
-// Transmissor envia o vídeo com Alvo de 60 FPS (Idempotente)
+// Transmissor envia o vídeo com foco em alta fluidez (Idempotente)
 function initiateMediaCallToViewer(viewerPeerId) {
   if (!localStream || !peer) return;
 
@@ -376,7 +376,7 @@ function initiateMediaCallToViewer(viewerPeerId) {
     return;
   }
 
-  console.log(`Iniciando chamada com Alvo de 60 FPS para: ${viewerPeerId}`);
+  console.log(`Iniciando chamada com foco em alta fluidez para: ${viewerPeerId}`);
   const call = peer.call(viewerPeerId, localStream);
   
   if (call) {
@@ -465,7 +465,7 @@ function handleIncomingMediaCall(call) {
       startStatsMonitor(call.peer, call.peerConnection, false);
     }
 
-    showToast(`Transmissão de ${call.peer.slice(0, 6)} a 60 FPS!`, 'success');
+    showToast(`Transmissão de ${call.peer.slice(0, 6)} conectada em alta fluidez!`, 'success');
   });
 
   call.on('close', () => {
@@ -570,7 +570,7 @@ export function watchFriend(rawTargetId) {
         updateCardStatus(targetId, 'Amigo conectado! Aguardando ele iniciar o jogo...');
         showToast('Amigo está online, aguardando início da transmissão.', 'info');
       } else {
-        updateCardStatus(targetId, 'Sincronizando 60 FPS em tempo real...');
+        updateCardStatus(targetId, 'Sincronizando stream em tempo real...');
       }
     } else if (data.type === 'STREAM_STOPPED') {
       showToast('O amigo pausou a transmissão.', 'info');
@@ -780,7 +780,7 @@ export async function startLocalStream() {
       initiateMediaCallToViewer(viewerId);
     });
 
-    showToast(`Transmissão ativa com Alvo de 60 FPS (${(customBitrateBps / 1000000).toFixed(1)} Mbps)!`, 'success');
+    showToast(`Transmissão ativa em alta fluidez (${(customBitrateBps / 1000000).toFixed(1)} Mbps)!`, 'success');
 
     videoTrack.onended = () => {
       stopLocalStream();
@@ -834,7 +834,7 @@ export function stopLocalStream() {
   stopStatsMonitor('local-me');
 
   if (streamBtn) {
-    streamBtn.innerHTML = '<span>🚀</span> Transmitir Jogo (60 FPS)';
+    streamBtn.innerHTML = '<span>🚀</span> Transmitir Jogo';
     streamBtn.classList.remove('btn-stop');
   }
 

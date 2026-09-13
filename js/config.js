@@ -90,11 +90,11 @@ export function getPeerConfig(customServers = null) {
   };
 }
 
-// Perfis de Qualidade focados em Alvo de 60 FPS
+// Perfis de Qualidade focados em Máxima Fluidez
 export const QUALITY_PROFILES = {
   ultra: {
     id: 'ultra',
-    label: 'Alvo: 60 FPS Competitivo (720p)',
+    label: 'Modo Competitivo (720p - Fluidez Máxima)',
     width: 1280,
     height: 720,
     fps: 60,
@@ -102,7 +102,7 @@ export const QUALITY_PROFILES = {
   },
   balanced: {
     id: 'balanced',
-    label: 'Alvo: 60 FPS Dinâmico (1080p)',
+    label: 'Modo Dinâmico (1080p - Equilibrado & Fluido)',
     width: 1920,
     height: 1080,
     fps: 60,
@@ -110,7 +110,7 @@ export const QUALITY_PROFILES = {
   },
   high: {
     id: 'high',
-    label: 'Alvo: 60 FPS Alta Fidelidade (1080p)',
+    label: 'Alta Fidelidade (1080p - Alta Nitidez)',
     width: 1920,
     height: 1080,
     fps: 60,
