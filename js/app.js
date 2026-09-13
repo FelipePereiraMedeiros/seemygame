@@ -470,8 +470,9 @@ export async function startLocalStream() {
 
 export function stopLocalStream() {
   if (localStream) {
-    localStream.getTracks().forEach(track => track.stop());
+    const stream = localStream;
     localStream = null;
+    stream.getTracks().forEach(track => track.stop());
   }
 
   removeVideoCard('local-me');

@@ -1,0 +1,370 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  showToast,
+  initTermsModal,
+  updateGridEmptyState,
+  createPlaceholderCard,
+  updateCardStatus,
+  hideCardLoading,
+  removeVideoCard,
+  addOrUpdateVideoCard
+} from '../js/ui.js';
+import {
+  MockMediaStream,
+  MockMediaStreamTrack
+} from './mocks/webrtc.mock.js';
+
+describe('Módulo: ui.js', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = `
+      <div id="toast-container"></div>
+      <main id="video-grid" class="video-grid">
+        <div class="empty-state" id="empty-state" style="display: flex;"></div>
+      </main>
+      <div id="terms-modal" class="modal-overlay" style="display: flex;">
+        <input type="checkbox" id="check-age">
+        <input type="checkbox" id="check-terms">
+        <button id="accept-btn" disabled>Aceitar</button>
+      </div>
+      <a id="open-terms-link">Termos</a>
+    `;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('showToast', () => {
+    it('deve adicionar um elemento toast ao toast-container com a classe do tipo correspondente', () => {
+      showToast('Transmissão conectada com sucesso!', 'success');
+
+      const container = document.getElementById('toast-container');
+      const toast = container.querySelector('.toast');
+
+      expect(toast).not.toBeNull();
+      expect(toast.classList.contains('toast-success')).toBe(true);
+      expect(toast.innerHTML).toContain('Transmissão conectada com sucesso!');
+    });
+
+    it('deve utilizar tipo info por padrão', () => {
+      showToast('Mensagem informativa');
+
+      const container = document.getElementById('toast-container');
+      const toast = container.querySelector('.toast-info');
+
+      expect(toast).not.toBeNull();
+      expect(toast.innerHTML).toContain('Mensagem informativa');
+    });
+
+    it('não deve lançar erro se o toast-container não existir', () => {
+      document.getElementById('toast-container').remove();
+      expect(() => showToast('Teste sem container')).not.toThrow();
+    });
+
+    it('deve remover o toast do DOM após o tempo de animação', async () => {
+      vi.useFakeTimers();
+      showToast('Toast temporário', 'info');
+
+      const container = document.getElementById('toast-container');
+      expect(container.querySelectorAll('.toast').length).toBe(1);
+
+      // Avança 4000ms (inicia fade-out) + 300ms (remove do DOM)
+      await vi.advanceTimersByTimeAsync(4350);
+
+      expect(container.querySelectorAll('.toast').length).toBe(0);
+      vi.useRealTimers();
+    });
+  });
+
+  describe('initTermsModal', () => {
+    it('deve manter o botão de aceitar desabilitado até que ambos os checkboxes sejam marcados', () => {
+      initTermsModal();
+
+      const checkAge = document.getElementById('check-age');
+      const checkTerms = document.getElementById('check-terms');
+      const acceptBtn = document.getElementById('accept-btn');
+
+      expect(acceptBtn.disabled).toBe(true);
+
+      checkAge.checked = true;
+      checkAge.dispatchEvent(new Event('change'));
+      expect(acceptBtn.disabled).toBe(true);
+
+      checkTerms.checked = true;
+      checkTerms.dispatchEvent(new Event('change'));
+      expect(acceptBtn.disabled).toBe(false);
+
+      checkAge.checked = false;
+      checkAge.dispatchEvent(new Event('change'));
+      expect(acceptBtn.disabled).toBe(true);
+    });
+
+    it('deve ocultar o modal caso os termos já tenham sido aceitos anteriormente no localStorage', () => {
+      localStorage.setItem('seemygame_terms_accepted', 'true');
+      initTermsModal();
+
+      const modal = document.getElementById('terms-modal');
+      expect(modal.style.display).toBe('none');
+    });
+
+    it('deve salvar aceite no localStorage e fechar o modal ao clicar em aceitar', () => {
+      initTermsModal();
+
+      const modal = document.getElementById('terms-modal');
+      const checkAge = document.getElementById('check-age');
+      const checkTerms = document.getElementById('check-terms');
+      const acceptBtn = document.getElementById('accept-btn');
+
+      checkAge.checked = true;
+      checkTerms.checked = true;
+      checkAge.dispatchEvent(new Event('change'));
+      checkTerms.dispatchEvent(new Event('change'));
+
+      acceptBtn.click();
+
+      expect(localStorage.getItem('seemygame_terms_accepted')).toBe('true');
+      expect(modal.style.display).toBe('none');
+    });
+
+    it('deve reabrir o modal e marcar os checkboxes ao clicar no link de termos', () => {
+      localStorage.setItem('seemygame_terms_accepted', 'true');
+      initTermsModal();
+
+      const modal = document.getElementById('terms-modal');
+      const openLink = document.getElementById('open-terms-link');
+      const checkAge = document.getElementById('check-age');
+      const checkTerms = document.getElementById('check-terms');
+      const acceptBtn = document.getElementById('accept-btn');
+
+      expect(modal.style.display).toBe('none');
+
+      openLink.click();
+
+      expect(modal.style.display).toBe('flex');
+      expect(checkAge.checked).toBe(true);
+      expect(checkTerms.checked).toBe(true);
+      expect(acceptBtn.disabled).toBe(false);
+    });
+  });
+
+  describe('updateGridEmptyState', () => {
+    it('deve exibir empty-state quando não houver cards de vídeo', () => {
+      updateGridEmptyState();
+      const empty = document.getElementById('empty-state');
+      expect(empty.style.display).toBe('flex');
+    });
+
+    it('deve ocultar empty-state quando houver cards de vídeo na grade', () => {
+      const grid = document.getElementById('video-grid');
+      const card = document.createElement('div');
+      card.className = 'video-card';
+      grid.appendChild(card);
+
+      updateGridEmptyState();
+      const empty = document.getElementById('empty-state');
+      expect(empty.style.display).toBe('none');
+    });
+  });
+
+  describe('createPlaceholderCard, updateCardStatus e hideCardLoading', () => {
+    it('deve criar um card com spinner e texto inicial no grid de vídeos', () => {
+      const onDisconnect = vi.fn();
+      createPlaceholderCard('peer-xyz', 'Aguardando stream...', onDisconnect);
+
+      const card = document.getElementById('card-peer-xyz');
+      expect(card).not.toBeNull();
+      expect(card.textContent).toContain('Aguardando stream...');
+
+      const disconnectBtn = card.querySelector('#disconnect-btn-peer-xyz');
+      expect(disconnectBtn).not.toBeNull();
+      disconnectBtn.click();
+      expect(onDisconnect).toHaveBeenCalledWith('peer-xyz');
+    });
+
+    it('não deve recriar o card se já existir para o mesmo peerId', () => {
+      createPlaceholderCard('peer-xyz', 'Msg 1');
+      createPlaceholderCard('peer-xyz', 'Msg 2');
+
+      const cards = document.querySelectorAll('#card-peer-xyz');
+      expect(cards.length).toBe(1);
+    });
+
+    it('updateCardStatus deve atualizar a mensagem de status exibida no card', () => {
+      createPlaceholderCard('peer-xyz', 'Texto inicial');
+      updateCardStatus('peer-xyz', 'Novo status de sincronização');
+
+      const status = document.getElementById('status-peer-xyz');
+      expect(status.querySelector('p').innerText).toBe('Novo status de sincronização');
+    });
+
+    it('hideCardLoading deve ocultar o overlay de loading do card', () => {
+      createPlaceholderCard('peer-xyz', 'Carregando...');
+      hideCardLoading('peer-xyz');
+
+      const status = document.getElementById('status-peer-xyz');
+      expect(status.style.display).toBe('none');
+    });
+  });
+
+  describe('removeVideoCard', () => {
+    it('deve remover o card do DOM e restaurar a visibilidade do empty-state', () => {
+      createPlaceholderCard('peer-rem', 'Aguardando...');
+      expect(document.getElementById('card-peer-rem')).not.toBeNull();
+
+      removeVideoCard('peer-rem');
+
+      expect(document.getElementById('card-peer-rem')).toBeNull();
+      const empty = document.getElementById('empty-state');
+      expect(empty.style.display).toBe('flex');
+    });
+  });
+
+  describe('addOrUpdateVideoCard', () => {
+    it('deve montar a estrutura completa do card de transmissão remota', () => {
+      const stream = new MockMediaStream([
+        new MockMediaStreamTrack('video'),
+        new MockMediaStreamTrack('audio')
+      ]);
+      const onDisconnect = vi.fn();
+
+      const result = addOrUpdateVideoCard({
+        stream,
+        peerId: 'streamer-123',
+        label: '🎮 Amigo Pro',
+        isLocal: false,
+        onDisconnect
+      });
+
+      expect(result).toHaveProperty('card');
+      expect(result).toHaveProperty('video');
+
+      const card = document.getElementById('card-streamer-123');
+      expect(card).not.toBeNull();
+      expect(card.innerHTML).toContain('🎮 Amigo Pro');
+
+      // VU Meter
+      expect(card.querySelector('#vu-l-streamer-123')).not.toBeNull();
+      expect(card.querySelector('#vu-r-streamer-123')).not.toBeNull();
+
+      // HUD de telemetria
+      expect(card.querySelector('.stats-hud')).not.toBeNull();
+      expect(card.querySelector('#stat-fps-streamer-123')).not.toBeNull();
+
+      // Video element
+      const video = card.querySelector('video');
+      expect(video.srcObject).toBe(stream);
+      expect(video.muted).toBe(false);
+
+      // Botão Sair
+      const exitBtn = card.querySelector('.card-btn-danger');
+      expect(exitBtn.textContent).toBe('Sair');
+      exitBtn.click();
+      expect(onDisconnect).toHaveBeenCalledWith('streamer-123');
+    });
+
+    it('deve configurar o vídeo local como mudo e com botão Encerrar', () => {
+      const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      const onDisconnect = vi.fn();
+
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'local-me',
+        label: 'Minha Transmissão',
+        isLocal: true,
+        onDisconnect
+      });
+
+      const card = document.getElementById('card-local-me');
+      const video = card.querySelector('video');
+      expect(video.muted).toBe(true);
+
+      const exitBtn = card.querySelector('.card-btn-danger');
+      expect(exitBtn.textContent).toBe('Encerrar');
+    });
+
+    it('deve alternar a visibilidade do HUD de stats ao clicar no botão Stats', () => {
+      const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'hud-peer',
+        label: 'HUD Test'
+      });
+
+      const card = document.getElementById('card-hud-peer');
+      const statsBtn = card.querySelectorAll('.card-btn')[0]; // Botão Stats
+      const hud = card.querySelector('.stats-hud');
+
+      expect(hud.style.display).not.toBe('flex');
+
+      statsBtn.click();
+      expect(hud.style.display).toBe('flex');
+      expect(statsBtn.classList.contains('card-btn-active')).toBe(true);
+
+      statsBtn.click();
+      expect(hud.style.display).toBe('none');
+      expect(statsBtn.classList.contains('card-btn-active')).toBe(false);
+    });
+
+    it('deve alternar mute/som ao clicar no botão de áudio de stream remoto', () => {
+      const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'audio-peer',
+        label: 'Audio Test',
+        isLocal: false
+      });
+
+      const card = document.getElementById('card-audio-peer');
+      const video = card.querySelector('video');
+      const muteBtn = Array.from(card.querySelectorAll('.card-controls button')).find(b => b.innerHTML.includes('Som'));
+
+      expect(muteBtn).toBeDefined();
+      expect(video.muted).toBe(false);
+
+      muteBtn.click();
+      expect(video.muted).toBe(true);
+      expect(muteBtn.innerHTML).toContain('Mudo');
+
+      muteBtn.click();
+      expect(video.muted).toBe(false);
+      expect(muteBtn.innerHTML).toContain('Som');
+    });
+
+    it('deve acionar requestFullscreen ao clicar no botão de tela cheia', () => {
+      const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'fs-peer',
+        label: 'Fullscreen Test'
+      });
+
+      const card = document.getElementById('card-fs-peer');
+      const video = card.querySelector('video');
+      const fsSpy = vi.spyOn(video, 'requestFullscreen');
+
+      const fsBtn = Array.from(card.querySelectorAll('.card-controls button')).find(b => b.textContent.includes('Tela Cheia'));
+      fsBtn.click();
+
+      expect(fsSpy).toHaveBeenCalled();
+    });
+
+    it('deve acionar requestPictureInPicture ao clicar no botão PiP', async () => {
+      const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'pip-peer',
+        label: 'PiP Test'
+      });
+
+      const card = document.getElementById('card-pip-peer');
+      const video = card.querySelector('video');
+      const pipSpy = vi.spyOn(video, 'requestPictureInPicture');
+
+      const pipBtn = Array.from(card.querySelectorAll('.card-controls button')).find(b => b.textContent.includes('PiP'));
+      await pipBtn.click();
+
+      expect(pipSpy).toHaveBeenCalled();
+    });
+  });
+});

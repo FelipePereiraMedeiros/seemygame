@@ -1,0 +1,213 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  tuneSdpForGaming,
+  hookPeerConnectionSdp,
+  applyTransceiverOptimizations,
+  applySenderOptimizations
+} from '../js/webrtc.js';
+import {
+  MockRTCPeerConnection,
+  MockRTCRtpSender,
+  MockMediaStreamTrack
+} from './mocks/webrtc.mock.js';
+
+describe('Módulo: webrtc.js', () => {
+  const sampleSdp = [
+    'v=0',
+    'o=- 123456 2 IN IP4 127.0.0.1',
+    's=-',
+    't=0 0',
+    'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+    'c=IN IP4 0.0.0.0',
+    'a=rtpmap:111 opus/48000/2',
+    'a=fmtp:111 minptime=10;useinbandfec=1',
+    'm=video 9 UDP/TLS/RTP/SAVPF 96',
+    'c=IN IP4 0.0.0.0',
+    'a=rtpmap:96 H264/90000',
+    'a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f'
+  ].join('\r\n');
+
+  describe('tuneSdpForGaming', () => {
+    it('deve retornar o próprio valor se o SDP for nulo ou vazio', () => {
+      expect(tuneSdpForGaming(null, 7500000)).toBeNull();
+      expect(tuneSdpForGaming('', 7500000)).toBe('');
+      expect(tuneSdpForGaming(undefined, 7500000)).toBeUndefined();
+    });
+
+    it('deve injetar parâmetros Opus Gamer estéreo na seção de áudio', () => {
+      const tuned = tuneSdpForGaming(sampleSdp, 7500000);
+      expect(tuned).toContain('stereo=1');
+      expect(tuned).toContain('sprop-stereo=1');
+      expect(tuned).toContain('maxaveragebitrate=128000');
+      expect(tuned).toContain('cbr=1');
+      expect(tuned).toContain('usedtx=0');
+      expect(tuned).toContain('maxplaybackrate=48000');
+    });
+
+    it('não deve duplicar parâmetros Opus se já estiverem presentes', () => {
+      const tunedOnce = tuneSdpForGaming(sampleSdp, 7500000);
+      const tunedTwice = tuneSdpForGaming(tunedOnce, 7500000);
+      expect((tunedTwice.match(/maxaveragebitrate=128000/g) || []).length).toBe(1);
+      expect(tunedTwice).toBe(tunedOnce);
+    });
+
+    it('deve injetar piso e limites de bitrate na seção de vídeo H.264', () => {
+      const bitrate = 8000000;
+      const kbps = Math.round(bitrate / 1000);
+      const tuned = tuneSdpForGaming(sampleSdp, bitrate);
+
+      expect(tuned).toContain('x-google-min-bitrate=1000');
+      expect(tuned).toContain(`x-google-start-bitrate=${Math.round(kbps * 0.7)}`);
+      expect(tuned).toContain(`x-google-max-bitrate=${Math.round(kbps * 1.3)}`);
+    });
+
+    it('deve adicionar limites de banda b=AS e b=TIAS na seção de vídeo', () => {
+      const bitrate = 6000000;
+      const kbps = 6000;
+      const tuned = tuneSdpForGaming(sampleSdp, bitrate);
+
+      expect(tuned).toContain(`b=AS:${kbps}`);
+      expect(tuned).toContain(`b=TIAS:${bitrate}`);
+    });
+
+    it('não deve duplicar b=AS se já existir no SDP', () => {
+      const sdpWithAS = sampleSdp.replace('m=video 9 UDP/TLS/RTP/SAVPF 96', 'm=video 9 UDP/TLS/RTP/SAVPF 96\r\nb=AS:5000');
+      const tuned = tuneSdpForGaming(sdpWithAS, 7500000);
+      const asMatches = (tuned.match(/b=AS:/g) || []).length;
+      expect(asMatches).toBe(1);
+    });
+  });
+
+  describe('hookPeerConnectionSdp', () => {
+    let pc;
+
+    beforeEach(() => {
+      pc = new MockRTCPeerConnection();
+    });
+
+    it('não deve lançar erro se o objeto PeerConnection for nulo ou indefinido', () => {
+      expect(() => hookPeerConnectionSdp(null)).not.toThrow();
+      expect(() => hookPeerConnectionSdp(undefined)).not.toThrow();
+    });
+
+    it('deve marcar o peerConnection como _sdpHooked e interceptar setLocalDescription', async () => {
+      hookPeerConnectionSdp(pc, 7500000);
+      expect(pc._sdpHooked).toBe(true);
+
+      const desc = { type: 'offer', sdp: sampleSdp };
+      await pc.setLocalDescription(desc);
+
+      expect(desc.sdp).toContain('stereo=1');
+      expect(desc.sdp).toContain('x-google-min-bitrate=1000');
+    });
+
+    it('não deve reinstalar o hook se _sdpHooked já estiver ativo', () => {
+      hookPeerConnectionSdp(pc, 7500000);
+      const firstSetLocal = pc.setLocalDescription;
+      hookPeerConnectionSdp(pc, 8000000);
+      expect(pc.setLocalDescription).toBe(firstSetLocal);
+    });
+
+    it('deve suportar getBitrateBps como uma função dinâmica', async () => {
+      const getBitrate = vi.fn(() => 10000000);
+      hookPeerConnectionSdp(pc, getBitrate);
+
+      const desc = { type: 'offer', sdp: sampleSdp };
+      await pc.setLocalDescription(desc);
+
+      expect(getBitrate).toHaveBeenCalled();
+      expect(desc.sdp).toContain('b=AS:10000');
+      expect(desc.sdp).toContain('b=TIAS:10000000');
+    });
+
+    it('deve usar o valor padrão de 7500000 caso getBitrateBps não seja fornecido', async () => {
+      hookPeerConnectionSdp(pc);
+
+      const desc = { type: 'offer', sdp: sampleSdp };
+      await pc.setLocalDescription(desc);
+
+      expect(desc.sdp).toContain('b=AS:7500');
+      expect(desc.sdp).toContain('b=TIAS:7500000');
+    });
+  });
+
+  describe('applyTransceiverOptimizations', () => {
+    it('deve retornar sem erro se pc for nulo ou não possuir getTransceivers', () => {
+      expect(() => applyTransceiverOptimizations(null)).not.toThrow();
+      expect(() => applyTransceiverOptimizations({})).not.toThrow();
+    });
+
+    it('deve configurar jitterBufferTarget = 0 e playoutDelayHint = 0 nos receptores', () => {
+      const receiver = { jitterBufferTarget: 100, playoutDelayHint: 50 };
+      const transceiver = { receiver };
+      const pc = {
+        getTransceivers: () => [transceiver]
+      };
+
+      applyTransceiverOptimizations(pc);
+
+      expect(receiver.jitterBufferTarget).toBe(0);
+      expect(receiver.playoutDelayHint).toBe(0);
+    });
+
+    it('deve priorizar codecs H.264 em setCodecPreferences no transceiver de envio', () => {
+      const mockSetCodecPreferences = vi.fn();
+      const transceiver = {
+        sender: {},
+        setCodecPreferences: mockSetCodecPreferences
+      };
+      const pc = {
+        getTransceivers: () => [transceiver]
+      };
+
+      applyTransceiverOptimizations(pc);
+
+      expect(mockSetCodecPreferences).toHaveBeenCalled();
+      const orderedCodecs = mockSetCodecPreferences.mock.calls[0][0];
+      expect(orderedCodecs[0].mimeType).toBe('video/H264');
+    });
+  });
+
+  describe('applySenderOptimizations', () => {
+    it('não deve lançar erro se pc for nulo', async () => {
+      await expect(applySenderOptimizations(null, 7500000)).resolves.not.toThrow();
+    });
+
+    it('deve configurar trava de 60 FPS, contentHint motion e degradationPreference maintain-framerate', async () => {
+      const videoTrack = new MockMediaStreamTrack('video');
+      const sender = new MockRTCRtpSender(videoTrack);
+      const setParamsSpy = vi.spyOn(sender, 'setParameters');
+
+      const pc = {
+        getSenders: () => [sender]
+      };
+
+      await applySenderOptimizations(pc, 9000000, 60);
+
+      expect(videoTrack.contentHint).toBe('motion');
+      expect(setParamsSpy).toHaveBeenCalled();
+
+      const passedParams = setParamsSpy.mock.calls[0][0];
+      expect(passedParams.degradationPreference).toBe('maintain-framerate');
+      expect(passedParams.encodings[0].maxFramerate).toBe(60);
+      expect(passedParams.encodings[0].maxBitrate).toBe(9000000);
+      expect(passedParams.encodings[0].priority).toBe('high');
+      expect(passedParams.encodings[0].networkPriority).toBe('high');
+    });
+
+    it('não deve modificar senders de faixas que não sejam de vídeo', async () => {
+      const audioTrack = new MockMediaStreamTrack('audio');
+      const sender = new MockRTCRtpSender(audioTrack);
+      const setParamsSpy = vi.spyOn(sender, 'setParameters');
+
+      const pc = {
+        getSenders: () => [sender]
+      };
+
+      await applySenderOptimizations(pc, 7500000, 60);
+
+      expect(setParamsSpy).not.toHaveBeenCalled();
+      expect(audioTrack.contentHint).toBe('');
+    });
+  });
+});

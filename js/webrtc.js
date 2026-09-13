@@ -17,6 +17,8 @@ export function tuneSdpForGaming(sdp, bitrateBps) {
   let inVideo = false;
   const kbps = Math.round(bitrateBps / 1000);
 
+  let opusPayload = null;
+
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
 
@@ -28,8 +30,14 @@ export function tuneSdpForGaming(sdp, bitrateBps) {
       inAudio = false;
     }
 
+    // Detecta o payload type do Opus
+    if (inAudio && line.startsWith('a=rtpmap:') && line.toLowerCase().includes('opus')) {
+      const match = line.match(/^a=rtpmap:(\d+)\s+opus/i);
+      if (match) opusPayload = match[1];
+    }
+
     // 1. ÁUDIO OPUS GAMER: Estéreo Real 128 kbps CBR
-    if (inAudio && line.startsWith('a=fmtp:') && line.includes('opus')) {
+    if (inAudio && line.startsWith('a=fmtp:') && (line.includes('opus') || (opusPayload && line.startsWith(`a=fmtp:${opusPayload}`)))) {
       if (!line.includes('stereo=1')) {
         line += ';stereo=1;sprop-stereo=1;maxaveragebitrate=128000;cbr=1;usedtx=0;maxplaybackrate=48000';
       }
