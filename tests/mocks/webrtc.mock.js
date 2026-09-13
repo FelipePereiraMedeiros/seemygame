@@ -58,6 +58,11 @@ export class MockRTCRtpSender {
     return Promise.resolve();
   }
 
+  async replaceTrack(track) {
+    this.track = track;
+    return Promise.resolve();
+  }
+
   static getCapabilities(kind) {
     if (kind === 'video') {
       return {

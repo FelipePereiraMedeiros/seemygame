@@ -12,8 +12,10 @@ import {
 import { 
   hookPeerConnectionSdp, 
   applyTransceiverOptimizations, 
-  applySenderOptimizations 
+  applySenderOptimizations,
+  swapStreamAudioTrack
 } from './webrtc.js';
+import { initAudioAnalyser, stopAudioAnalyser } from './audio.js';
 import { startStatsMonitor, stopStatsMonitor } from './stats.js';
 import { 
   showToast, 
@@ -51,6 +53,8 @@ let peer = null;
 let myId = null;
 let localStream = null;
 let isStartingStream = false;
+let capturedSystemAudioTrack = null;
+let capturedMicStream = null;
 
 // Conexões ativas
 const connectedViewers = new Map(); // PeerId -> DataConnection
@@ -92,6 +96,11 @@ if (coopModeSelect) {
     const isEnabled = e.target.value === 'enabled';
     setCoopEnabled(isEnabled);
     showToast(isEnabled ? '🎮 Modo Co-op ativado (espectadores podem solicitar Player 2).' : '🔒 Co-op desativado.', 'info');
+
+    // Notifica todos os espectadores conectados imediatamente
+    connectedViewers.forEach((conn) => {
+      conn.send({ type: 'COOP_CONFIG', enabled: isEnabled });
+    });
   });
 }
 
@@ -121,10 +130,34 @@ window.addEventListener('keydown', (e) => {
 
 function applyLiveBitrateChange() {
   if (localStream) {
+    let scaleFactor = 1;
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack && typeof videoTrack.getSettings === 'function') {
+      const settings = videoTrack.getSettings();
+      const nativeHeight = settings.height || 1080;
+      const targetHeight = selectedProfile.height || 1080;
+      if (nativeHeight > targetHeight) {
+        scaleFactor = Number((nativeHeight / targetHeight).toFixed(2));
+      }
+    } else if (selectedProfile.height && selectedProfile.height < 1080) {
+      scaleFactor = Number((1080 / selectedProfile.height).toFixed(2));
+    }
+
     activeMediaCalls.forEach((call) => {
       if (call && call.peerConnection) {
-        applySenderOptimizations(call.peerConnection, customBitrateBps, selectedProfile.fps);
+        applySenderOptimizations(call.peerConnection, customBitrateBps, selectedProfile.fps, scaleFactor);
       }
+    });
+
+    // Notifica espectadores sobre a nova taxa/perfil via DataConnection
+    connectedViewers.forEach((conn) => {
+      conn.send({
+        type: 'STREAM_CONFIG_UPDATED',
+        preset: qualityPresetSelect ? qualityPresetSelect.value : null,
+        bitrate: customBitrateBps,
+        fps: selectedProfile.fps,
+        height: selectedProfile.height
+      });
     });
   }
 }
@@ -162,6 +195,97 @@ if (bitrateSlider) {
     customBitrateBps = kbps * 1000;
     if (bitrateDisplay) bitrateDisplay.innerText = `${(kbps / 1000).toFixed(1)} Mbps`;
     applyLiveBitrateChange();
+  });
+}
+
+// Hot Swapping dinâmico de fonte de áudio ao vivo sem desconectar espectadores
+if (audioModeSelect) {
+  audioModeSelect.addEventListener('change', async (e) => {
+    const newMode = e.target.value;
+
+    if (localStream) {
+      try {
+        let newAudioTrack = null;
+
+        if (newMode === 'mic') {
+          if (!capturedMicStream || !capturedMicStream.getAudioTracks()[0] || capturedMicStream.getAudioTracks()[0].readyState !== 'live') {
+            capturedMicStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+              }
+            });
+          }
+          newAudioTrack = capturedMicStream.getAudioTracks()[0] || null;
+
+          // Remove faixas de áudio anteriores da stream local
+          localStream.getAudioTracks().forEach(t => {
+            if (t !== capturedSystemAudioTrack) {
+              t.stop();
+            }
+            localStream.removeTrack(t);
+          });
+
+          if (newAudioTrack) {
+            localStream.addTrack(newAudioTrack);
+            showToast('🎙️ Microfone ativado na transmissão!', 'success');
+          }
+        } else if (newMode === 'none') {
+          localStream.getAudioTracks().forEach(t => {
+            if (t !== capturedSystemAudioTrack) {
+              t.stop();
+            }
+            localStream.removeTrack(t);
+          });
+          newAudioTrack = null;
+          showToast('🔇 Áudio desativado (apenas vídeo).', 'info');
+        } else if (newMode === 'system') {
+          if (capturedSystemAudioTrack && capturedSystemAudioTrack.readyState === 'live') {
+            localStream.getAudioTracks().forEach(t => {
+              if (t !== capturedSystemAudioTrack) {
+                t.stop();
+              }
+              localStream.removeTrack(t);
+            });
+            localStream.addTrack(capturedSystemAudioTrack);
+            newAudioTrack = capturedSystemAudioTrack;
+            showToast('🔊 Áudio do jogo restaurado!', 'success');
+          } else {
+            showToast('ℹ️ O áudio do jogo precisa ser capturado via seletor do navegador ao iniciar a transmissão.', 'info', 6000);
+          }
+        }
+
+        // Hot Swapping de áudio no WebRTC para cada chamada ativa
+        activeMediaCalls.forEach((call) => {
+          if (call && call.peerConnection) {
+            swapStreamAudioTrack(call.peerConnection, newAudioTrack);
+          }
+        });
+
+        // Atualiza VU Meter local
+        if (newAudioTrack) {
+          initAudioAnalyser(localStream, 'local-me');
+        } else {
+          stopAudioAnalyser('local-me');
+        }
+
+        // Notifica espectadores da nova fonte de áudio
+        connectedViewers.forEach((conn) => {
+          conn.send({
+            type: 'STREAM_CONFIG_UPDATED',
+            audioMode: newMode,
+            hasAudio: !!newAudioTrack
+          });
+        });
+      } catch (err) {
+        console.error('Erro ao trocar modo de áudio:', err);
+        showToast(`Erro ao mudar fonte de áudio: ${err.message}`, 'error');
+      }
+    } else {
+      const label = e.target.options[e.target.selectedIndex] ? e.target.options[e.target.selectedIndex].text : newMode;
+      showToast(`Fonte de áudio selecionada: ${label}`, 'info');
+    }
   });
 }
 
@@ -333,6 +457,20 @@ function setupIncomingDataConnection(conn) {
     } else {
       conn.send({ type: 'STREAM_STATUS', isStreaming: false });
     }
+
+    // Sincroniza configurações atuais com o novo espectador conectado
+    conn.send({
+      type: 'STREAM_CONFIG_UPDATED',
+      preset: qualityPresetSelect ? qualityPresetSelect.value : null,
+      bitrate: customBitrateBps,
+      fps: selectedProfile.fps,
+      height: selectedProfile.height,
+      audioMode: audioModeSelect ? audioModeSelect.value : 'system'
+    });
+    conn.send({
+      type: 'COOP_CONFIG',
+      enabled: getCoopState().isCoopEnabled
+    });
   });
 
   conn.on('data', (data) => {
@@ -387,7 +525,19 @@ function initiateMediaCallToViewer(viewerPeerId) {
       applyTransceiverOptimizations(call.peerConnection);
 
       setTimeout(() => {
-        applySenderOptimizations(call.peerConnection, customBitrateBps, selectedProfile.fps);
+        let scaleFactor = 1;
+        const videoTrack = localStream?.getVideoTracks()[0];
+        if (videoTrack && typeof videoTrack.getSettings === 'function') {
+          const settings = videoTrack.getSettings();
+          const nativeHeight = settings.height || 1080;
+          const targetHeight = selectedProfile.height || 1080;
+          if (nativeHeight > targetHeight) {
+            scaleFactor = Number((nativeHeight / targetHeight).toFixed(2));
+          }
+        } else if (selectedProfile.height && selectedProfile.height < 1080) {
+          scaleFactor = Number((1080 / selectedProfile.height).toFixed(2));
+        }
+        applySenderOptimizations(call.peerConnection, customBitrateBps, selectedProfile.fps, scaleFactor);
       }, 300);
     }
 
@@ -469,9 +619,16 @@ function handleIncomingMediaCall(call) {
   });
 
   call.on('close', () => {
-    showToast(`Transmissão de ${call.peer.slice(0, 6)} encerrada.`, 'info');
-    removeVideoCard(call.peer);
-    stopStatsMonitor(call.peer);
+    const hostData = watchingHosts.get(call.peer);
+    if (hostData && hostData.conn && hostData.conn.open === true) {
+      // Streamer apenas pausou a transmissão ou alternou fonte; mantém o card pausado sem desmontar
+      setCardStreamPaused(call.peer, true, 'Transmissão pausada pelo streamer.');
+      stopStatsMonitor(call.peer);
+    } else {
+      showToast(`Transmissão de ${call.peer.slice(0, 6)} encerrada.`, 'info');
+      removeVideoCard(call.peer);
+      stopStatsMonitor(call.peer);
+    }
     if (activeMediaCalls.get(call.peer) === call) {
       activeMediaCalls.delete(call.peer);
     }
@@ -581,6 +738,24 @@ export function watchFriend(rawTargetId) {
     } else if (data.type && data.type.startsWith('COOP_')) {
       const card = document.getElementById(`card-${targetId}`);
       handleViewerCoopMessage(data, targetId, card);
+    } else if (data.type === 'STREAM_CONFIG_UPDATED') {
+      if (data.audioMode) {
+        const audioLabels = {
+          system: 'Áudio do Jogo',
+          mic: 'Microfone do Transmissor',
+          none: 'Apenas Vídeo (Mudo)'
+        };
+        const label = audioLabels[data.audioMode] || data.audioMode;
+        showToast(`Fonte de áudio da transmissão: ${label}`, 'info');
+      }
+      if (data.preset || data.bitrate) {
+        const mbps = data.bitrate ? `${(data.bitrate / 1000000).toFixed(1)} Mbps` : '';
+        const res = data.height ? `${data.height}p` : '';
+        const info = [res, mbps].filter(Boolean).join(' • ');
+        if (info) {
+          showToast(`Qualidade ajustada pelo streamer: ${info}`, 'info');
+        }
+      }
     }
   });
 
@@ -723,6 +898,9 @@ export async function startLocalStream() {
     }
 
     localStream = capturedDisplayStream;
+    if (wantSystemAudio && localStream.getAudioTracks().length > 0) {
+      capturedSystemAudioTrack = localStream.getAudioTracks()[0];
+    }
 
     // Se selecionou Microfone, captura e anexa a trilha de voz
     if (audioMode === 'mic') {
@@ -819,6 +997,15 @@ export function stopLocalStream() {
     stream.getTracks().forEach(track => track.stop());
   }
 
+  if (capturedSystemAudioTrack) {
+    try { capturedSystemAudioTrack.stop(); } catch (e) {}
+    capturedSystemAudioTrack = null;
+  }
+  if (capturedMicStream) {
+    try { capturedMicStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    capturedMicStream = null;
+  }
+
   // Revoga Player 2 se houver algum conectado
   const coopState = getCoopState();
   if (coopState.activePlayer2PeerId) {
@@ -893,6 +1080,53 @@ window.addEventListener('DOMContentLoaded', () => {
   // Só conecta à sinalização se os termos já tiverem sido aceitos
   if (acceptedVersion === TERMS_VERSION || (legacyAccepted && !acceptedVersion)) {
     initPeer();
+  }
+});
+
+// ==========================================
+// ATALHOS DE TECLADO GAMER (F = Fullscreen, M = Mute)
+// ==========================================
+
+window.addEventListener('keydown', (e) => {
+  const tag = e.target?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) {
+    return;
+  }
+
+  if (e.key === 'f' || e.key === 'F') {
+    e.preventDefault();
+    const video = document.querySelector('.video-card:not(#card-local-me) video') || 
+                  document.querySelector('video');
+    if (video) {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        if (video.requestFullscreen) {
+          video.requestFullscreen().catch(err => console.warn(err));
+        } else if (video.webkitRequestFullscreen) {
+          video.webkitRequestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(err => console.warn(err));
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        }
+      }
+    }
+  } else if (e.key === 'm' || e.key === 'M') {
+    const video = document.querySelector('.video-card:not(#card-local-me) video') || 
+                  document.querySelector('video');
+    if (video) {
+      video.muted = !video.muted;
+      showToast(video.muted ? '🔇 Áudio mutado' : '🔊 Áudio desmutado', 'info', 2000);
+      document.querySelectorAll('.volume-slider').forEach(s => {
+        s.value = video.muted ? '0' : '1';
+      });
+      document.querySelectorAll('.overlay-btn').forEach(btn => {
+        if (btn.innerHTML.includes('🔊') || btn.innerHTML.includes('🔇')) {
+          btn.innerHTML = video.muted ? '🔇' : '🔊';
+        }
+      });
+    }
   }
 });
 

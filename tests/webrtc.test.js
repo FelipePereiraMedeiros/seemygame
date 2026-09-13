@@ -3,7 +3,8 @@ import {
   tuneSdpForGaming,
   hookPeerConnectionSdp,
   applyTransceiverOptimizations,
-  applySenderOptimizations
+  applySenderOptimizations,
+  swapStreamAudioTrack
 } from '../js/webrtc.js';
 import {
   MockRTCPeerConnection,
@@ -233,6 +234,76 @@ describe('Módulo: webrtc.js', () => {
 
       expect(setParamsSpy).not.toHaveBeenCalled();
       expect(audioTrack.contentHint).toBe('');
+    });
+
+    it('deve configurar scaleResolutionDownBy quando fornecido fator de escala maior que 1', async () => {
+      const videoTrack = new MockMediaStreamTrack('video');
+      const sender = new MockRTCRtpSender(videoTrack);
+      const setParamsSpy = vi.spyOn(sender, 'setParameters');
+
+      const pc = {
+        getSenders: () => [sender]
+      };
+
+      await applySenderOptimizations(pc, 5000000, 60, 1.5);
+
+      expect(setParamsSpy).toHaveBeenCalled();
+      const passedParams = setParamsSpy.mock.calls[0][0];
+      expect(passedParams.encodings[0].scaleResolutionDownBy).toBe(1.5);
+    });
+  });
+
+  describe('swapStreamAudioTrack', () => {
+    it('deve retornar false se pc for nulo', async () => {
+      const result = await swapStreamAudioTrack(null, null);
+      expect(result).toBe(false);
+    });
+
+    it('deve invocar replaceTrack no sender de áudio existente', async () => {
+      const oldAudioTrack = new MockMediaStreamTrack('audio', 'old-audio');
+      const newAudioTrack = new MockMediaStreamTrack('audio', 'new-mic');
+      const sender = new MockRTCRtpSender(oldAudioTrack);
+      const replaceSpy = vi.spyOn(sender, 'replaceTrack');
+
+      const pc = {
+        getSenders: () => [sender]
+      };
+
+      const result = await swapStreamAudioTrack(pc, newAudioTrack);
+      expect(result).toBe(true);
+      expect(replaceSpy).toHaveBeenCalledWith(newAudioTrack);
+    });
+
+    it('deve permitir mutar passando newTrack = null', async () => {
+      const oldAudioTrack = new MockMediaStreamTrack('audio', 'old-audio');
+      const sender = new MockRTCRtpSender(oldAudioTrack);
+      const replaceSpy = vi.spyOn(sender, 'replaceTrack');
+
+      const pc = {
+        getSenders: () => [sender]
+      };
+
+      const result = await swapStreamAudioTrack(pc, null);
+      expect(result).toBe(true);
+      expect(replaceSpy).toHaveBeenCalledWith(null);
+    });
+
+    it('deve localizar o sender de áudio através do transceiver se a track inicial for nula', async () => {
+      const newAudioTrack = new MockMediaStreamTrack('audio', 'new-mic');
+      const audioSender = new MockRTCRtpSender(null);
+      const replaceSpy = vi.spyOn(audioSender, 'replaceTrack');
+
+      const pc = {
+        getSenders: () => [audioSender],
+        getTransceivers: () => [{
+          mid: 'audio_0',
+          sender: audioSender
+        }]
+      };
+
+      const result = await swapStreamAudioTrack(pc, newAudioTrack);
+      expect(result).toBe(true);
+      expect(replaceSpy).toHaveBeenCalledWith(newAudioTrack);
     });
   });
 });

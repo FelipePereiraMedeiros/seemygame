@@ -280,13 +280,43 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
   }
 
   let card = document.getElementById(`card-${peerId}`);
-  if (!card) {
+  if (card) {
+    const existingVideo = card.querySelector('video');
+    const wasLocal = card.dataset.isLocal === 'true';
+    if (existingVideo && wasLocal === isLocal) {
+      existingVideo.srcObject = stream;
+      setCardStreamPaused(peerId, false);
+      hideCardLoading(peerId);
+
+      const labelSpan = card.querySelector('.streamer-name') || card.querySelector('.streamer-title span');
+      if (labelSpan && label) {
+        labelSpan.textContent = label;
+      }
+
+      initAudioAnalyser(stream, peerId);
+
+      const playPromise = existingVideo.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn('Autoplay bloqueado na reconexão:', err);
+          if (!isLocal) {
+            const unmuteOverlay = card.querySelector('.audio-unmute-overlay');
+            if (unmuteOverlay) unmuteOverlay.style.display = 'flex';
+          }
+        });
+      }
+
+      updateGridEmptyState();
+      return { card, video: existingVideo };
+    }
+  } else {
     card = document.createElement('div');
     card.className = 'video-card';
     card.id = `card-${peerId}`;
     grid.appendChild(card);
   }
 
+  card.dataset.isLocal = isLocal ? 'true' : 'false';
   card.innerHTML = '';
 
   // Header do Card
@@ -300,6 +330,7 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
   liveDot.className = 'live-dot';
 
   const labelSpan = document.createElement('span');
+  labelSpan.className = 'streamer-name';
   labelSpan.textContent = label;
 
   title.appendChild(liveDot);
@@ -336,8 +367,9 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
   controls.appendChild(statsBtn);
 
   // Botão Mute / Áudio
+  let muteBtn = null;
   if (!isLocal) {
-    const muteBtn = document.createElement('button');
+    muteBtn = document.createElement('button');
     muteBtn.className = 'card-btn';
     muteBtn.innerHTML = '🔊 Som';
     muteBtn.onclick = () => {
@@ -366,6 +398,14 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
     controls.appendChild(previewBtn);
   }
 
+  // Botão Redimensionar (Ajustar / Expandir)
+  const resizeBtn = document.createElement('button');
+  resizeBtn.className = 'card-btn';
+  resizeBtn.id = `resize-btn-${peerId}`;
+  resizeBtn.innerHTML = '↔️ Expandir';
+  resizeBtn.title = 'Alternar entre Modo Contido (ajustado à janela) e Modo Expandido';
+  controls.appendChild(resizeBtn);
+
   // Botão PiP
   const pipBtn = document.createElement('button');
   pipBtn.className = 'card-btn';
@@ -387,14 +427,28 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
   const fsBtn = document.createElement('button');
   fsBtn.className = 'card-btn';
   fsBtn.innerText = '⛶ Tela Cheia';
-  fsBtn.onclick = () => {
-    if (video.requestFullscreen) {
-      video.requestFullscreen().catch((err) => {
-        console.warn('Falha ao abrir tela cheia:', err);
-      });
+  fsBtn.title = 'Alternar Tela Cheia (F ou duplo clique)';
+  controls.appendChild(fsBtn);
+
+  const toggleFullscreen = () => {
+    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    if (!isFs) {
+      if (video.requestFullscreen) {
+        video.requestFullscreen().catch((err) => {
+          console.warn('Falha ao abrir tela cheia:', err);
+        });
+      } else if (video.webkitRequestFullscreen) {
+        video.webkitRequestFullscreen();
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch((err) => console.warn(err));
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
     }
   };
-  controls.appendChild(fsBtn);
+  fsBtn.onclick = toggleFullscreen;
 
   // Botão Co-op / Player 2 para espectadores
   if (!isLocal) {
@@ -496,6 +550,178 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
   videoWrapper.appendChild(video);
   videoWrapper.appendChild(pausedOverlay);
   videoWrapper.appendChild(unmuteOverlay);
+
+  // Duplo clique no vídeo para alternar Tela Cheia
+  video.ondblclick = toggleFullscreen;
+
+  // Barra Flutuante de Controles Overlay no Vídeo (Estilo YouTube/Twitch)
+  const overlayBar = document.createElement('div');
+  overlayBar.className = 'video-overlay-bar';
+
+  // Lado Esquerdo do Overlay
+  const overlayLeft = document.createElement('div');
+  overlayLeft.className = 'overlay-left';
+
+  const liveBadge = document.createElement('div');
+  liveBadge.className = 'overlay-live-badge';
+  liveBadge.innerHTML = '<div class="overlay-live-dot"></div> AO VIVO';
+  overlayLeft.appendChild(liveBadge);
+
+  // Grupo de Áudio / Volume
+  if (!isLocal) {
+    const volGroup = document.createElement('div');
+    volGroup.className = 'volume-control-group';
+
+    const overlayMuteBtn = document.createElement('button');
+    overlayMuteBtn.className = 'overlay-btn';
+    overlayMuteBtn.style.padding = '4px 8px';
+    overlayMuteBtn.innerHTML = video.muted ? '🔇' : '🔊';
+    overlayMuteBtn.title = 'Alternar áudio (M)';
+
+    const volSlider = document.createElement('input');
+    volSlider.type = 'range';
+    volSlider.className = 'volume-slider';
+    volSlider.min = '0';
+    volSlider.max = '1';
+    volSlider.step = '0.05';
+    volSlider.value = video.muted ? '0' : String(video.volume || 1);
+    volSlider.title = 'Ajustar volume da transmissão';
+
+    const updateAudioUI = () => {
+      const isMuted = video.muted || video.volume === 0;
+      overlayMuteBtn.innerHTML = isMuted ? '🔇' : '🔊';
+      if (muteBtn) muteBtn.innerHTML = isMuted ? '🔇 Mudo' : '🔊 Som';
+      volSlider.value = isMuted ? '0' : String(video.volume);
+    };
+
+    overlayMuteBtn.onclick = (e) => {
+      e.stopPropagation();
+      video.muted = !video.muted;
+      if (!video.muted && video.volume === 0) video.volume = 1;
+      updateAudioUI();
+    };
+
+    volSlider.oninput = (e) => {
+      e.stopPropagation();
+      const val = parseFloat(e.target.value);
+      video.volume = val;
+      video.muted = (val === 0);
+      updateAudioUI();
+    };
+
+    volGroup.appendChild(overlayMuteBtn);
+    volGroup.appendChild(volSlider);
+    overlayLeft.appendChild(volGroup);
+
+    if (muteBtn) {
+      muteBtn.onclick = () => {
+        video.muted = !video.muted;
+        if (!video.muted && video.volume === 0) video.volume = 1;
+        updateAudioUI();
+      };
+    }
+  }
+
+  // Lado Direito do Overlay
+  const overlayRight = document.createElement('div');
+  overlayRight.className = 'overlay-right';
+
+  if (!isLocal && onCoopClick) {
+    const overlayCoopBtn = document.createElement('button');
+    overlayCoopBtn.className = 'overlay-btn';
+    overlayCoopBtn.innerHTML = '🎮 Player 2';
+    overlayCoopBtn.title = 'Solicitar ao streamer para jogar como Player 2';
+    overlayCoopBtn.onclick = (e) => {
+      e.stopPropagation();
+      onCoopClick(peerId);
+    };
+    overlayRight.appendChild(overlayCoopBtn);
+  }
+
+  // Botão Redimensionar no Overlay
+  const overlayResizeBtn = document.createElement('button');
+  overlayResizeBtn.className = 'overlay-btn';
+  overlayResizeBtn.innerHTML = '↔️ Expandir';
+  overlayResizeBtn.title = 'Alternar entre Modo Contido e Modo Expandido';
+  overlayRight.appendChild(overlayResizeBtn);
+
+  const toggleResizeMode = () => {
+    const isExpanded = card.classList.toggle('expanded-mode');
+    const label = isExpanded ? '📐 Ajustar' : '↔️ Expandir';
+    const title = isExpanded ? 'Ajustar para caber na janela visível' : 'Expandir para largura total';
+    resizeBtn.innerHTML = label;
+    resizeBtn.title = title;
+    overlayResizeBtn.innerHTML = label;
+    overlayResizeBtn.title = title;
+  };
+  resizeBtn.onclick = toggleResizeMode;
+  overlayResizeBtn.onclick = (e) => {
+    e.stopPropagation();
+    toggleResizeMode();
+  };
+
+  // Botão Stats no Overlay
+  const overlayStatsBtn = document.createElement('button');
+  overlayStatsBtn.className = 'overlay-btn';
+  overlayStatsBtn.innerHTML = '📊 Stats';
+  overlayStatsBtn.title = 'Exibir telemetria de FPS e latência WebRTC';
+  overlayStatsBtn.onclick = (e) => {
+    e.stopPropagation();
+    statsBtn.click();
+  };
+  overlayRight.appendChild(overlayStatsBtn);
+
+  // Botão PiP no Overlay
+  const overlayPipBtn = document.createElement('button');
+  overlayPipBtn.className = 'overlay-btn';
+  overlayPipBtn.innerHTML = '⧉ PiP';
+  overlayPipBtn.title = 'Picture-in-Picture';
+  overlayPipBtn.onclick = (e) => {
+    e.stopPropagation();
+    pipBtn.click();
+  };
+  overlayRight.appendChild(overlayPipBtn);
+
+  // Botão Fullscreen no Overlay (destacado)
+  const overlayFsBtn = document.createElement('button');
+  overlayFsBtn.className = 'overlay-btn overlay-btn-highlight';
+  overlayFsBtn.innerHTML = '⛶ Tela Cheia';
+  overlayFsBtn.title = 'Alternar Tela Cheia (F ou duplo clique no vídeo)';
+  overlayFsBtn.onclick = (e) => {
+    e.stopPropagation();
+    toggleFullscreen();
+  };
+  overlayRight.appendChild(overlayFsBtn);
+
+  overlayBar.appendChild(overlayLeft);
+  overlayBar.appendChild(overlayRight);
+  videoWrapper.appendChild(overlayBar);
+
+  // Sincroniza indicador de tela cheia
+  const handleFsChange = () => {
+    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    fsBtn.innerText = isFs ? '🗗 Restaurar' : '⛶ Tela Cheia';
+    overlayFsBtn.innerHTML = isFs ? '🗗 Restaurar' : '⛶ Tela Cheia';
+  };
+  document.addEventListener('fullscreenchange', handleFsChange);
+  document.addEventListener('webkitfullscreenchange', handleFsChange);
+
+  // Auto-hide suave dos controles no vídeo
+  let hideControlsTimer = null;
+  const showControls = () => {
+    videoWrapper.classList.add('controls-visible');
+    if (hideControlsTimer) clearTimeout(hideControlsTimer);
+    hideControlsTimer = setTimeout(() => {
+      videoWrapper.classList.remove('controls-visible');
+    }, 3500);
+  };
+
+  videoWrapper.addEventListener('mousemove', showControls);
+  videoWrapper.addEventListener('touchstart', showControls, { passive: true });
+  videoWrapper.addEventListener('mouseleave', () => {
+    if (hideControlsTimer) clearTimeout(hideControlsTimer);
+    videoWrapper.classList.remove('controls-visible');
+  });
 
   if (isLocal) {
     const mirrorOverlay = document.createElement('div');

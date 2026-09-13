@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   setCoopEnabled,
   getCoopState,
@@ -135,5 +135,23 @@ describe('Módulo: coop.js', () => {
 
     releaseCoopControl();
     expect(getCoopState().isPlayer2).toBe(false);
+  });
+
+  it('lado do espectador: deve atualizar estado do botão ao receber COOP_CONFIG', () => {
+    const mockCard = document.createElement('div');
+    const coopBtn = document.createElement('button');
+    coopBtn.id = 'btn-coop-host-id-1';
+    coopBtn.className = 'card-btn card-btn-coop';
+    mockCard.appendChild(coopBtn);
+
+    // Streamer desativa co-op
+    handleViewerCoopMessage({ type: 'COOP_CONFIG', enabled: false }, 'host-id-1', mockCard);
+    expect(coopBtn.disabled).toBe(true);
+    expect(coopBtn.classList.contains('btn-disabled')).toBe(true);
+
+    // Streamer reativa co-op
+    handleViewerCoopMessage({ type: 'COOP_CONFIG', enabled: true }, 'host-id-1', mockCard);
+    expect(coopBtn.disabled).toBe(false);
+    expect(coopBtn.classList.contains('btn-disabled')).toBe(false);
   });
 });

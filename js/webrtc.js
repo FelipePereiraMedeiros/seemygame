@@ -219,12 +219,13 @@ export function applyTransceiverOptimizations(pc, latencyMode = 'ultra-low') {
 }
 
 /**
- * Configurações de prioridade de framerate no Sender (Alvo de 60 FPS)
+ * Configurações de prioridade de framerate no Sender (Alvo de 60 FPS) e escala de resolução
  * @param {RTCPeerConnection} pc
  * @param {number} bitrateBps
- * @param {number} fps
+ * @param {number} [fps=60]
+ * @param {number} [scaleResolutionDownBy=1]
  */
-export async function applySenderOptimizations(pc, bitrateBps, fps = 60) {
+export async function applySenderOptimizations(pc, bitrateBps, fps = 60, scaleResolutionDownBy = 1) {
   if (!pc) return;
 
   try {
@@ -245,13 +246,65 @@ export async function applySenderOptimizations(pc, bitrateBps, fps = 60) {
         params.encodings[0].priority = 'high';
         params.encodings[0].networkPriority = 'high';
 
+        // Escala de resolução dinâmica no encoder (essencial para getDisplayMedia onde applyConstraints falha)
+        if (scaleResolutionDownBy && scaleResolutionDownBy > 1) {
+          params.encodings[0].scaleResolutionDownBy = scaleResolutionDownBy;
+        } else if ('scaleResolutionDownBy' in params.encodings[0]) {
+          params.encodings[0].scaleResolutionDownBy = 1;
+        }
+
         if (sender.setParameters) {
           await sender.setParameters(params);
         }
-        console.log(`[FPS Target] Alvo: ${fps} FPS | Bitrate: ${(bitrateBps / 1000000).toFixed(1)} Mbps`);
+        console.log(`[FPS Target] Alvo: ${fps} FPS | Bitrate: ${(bitrateBps / 1000000).toFixed(1)} Mbps | Escala: ${scaleResolutionDownBy || 1}x`);
       }
     }
   } catch (err) {
     console.warn('Erro ao aplicar parâmetros no sender:', err);
+  }
+}
+
+/**
+ * Substitui ou remove a trilha de áudio em tempo real sem renegociação SDP
+ * @param {RTCPeerConnection} pc
+ * @param {MediaStreamTrack|null} newTrack
+ * @returns {Promise<boolean>}
+ */
+export async function swapStreamAudioTrack(pc, newTrack = null) {
+  if (!pc) return false;
+
+  try {
+    const senders = pc.getSenders ? pc.getSenders() : [];
+    let audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+
+    // Se não encontrou sender com track de áudio ativa, procura transceiver de áudio
+    if (!audioSender && pc.getTransceivers) {
+      const transceivers = pc.getTransceivers();
+      const audioTransceiver = transceivers.find(t => 
+        (t.sender && t.sender.track && t.sender.track.kind === 'audio') ||
+        (t.receiver && t.receiver.track && t.receiver.track.kind === 'audio') ||
+        (t.mid && t.mid.toLowerCase().includes('audio'))
+      );
+      if (audioTransceiver && audioTransceiver.sender) {
+        audioSender = audioTransceiver.sender;
+      }
+    }
+
+    // Se ainda não encontrou, tenta qualquer sender sem track ou cujo tipo seja áudio
+    if (!audioSender) {
+      audioSender = senders.find(s => !s.track);
+    }
+
+    if (audioSender && typeof audioSender.replaceTrack === 'function') {
+      await audioSender.replaceTrack(newTrack);
+      console.log(`[Audio Swap] Trilha de áudio substituída: ${newTrack ? (newTrack.label || newTrack.id) : 'Nenhuma (Mudo)'}`);
+      return true;
+    } else {
+      console.warn('[Audio Swap] Nenhum RTCRtpSender de áudio disponível para substituição.');
+      return false;
+    }
+  } catch (err) {
+    console.error('[Audio Swap] Erro ao trocar trilha de áudio:', err);
+    return false;
   }
 }

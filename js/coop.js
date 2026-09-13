@@ -264,6 +264,28 @@ export function handleViewerCoopMessage(data, hostPeerId, videoCard) {
       notifyStateChange();
     }
   }
+
+  else if (data.type === 'COOP_CONFIG') {
+    const coopBtn = (videoCard && videoCard.querySelector) ? (videoCard.querySelector(`#btn-coop-${hostPeerId}`) || videoCard.querySelector('.card-btn-coop')) : document.getElementById(`btn-coop-${hostPeerId}`);
+    if (coopBtn) {
+      if (data.enabled === false) {
+        coopBtn.disabled = true;
+        coopBtn.classList.add('btn-disabled');
+        coopBtn.title = 'O streamer desativou o modo Co-op nesta sessão';
+        if (isPlayer2) {
+          isPlayer2 = false;
+          detachPlayer2InputListeners();
+          showToast('🔒 O streamer desativou o modo Co-op.', 'info');
+          notifyStateChange();
+        }
+      } else {
+        coopBtn.disabled = false;
+        coopBtn.classList.remove('btn-disabled');
+        coopBtn.title = 'Solicitar ao streamer para jogar como Player 2';
+        showToast('🎮 O streamer ativou o modo Co-op!', 'info');
+      }
+    }
+  }
 }
 
 /**

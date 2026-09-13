@@ -285,6 +285,32 @@ describe('Módulo: ui.js', () => {
       expect(exitBtn.textContent).toBe('Encerrar');
     });
 
+    it('deve reaproveitar o elemento video e preservar o card ao reconectar ou atualizar stream', () => {
+      const initialStream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      const { card, video: initialVideo } = addOrUpdateVideoCard({
+        stream: initialStream,
+        peerId: 'reuse-peer',
+        label: '🎮 Amigo Gamer',
+        isLocal: false
+      });
+
+      expect(initialVideo.srcObject).toBe(initialStream);
+
+      // Simula uma nova stream recebida do mesmo peer (ex: streamer parou e reiniciou)
+      const updatedStream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      const result = addOrUpdateVideoCard({
+        stream: updatedStream,
+        peerId: 'reuse-peer',
+        label: '🎮 Amigo Gamer (Live)',
+        isLocal: false
+      });
+
+      expect(result.card).toBe(card);
+      expect(result.video).toBe(initialVideo);
+      expect(initialVideo.srcObject).toBe(updatedStream);
+      expect(card.innerHTML).toContain('🎮 Amigo Gamer (Live)');
+    });
+
     it('deve alternar a visibilidade do HUD de stats ao clicar no botão Stats', () => {
       const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
       addOrUpdateVideoCard({
@@ -367,6 +393,97 @@ describe('Módulo: ui.js', () => {
       await pipBtn.click();
 
       expect(pipSpy).toHaveBeenCalled();
+    });
+
+    it('deve alternar entre modo contido e modo expandido ao clicar no botão de redimensionamento', () => {
+      const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'resize-peer',
+        label: 'Resize Test'
+      });
+
+      const card = document.getElementById('card-resize-peer');
+      const resizeBtn = card.querySelector('#resize-btn-resize-peer');
+
+      expect(card.classList.contains('expanded-mode')).toBe(false);
+      expect(resizeBtn.textContent).toContain('Expandir');
+
+      resizeBtn.click();
+      expect(card.classList.contains('expanded-mode')).toBe(true);
+      expect(resizeBtn.textContent).toContain('Ajustar');
+
+      resizeBtn.click();
+      expect(card.classList.contains('expanded-mode')).toBe(false);
+      expect(resizeBtn.textContent).toContain('Expandir');
+    });
+
+    it('deve renderizar a barra flutuante de controles overlay com botões essenciais e slider de volume', () => {
+      const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'overlay-peer',
+        label: 'Overlay Test',
+        isLocal: false
+      });
+
+      const card = document.getElementById('card-overlay-peer');
+      const overlayBar = card.querySelector('.video-overlay-bar');
+      expect(overlayBar).not.toBeNull();
+
+      // Botão Fullscreen no overlay
+      const overlayFsBtn = overlayBar.querySelector('.overlay-btn-highlight');
+      expect(overlayFsBtn).not.toBeNull();
+      expect(overlayFsBtn.textContent).toContain('Tela Cheia');
+
+      // Slider de volume e mute
+      const volSlider = overlayBar.querySelector('.volume-slider');
+      expect(volSlider).not.toBeNull();
+
+      const video = card.querySelector('video');
+      const fsSpy = vi.spyOn(video, 'requestFullscreen');
+      overlayFsBtn.click();
+      expect(fsSpy).toHaveBeenCalled();
+    });
+
+    it('deve acionar requestFullscreen ao dar duplo clique no vídeo', () => {
+      const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'dbl-peer',
+        label: 'DblClick Test'
+      });
+
+      const card = document.getElementById('card-dbl-peer');
+      const video = card.querySelector('video');
+      const fsSpy = vi.spyOn(video, 'requestFullscreen');
+
+      video.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      expect(fsSpy).toHaveBeenCalled();
+    });
+
+    it('deve atualizar o volume e o estado mudo ao alterar o volume-slider', () => {
+      const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'vol-peer',
+        label: 'Volume Test',
+        isLocal: false
+      });
+
+      const card = document.getElementById('card-vol-peer');
+      const video = card.querySelector('video');
+      const volSlider = card.querySelector('.volume-slider');
+
+      volSlider.value = '0.5';
+      volSlider.dispatchEvent(new Event('input'));
+      expect(video.volume).toBe(0.5);
+      expect(video.muted).toBe(false);
+
+      volSlider.value = '0';
+      volSlider.dispatchEvent(new Event('input'));
+      expect(video.volume).toBe(0);
+      expect(video.muted).toBe(true);
     });
   });
 

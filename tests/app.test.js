@@ -103,6 +103,11 @@ describe('Módulo: app.js', () => {
         <select id="audio-mode-select">
           <option value="system" selected>Sistema</option>
           <option value="mic">Microfone</option>
+          <option value="none">Mudo</option>
+        </select>
+        <select id="coop-mode-select">
+          <option value="disabled" selected>Desativado</option>
+          <option value="enabled">Ativado</option>
         </select>
         <select id="quality-preset">
           <option value="ultra">Ultra</option>
@@ -374,6 +379,101 @@ describe('Módulo: app.js', () => {
       expect(screenStream.getAudioTracks().length).toBeGreaterThan(0);
 
       app.stopLocalStream();
+    });
+
+    it('deve realizar hot swapping de áudio ao vivo quando o streamer altera audioModeSelect durante a transmissão', async () => {
+      const audioSelect = document.getElementById('audio-mode-select');
+      audioSelect.value = 'system';
+
+      const videoTrack = new MockMediaStreamTrack('video');
+      const screenStream = new MockMediaStream([videoTrack]);
+      const micTrack = new MockMediaStreamTrack('audio', 'live-mic-track');
+      const micStream = new MockMediaStream([micTrack]);
+
+      navigator.mediaDevices.getDisplayMedia = vi.fn().mockResolvedValue(screenStream);
+      navigator.mediaDevices.getUserMedia = vi.fn().mockResolvedValue(micStream);
+
+      await app.startLocalStream();
+
+      // Conecta um espectador de teste
+      const mockConn = new MockDataConnection('viewer-live-audio');
+      MockPeer.lastInstance.emit('connection', mockConn);
+      mockConn.emit('open');
+
+      // Troca para microfone ao vivo
+      audioSelect.value = 'mic';
+      audioSelect.dispatchEvent(new Event('change'));
+
+      // Aguarda tick das promises do listener assíncrono
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled();
+      expect(mockConn.send).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'STREAM_CONFIG_UPDATED',
+        audioMode: 'mic'
+      }));
+
+      // Troca para mudo/none ao vivo
+      audioSelect.value = 'none';
+      audioSelect.dispatchEvent(new Event('change'));
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(mockConn.send).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'STREAM_CONFIG_UPDATED',
+        audioMode: 'none'
+      }));
+
+      mockConn.emit('close');
+      app.stopLocalStream();
+    });
+
+    it('deve notificar espectadores conectados com STREAM_CONFIG_UPDATED quando qualityPresetSelect for alterado', async () => {
+      const presetSelect = document.getElementById('quality-preset');
+      const videoTrack = new MockMediaStreamTrack('video');
+      const mockStream = new MockMediaStream([videoTrack]);
+      navigator.mediaDevices.getDisplayMedia = vi.fn().mockResolvedValue(mockStream);
+
+      await app.startLocalStream();
+
+      const mockConn = new MockDataConnection('viewer-preset-test');
+      MockPeer.lastInstance.emit('connection', mockConn);
+      mockConn.emit('open');
+
+      presetSelect.value = 'ultra';
+      presetSelect.dispatchEvent(new Event('change'));
+
+      expect(mockConn.send).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'STREAM_CONFIG_UPDATED',
+        preset: 'ultra'
+      }));
+
+      mockConn.emit('close');
+      app.stopLocalStream();
+    });
+
+    it('deve transmitir COOP_CONFIG para espectadores conectados ao alternar coopModeSelect', () => {
+      const mockConn = new MockDataConnection('viewer-coop-sync');
+      MockPeer.lastInstance.emit('connection', mockConn);
+      mockConn.emit('open');
+
+      const selectElem = document.getElementById('coop-mode-select');
+      selectElem.value = 'enabled';
+      selectElem.dispatchEvent(new Event('change'));
+
+      expect(mockConn.send).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'COOP_CONFIG',
+        enabled: true
+      }));
+
+      selectElem.value = 'disabled';
+      selectElem.dispatchEvent(new Event('change'));
+
+      expect(mockConn.send).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'COOP_CONFIG',
+        enabled: false
+      }));
+
+      mockConn.emit('close');
     });
 
     it('deve interromper o stream automaticamente quando a faixa de vídeo disparar onended', async () => {

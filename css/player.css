@@ -50,6 +50,33 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   transition: border-color 0.2s ease, transform 0.2s ease;
   position: relative;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+/* Modo Contido por Padrão (Fit to Screen) - Garante que a tela visível nunca role verticalmente */
+.video-card:not(.expanded-mode) {
+  max-height: calc(100vh - 145px);
+  width: min(100%, calc((100vh - 195px) * 16 / 9));
+}
+
+.video-card:not(.expanded-mode) .video-wrapper {
+  max-height: calc(100vh - 195px);
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+/* Modo Expandido / Livre */
+.video-card.expanded-mode {
+  max-height: none;
+  width: 100%;
+}
+
+.video-card.expanded-mode .video-wrapper {
+  width: 100%;
+  max-height: none;
+  aspect-ratio: 16 / 9;
 }
 
 .video-card:hover {
@@ -171,6 +198,169 @@ video {
   background: #000;
   display: block;
   object-fit: contain;
+  cursor: pointer;
+}
+
+/* Suporte a Tela Cheia Nativa no Wrapper */
+.video-wrapper:fullscreen,
+.video-wrapper:-webkit-full-screen {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  border-radius: 0 !important;
+  background: #000;
+}
+
+.video-wrapper:fullscreen video,
+.video-wrapper:-webkit-full-screen video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.video-wrapper:fullscreen .video-overlay-bar,
+.video-wrapper:-webkit-full-screen .video-overlay-bar {
+  padding: 36px 24px 20px 24px;
+}
+
+/* Barra Flutuante de Controles Overlay no Vídeo (Estilo YouTube/Twitch) */
+.video-overlay-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 28px 14px 10px 14px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.5) 60%, transparent 100%);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  z-index: 25;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  transform: translateY(4px);
+  user-select: none;
+}
+
+.video-wrapper:hover .video-overlay-bar,
+.video-wrapper.controls-visible .video-overlay-bar {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.overlay-left, .overlay-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.overlay-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(239, 68, 68, 0.25);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.overlay-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 6px #ef4444;
+  animation: pulse 1.5s infinite;
+}
+
+/* Volume Slider */
+.volume-control-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(20, 22, 34, 0.75);
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 64px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.volume-slider:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+}
+
+/* Botões do Overlay */
+.overlay-btn {
+  background: rgba(25, 27, 40, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  backdrop-filter: blur(6px);
+  transition: all 0.15s ease;
+}
+
+.overlay-btn:hover {
+  background: rgba(45, 49, 72, 0.95);
+  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-1px);
+}
+
+.overlay-btn-highlight {
+  background: linear-gradient(135deg, var(--accent-purple), #6366f1);
+  border-color: rgba(139, 92, 246, 0.6);
+  box-shadow: 0 0 12px var(--accent-purple-glow);
+}
+
+.overlay-btn-highlight:hover {
+  background: linear-gradient(135deg, var(--accent-purple-hover), #4f46e5);
+  box-shadow: 0 0 16px var(--accent-purple-glow);
 }
 
 /* HUD de Estatísticas / Latência / FPS / Bitrate */
