@@ -382,16 +382,38 @@ export async function startLocalStream() {
     cursor: 'always'
   };
 
-  try {
-    // Para som do sistema no getDisplayMedia, deve ser estritamente true (booleano puro).
-    // Objetos com echoCancellation/noiseSuppression são para microfone e causam NotReadableError no loopback do Windows.
-    let displayAudio = (audioMode === 'system');
+  let audioFailedReason = null;
 
-    // Captura da tela (sem systemAudio: 'include' que forçava rejeição W3C com NotReadableError)
-    localStream = await navigator.mediaDevices.getDisplayMedia({
-      video: videoConstraints,
-      audio: displayAudio
-    });
+  try {
+    const wantSystemAudio = (audioMode === 'system');
+
+    try {
+      // Tentativa 1: Captura com áudio se solicitado
+      localStream = await navigator.mediaDevices.getDisplayMedia({
+        video: videoConstraints,
+        audio: wantSystemAudio
+      });
+    } catch (captureErr) {
+      // Se o usuário clicou em Cancelar no diálogo do navegador, encerra
+      if (captureErr.name === 'NotAllowedError') {
+        return;
+      }
+
+      // Se falhou por causa do áudio (NotReadableError no driver USB/Windows loopback)
+      if (wantSystemAudio && (captureErr.name === 'NotReadableError' || captureErr.message?.toLowerCase().includes('audio'))) {
+        console.warn('Loopback de áudio rejeitado pelo driver do fone/Windows. Executando fallback automático apenas por vídeo...', captureErr);
+        audioFailedReason = 'O driver de áudio (fone USB/dongle) rejeitou a captura em loopback do Windows.';
+        showToast('Aviso: O som do sistema foi rejeitado pelo driver do fone. Selecione a tela para transmitir apenas por vídeo...', 'info', 5000);
+
+        // Fallback automático com áudio desativado (garante que o vídeo funcione!)
+        localStream = await navigator.mediaDevices.getDisplayMedia({
+          video: videoConstraints,
+          audio: false
+        });
+      } else {
+        throw captureErr;
+      }
+    }
 
     // Se selecionou Microfone, captura e anexa a trilha de voz
     if (audioMode === 'mic') {
@@ -419,7 +441,9 @@ export async function startLocalStream() {
     }
 
     const hasAudio = localStream.getAudioTracks().length > 0;
-    if (hasAudio) {
+    if (audioFailedReason) {
+      showToast(`⚠ Áudio indisponível: ${audioFailedReason} A transmissão continua normalmente apenas por vídeo a 60 FPS!`, 'info', 8000);
+    } else if (hasAudio) {
       const label = audioMode === 'mic' ? 'Microfone' : 'Áudio do jogo (sistema)';
       showToast(`${label} capturado com sucesso!`, 'success');
     } else if (audioMode === 'system') {
@@ -455,9 +479,7 @@ export async function startLocalStream() {
 
   } catch (err) {
     console.error('Erro ao capturar tela:', err);
-    if (err.name === 'NotReadableError') {
-      showToast('O Windows não permitiu capturar o som dessa janela. Selecione a aba "Tela inteira" e marque "Compartilhar áudio", ou selecione "Apenas Vídeo" no menu superior.', 'error');
-    } else if (err.name !== 'NotAllowedError') {
+    if (err.name !== 'NotAllowedError') {
       showToast(`Erro ao iniciar stream: ${err.message}`, 'error');
     }
   }

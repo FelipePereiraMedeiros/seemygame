@@ -6,7 +6,7 @@ import { stopStatsMonitor } from './stats.js';
  * @param {string} message
  * @param {'info'|'success'|'error'} type
  */
-export function showToast(message, type = 'info') {
+export function showToast(message, type = 'info', duration = 4500) {
   const container = document.getElementById('toast-container');
   if (!container) return;
 
@@ -27,7 +27,7 @@ export function showToast(message, type = 'info') {
     toast.style.transform = 'translateX(100%)';
     toast.style.transition = 'all 0.3s ease';
     setTimeout(() => toast.remove(), 300);
-  }, 4000);
+  }, duration);
 }
 
 /**
