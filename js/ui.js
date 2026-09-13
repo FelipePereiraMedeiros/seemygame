@@ -345,6 +345,25 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
       muteBtn.innerHTML = video.muted ? '🔇 Mudo' : '🔊 Som';
     };
     controls.appendChild(muteBtn);
+  } else {
+    // Botão para o streamer ocultar a própria prévia (evita efeito espelho infinito)
+    const previewBtn = document.createElement('button');
+    previewBtn.className = 'card-btn';
+    previewBtn.id = 'toggle-local-preview-btn';
+    previewBtn.innerHTML = '👁️ Ocultar Prévia';
+    previewBtn.title = 'Ocultar vídeo local para evitar o efeito espelho infinito do navegador';
+    let isHidden = false;
+    previewBtn.onclick = () => {
+      isHidden = !isHidden;
+      video.style.opacity = isHidden ? '0' : '1';
+      previewBtn.innerHTML = isHidden ? '👁️ Mostrar Prévia' : '👁️ Ocultar Prévia';
+      previewBtn.classList.toggle('card-btn-active', isHidden);
+      const mirrorOverlay = card.querySelector('.local-mirror-overlay');
+      if (mirrorOverlay) {
+        mirrorOverlay.style.display = isHidden ? 'flex' : 'none';
+      }
+    };
+    controls.appendChild(previewBtn);
   }
 
   // Botão PiP
@@ -477,6 +496,19 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
   videoWrapper.appendChild(video);
   videoWrapper.appendChild(pausedOverlay);
   videoWrapper.appendChild(unmuteOverlay);
+
+  if (isLocal) {
+    const mirrorOverlay = document.createElement('div');
+    mirrorOverlay.className = 'local-mirror-overlay';
+    mirrorOverlay.style.cssText = 'position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 12, 20, 0.95); z-index: 4; text-align: center; padding: 20px;';
+    mirrorOverlay.innerHTML = `
+      <div style="font-size: 2.2rem; margin-bottom: 8px;">🎮📡</div>
+      <p style="font-weight: 600; color: #fff; margin-bottom: 4px;">Sua transmissão está ativa para os amigos!</p>
+      <p style="font-size: 12.5px; color: var(--text-muted); max-width: 320px;">A prévia da sua tela foi pausada aqui para evitar o efeito espelho infinito do navegador.</p>
+    `;
+    videoWrapper.appendChild(mirrorOverlay);
+  }
+
   card.appendChild(videoWrapper);
 
   // Inicia o analisador de VU Meter estéreo

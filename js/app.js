@@ -695,7 +695,9 @@ export async function startLocalStream() {
       // Tentativa 1: Captura com áudio se solicitado
       capturedDisplayStream = await navigator.mediaDevices.getDisplayMedia({
         video: videoConstraints,
-        audio: wantSystemAudio
+        audio: wantSystemAudio,
+        selfBrowserSurface: 'exclude',
+        surfaceSwitching: 'include'
       });
     } catch (captureErr) {
       // Se o usuário cancelou o seletor do navegador
@@ -711,7 +713,9 @@ export async function startLocalStream() {
 
         capturedDisplayStream = await navigator.mediaDevices.getDisplayMedia({
           video: videoConstraints,
-          audio: false
+          audio: false,
+          selfBrowserSurface: 'exclude',
+          surfaceSwitching: 'include'
         });
       } else {
         throw captureErr;
