@@ -383,14 +383,9 @@ export async function startLocalStream() {
   };
 
   try {
-    let displayAudio = false;
-    if (audioMode === 'system') {
-      displayAudio = {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false
-      };
-    }
+    // Para som do sistema no getDisplayMedia, deve ser estritamente true (booleano puro).
+    // Objetos com echoCancellation/noiseSuppression são para microfone e causam NotReadableError no loopback do Windows.
+    let displayAudio = (audioMode === 'system');
 
     // Captura da tela (sem systemAudio: 'include' que forçava rejeição W3C com NotReadableError)
     localStream = await navigator.mediaDevices.getDisplayMedia({
