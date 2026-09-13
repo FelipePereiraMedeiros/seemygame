@@ -1,11 +1,23 @@
 /* Grade Multi-Stream Responsiva */
 .video-grid {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.video-grid.multi-stream,
+.video-grid:has(.video-card ~ .video-card) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
-  gap: 20px;
-  width: 100%;
-  flex: 1;
+  gap: 16px;
   align-content: start;
+  overflow-y: auto;
 }
 
 .empty-state {
@@ -14,12 +26,14 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
+  padding: 40px 20px;
   text-align: center;
   background: rgba(18, 19, 28, 0.6);
   border: 2px dashed var(--border-color);
   border-radius: 16px;
   color: var(--text-muted);
+  max-width: 520px;
+  margin: auto;
 }
 
 .empty-state-icon {
@@ -50,33 +64,63 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   transition: border-color 0.2s ease, transform 0.2s ease;
   position: relative;
-  width: 100%;
-  max-width: 100%;
   margin: 0 auto;
 }
 
-/* Modo Contido por Padrão (Fit to Screen) - Garante que a tela visível nunca role verticalmente */
+/* Modo Contido por Padrão (Fit to Screen) - Garante que a tela visível NUNCA role e caiba 100% */
 .video-card:not(.expanded-mode) {
-  max-height: calc(100vh - 145px);
-  width: min(100%, calc((100vh - 195px) * 16 / 9));
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .video-card:not(.expanded-mode) .video-wrapper {
-  max-height: calc(100vh - 195px);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  height: 100%;
+  position: relative;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  aspect-ratio: unset;
+}
+
+.video-card:not(.expanded-mode) video {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 /* Modo Expandido / Livre */
 .video-card.expanded-mode {
+  height: auto;
   max-height: none;
   width: 100%;
+  margin-bottom: 20px;
 }
 
 .video-card.expanded-mode .video-wrapper {
   width: 100%;
-  max-height: none;
+  height: auto;
   aspect-ratio: 16 / 9;
+}
+
+.video-card.expanded-mode video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .video-card:hover {
@@ -87,11 +131,12 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 14px;
+  padding: 6px 14px;
   background: var(--bg-card-header);
   border-bottom: 1px solid var(--border-color);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .streamer-title {
@@ -570,4 +615,70 @@ video {
     justify-content: flex-start;
     flex-wrap: wrap;
   }
+}
+
+/* Discord-style Desktop Window Picker */
+.desktop-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #60a5fa;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-weight: 600;
+}
+
+.window-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+.window-item:hover {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: translateY(-1px);
+}
+.window-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+  text-align: left;
+}
+.window-title {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--text-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 380px;
+}
+.window-process {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+.window-action-btn {
+  background: var(--accent-blue);
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.window-action-btn:hover {
+  background: #2563eb;
 }

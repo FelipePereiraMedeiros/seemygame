@@ -63,6 +63,36 @@
     </div>
   </div>
 
+  <!-- Modal Seletor de Jogos Nativo (Estilo Discord - Desktop Tauri) -->
+  <div id="desktop-picker-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="picker-title">
+    <div class="modal-content" style="max-width: 580px; max-height: 85vh; display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 id="picker-title" style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px;">
+          🎮 <span>Escolha o Jogo ou Janela</span>
+        </h3>
+        <button id="picker-refresh-btn" class="btn-secondary" style="padding: 4px 10px; font-size: 12px;" title="Atualizar lista de janelas">
+          🔄 Atualizar
+        </button>
+      </div>
+      <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 16px 0;">
+        Janelas detectadas pelo Rust no seu computador. Escolha o jogo para transmitir com alta prioridade de GPU:
+      </p>
+
+      <div id="desktop-windows-list" style="overflow-y: auto; max-height: 340px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; padding-right: 4px;">
+        <!-- Itens preenchidos dinamicamente -->
+      </div>
+
+      <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 14px;">
+        <button id="picker-screen-fallback-btn" class="btn-secondary" style="font-size: 12.5px;">
+          🖥️ Compartilhar Tela Inteira
+        </button>
+        <button id="picker-cancel-btn" class="btn-secondary" style="font-size: 12.5px;">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+
   <header>
     <div class="brand">
       <a href="index.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 10px;">
@@ -70,6 +100,9 @@
         <div>See<span>MyGame</span></div>
       </a>
       <span class="role-badge">Estúdio do Streamer</span>
+      <span id="desktop-badge" class="desktop-badge" style="display: none;">
+        ⚡ Desktop Nativo (Prioridade GPU)
+      </span>
     </div>
 
     <div class="actions-container">

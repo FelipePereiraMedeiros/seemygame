@@ -42,6 +42,11 @@ import {
   registerCoopStateChangeHandler,
   initCompanionAgentConnection
 } from './coop.js';
+import {
+  isDesktopApp,
+  getCapturableWindows,
+  setHighPriority
+} from './desktop.js';
 
 // Estado da Aplicação
 let selectedProfile = DEFAULT_PROFILE;
@@ -1037,8 +1042,103 @@ export function stopLocalStream() {
   showToast('Transmissão encerrada.', 'info');
 }
 
+/**
+ * Inicialização e controle dos recursos do Desktop App (Tauri / Rust)
+ */
+export async function initDesktopSupport() {
+  if (!isDesktopApp()) return null;
+
+  const desktopBadge = document.getElementById('desktop-badge');
+  if (desktopBadge) {
+    desktopBadge.style.display = 'inline-flex';
+  }
+
+  // Eleva a prioridade de processo imediatamente para alta prioridade de GPU
+  await setHighPriority();
+
+  const desktopPickerModal = document.getElementById('desktop-picker-modal');
+  const desktopWindowsList = document.getElementById('desktop-windows-list');
+  const pickerRefreshBtn = document.getElementById('picker-refresh-btn');
+  const pickerCancelBtn = document.getElementById('picker-cancel-btn');
+  const pickerScreenFallbackBtn = document.getElementById('picker-screen-fallback-btn');
+
+  async function refreshWindowsList() {
+    if (!desktopWindowsList) return;
+    desktopWindowsList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 20px;">🔍 Buscando jogos e janelas ativas no Windows...</div>';
+
+    const windows = await getCapturableWindows();
+    if (!windows || windows.length === 0) {
+      desktopWindowsList.innerHTML = `
+        <div style="text-align: center; color: var(--text-muted); padding: 20px;">
+          Nenhum jogo em janela detectado no momento.<br>
+          <small>Você pode iniciar a transmissão de tela inteira abaixo.</small>
+        </div>
+      `;
+      return;
+    }
+
+    desktopWindowsList.innerHTML = '';
+    windows.forEach((win) => {
+      const item = document.createElement('div');
+      item.className = 'window-item';
+      item.innerHTML = `
+        <div class="window-info">
+          <span class="window-title" title="${win.title}">🎮 ${win.title}</span>
+          <span class="window-process">${win.process_name || 'Processo Windows'}</span>
+        </div>
+        <button class="window-action-btn">Transmitir</button>
+      `;
+
+      item.querySelector('.window-action-btn').addEventListener('click', () => {
+        if (desktopPickerModal) desktopPickerModal.style.display = 'none';
+        startLocalStream();
+      });
+
+      desktopWindowsList.appendChild(item);
+    });
+  }
+
+  if (pickerRefreshBtn) {
+    pickerRefreshBtn.addEventListener('click', refreshWindowsList);
+  }
+
+  if (pickerCancelBtn && desktopPickerModal) {
+    pickerCancelBtn.addEventListener('click', () => {
+      desktopPickerModal.style.display = 'none';
+    });
+  }
+
+  if (pickerScreenFallbackBtn && desktopPickerModal) {
+    pickerScreenFallbackBtn.addEventListener('click', () => {
+      desktopPickerModal.style.display = 'none';
+      startLocalStream();
+    });
+  }
+
+  return { refreshWindowsList };
+}
+
+export function handleStreamBtnClick() {
+  if (localStream) {
+    stopLocalStream();
+    return;
+  }
+
+  if (isDesktopApp()) {
+    const desktopPickerModal = document.getElementById('desktop-picker-modal');
+    if (desktopPickerModal) {
+      desktopPickerModal.style.display = 'flex';
+      const refreshBtn = document.getElementById('picker-refresh-btn');
+      if (refreshBtn) refreshBtn.click();
+      return;
+    }
+  }
+
+  startLocalStream();
+}
+
 if (streamBtn) {
-  streamBtn.addEventListener('click', startLocalStream);
+  streamBtn.addEventListener('click', handleStreamBtnClick);
 }
 
 // Auto-conexão por URL
@@ -1072,6 +1172,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Pré-busca credenciais TURN da API serverless em segundo plano se disponível
   fetchIceServersFromApi().catch(() => {});
+
+  // Inicializa suporte e prioridade nativa se estiver rodando em Desktop Tauri
+  initDesktopSupport().catch((err) => console.warn('[Desktop Init]', err));
 
   initTermsModal(() => {
     initPeer();

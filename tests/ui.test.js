@@ -407,14 +407,17 @@ describe('Módulo: ui.js', () => {
       const resizeBtn = card.querySelector('#resize-btn-resize-peer');
 
       expect(card.classList.contains('expanded-mode')).toBe(false);
+      expect(document.body.classList.contains('has-expanded-video')).toBe(false);
       expect(resizeBtn.textContent).toContain('Expandir');
 
       resizeBtn.click();
       expect(card.classList.contains('expanded-mode')).toBe(true);
+      expect(document.body.classList.contains('has-expanded-video')).toBe(true);
       expect(resizeBtn.textContent).toContain('Ajustar');
 
       resizeBtn.click();
       expect(card.classList.contains('expanded-mode')).toBe(false);
+      expect(document.body.classList.contains('has-expanded-video')).toBe(false);
       expect(resizeBtn.textContent).toContain('Expandir');
     });
 

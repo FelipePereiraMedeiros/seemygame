@@ -120,6 +120,11 @@ export function updateGridEmptyState() {
   } else {
     emptyState.style.display = 'none';
   }
+
+  if (document.body) {
+    const hasExpanded = grid.querySelector('.video-card.expanded-mode') !== null;
+    document.body.classList.toggle('has-expanded-video', hasExpanded);
+  }
 }
 
 /**
@@ -653,6 +658,10 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
     resizeBtn.title = title;
     overlayResizeBtn.innerHTML = label;
     overlayResizeBtn.title = title;
+    if (document.body) {
+      const anyExpanded = document.querySelector('.video-card.expanded-mode') !== null;
+      document.body.classList.toggle('has-expanded-video', anyExpanded);
+    }
   };
   resizeBtn.onclick = toggleResizeMode;
   overlayResizeBtn.onclick = (e) => {
