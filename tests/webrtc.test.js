@@ -76,6 +76,15 @@ describe('Módulo: webrtc.js', () => {
       const asMatches = (tuned.match(/b=AS:/g) || []).length;
       expect(asMatches).toBe(1);
     });
+
+    it('deve posicionar b=AS e b=TIAS estritamente após a linha c= conforme a RFC 8866', () => {
+      const tuned = tuneSdpForGaming(sampleSdp, 7500000);
+      // Na seção de vídeo, c= deve preceder b=AS
+      const cIndex = tuned.lastIndexOf('c=IN IP4 0.0.0.0');
+      const bIndex = tuned.indexOf('b=AS:7500');
+      expect(cIndex).toBeGreaterThan(-1);
+      expect(bIndex).toBeGreaterThan(cIndex);
+    });
   });
 
   describe('hookPeerConnectionSdp', () => {
@@ -165,6 +174,22 @@ describe('Módulo: webrtc.js', () => {
       expect(mockSetCodecPreferences).toHaveBeenCalled();
       const orderedCodecs = mockSetCodecPreferences.mock.calls[0][0];
       expect(orderedCodecs[0].mimeType).toBe('video/H264');
+    });
+
+    it('não deve tentar aplicar preferências de codecs de vídeo em transceivers de áudio', () => {
+      const mockSetCodecPreferences = vi.fn();
+      const audioTrack = new MockMediaStreamTrack('audio');
+      const audioTransceiver = {
+        sender: { track: audioTrack },
+        setCodecPreferences: mockSetCodecPreferences
+      };
+      const pc = {
+        getTransceivers: () => [audioTransceiver]
+      };
+
+      applyTransceiverOptimizations(pc);
+
+      expect(mockSetCodecPreferences).not.toHaveBeenCalled();
     });
   });
 

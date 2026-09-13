@@ -3,21 +3,44 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SeeMyGame - Stream P2P com Trava de 60 FPS (Zero Lag)</title>
+  <title>SeeMyGame - Stream P2P de Alta Fluidez (Alvo 60 FPS)</title>
   
   <!-- Estilos Modulares -->
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/player.css">
 
-  <!-- PeerJS CDN -->
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <!-- Roteamento inteligente de convites de espectador -->
+  <script>
+    (function() {
+      const hash = window.location.hash;
+      const search = window.location.search;
+      let targetId = null;
+
+      if (hash.includes('watch=')) {
+        targetId = hash.split('watch=')[1].split('&')[0];
+      } else if (search.includes('watch=')) {
+        const params = new URLSearchParams(search);
+        targetId = params.get('watch');
+      }
+
+      if (targetId) {
+        let basePath = window.location.pathname;
+        if (basePath.endsWith('.html')) {
+          basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
+        } else if (!basePath.endsWith('/')) {
+          basePath += '/';
+        }
+        window.location.replace(`${window.location.origin}${basePath}viewer.html#watch=${targetId}`);
+      }
+    })();
+  </script>
 </head>
 <body>
 
-  <!-- Modal de Termos de Uso e Idade -->
-  <div id="terms-modal" class="modal-overlay">
+  <!-- Modal de Termos de Uso e Idade (Acessível) -->
+  <div id="terms-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="terms-title">
     <div class="modal-content">
-      <h3>🛡️ Termos de Uso & Responsabilidade</h3>
+      <h3 id="terms-title">🛡️ Termos de Uso & Responsabilidade</h3>
       
       <div class="terms-box">
         <p><strong>1. Natureza da Aplicação:</strong> O <em>SeeMyGame</em> é uma ferramenta técnica de comunicação direta ponto-a-ponto (Peer-to-Peer - WebRTC). Todo o tráfego audiovisual ocorre exclusivamente entre os navegadores conectados, sem armazenamento, gravação ou moderação em servidores centrais.</p>
@@ -25,19 +48,8 @@
         <p><strong>3. Responsabilidade do Usuário:</strong> Você é o único e exclusivo responsável por todo o conteúdo que decidir transmitir e pelas conexões que estabelecer.</p>
       </div>
 
-      <div class="checkbox-group">
-        <label class="checkbox-item">
-          <input type="checkbox" id="check-age">
-          <span>Declaro que sou <strong>maior de 18 anos</strong>.</span>
-        </label>
-        <label class="checkbox-item">
-          <input type="checkbox" id="check-terms">
-          <span>Li e concordo com a isenção de responsabilidade e termos de uso.</span>
-        </label>
-      </div>
-
       <div class="modal-actions">
-        <button id="accept-btn" disabled>Aceitar e Continuar</button>
+        <button id="close-terms-btn" class="mode-btn" style="padding: 9px 18px; font-size: 13.5px;">Fechar</button>
       </div>
     </div>
   </div>
@@ -49,80 +61,131 @@
     </div>
 
     <div class="actions-container">
-      <div class="room-actions">
-        <input type="text" id="target-id" placeholder="Cole o ID ou link do seu amigo">
-        <button id="connect-btn">
-          <span>👀</span> Assistir Amigo
-        </button>
-      </div>
-
-      <div class="stream-actions">
-        <span id="copy-badge" class="id-badge" title="Clique para copiar seu ID">
-          <span>⏳</span> Gerando ID...
-        </span>
-        <button id="share-link-btn" class="btn-secondary" title="Copiar link direto para amigos assistirem" style="display:none;">
-          <span>🔗</span> Copiar Link
-        </button>
-        <button id="stream-btn" disabled>
-          <span>🚀</span> Transmitir Jogo (60 FPS)
-        </button>
-      </div>
+      <a href="streamer.html" class="nav-switch-btn" title="Abrir Estúdio do Streamer">
+        <span>🎙️</span> Painel do Streamer
+      </a>
+      <a href="viewer.html" class="nav-switch-btn" title="Abrir Sala do Espectador">
+        <span>👀</span> Modo Espectador
+      </a>
     </div>
   </header>
 
-  <!-- Painel de Tuning em Tempo Real (FPS Priority Engine) -->
-  <div class="tuning-bar">
-    <div class="tuning-group">
-      <span>⚡ <strong>Engine:</strong></span>
-      <select id="quality-preset">
-        <option value="ultra">⚡ 60 FPS Competitivo (720p @ 60 FPS Fixo - Fluidez Máxima)</option>
-        <option value="balanced" selected>🎮 60 FPS Dinâmico (1080p @ 60 FPS - Equilibrado)</option>
-        <option value="high">💎 60 FPS Alta Fidelidade (1080p @ 60 FPS - Alta Taxa)</option>
-      </select>
-      <div class="fps-lock-badge">
-        <span>🔒</span> Trava 60 FPS Ativa
+  <main class="portal-container">
+    <section class="portal-hero">
+      <h1>Stream P2P Direto no Navegador</h1>
+      <p>Compartilhe sua tela e áudio com alvo de 60 FPS e latência ultra-baixa via WebRTC. Escolha abaixo como deseja participar da transmissão:</p>
+    </section>
+
+    <div class="mode-cards-container">
+      <!-- Card Modo Streamer -->
+      <div class="mode-card">
+        <div>
+          <div class="mode-card-icon">🎙️</div>
+          <h2>Quero Transmitir (Streamer)</h2>
+          <p>Transmita sua gameplay ou tela com taxa de quadros contínua (Maintain-Framerate), controle de bitrate e sem servidores intermediários.</p>
+          
+          <ul class="mode-features">
+            <li><span>⚡</span> Alvo de 60 FPS com motor de baixa latência</li>
+            <li><span>🎧</span> Captura estéreo do áudio do jogo ou microfone</li>
+            <li><span>🔗</span> Geração de link de convite rápido para amigos</li>
+            <li><span>🎮</span> Suporte a Co-op Player 2 com autorização segura</li>
+          </ul>
+        </div>
+
+        <a href="streamer.html" class="mode-btn">
+          <span>🚀</span> Abrir Estúdio de Transmissão
+        </a>
       </div>
-    </div>
 
-    <div class="tuning-group slider-container">
-      <span>🎯 <strong>Bitrate:</strong></span>
-      <input type="range" id="bitrate-slider" min="2500" max="16000" step="500" value="7500">
-      <span class="bitrate-value" id="bitrate-display">7.5 Mbps</span>
-    </div>
+      <!-- Card Modo Espectador -->
+      <div class="mode-card viewer-card">
+        <div>
+          <div class="mode-card-icon">👀</div>
+          <h2>Quero Assistir (Espectador)</h2>
+          <p>Conecte-se à transmissão de um amigo para assistir à partida ao vivo com telemetria WebRTC e controles completos de reprodução.</p>
+          
+          <ul class="mode-features">
+            <li><span>🎯</span> Reprodução fluida a 60 FPS em tempo real</li>
+            <li><span>📊</span> HUD de estatísticas com FPS real e latência RTT</li>
+            <li><span>📺</span> Modos Tela Cheia e Picture-in-Picture (PiP)</li>
+            <li><span>🎮</span> Pedido de controle Player 2 ao streamer</li>
+          </ul>
+        </div>
 
-    <div class="tuning-group">
-      <span>🎧 <strong>Áudio:</strong></span>
-      <select id="audio-mode-select">
-        <option value="system" selected>🎮 Som do Jogo (Sistema)</option>
-        <option value="mic">🎙️ Microfone</option>
-        <option value="none">🔇 Apenas Vídeo</option>
-      </select>
-    </div>
-  </div>
-
-  <div class="banner-info" id="audio-tip-banner">
-    <div>
-      🚀 <strong>Modo Fluidez Máxima Ativo:</strong> O WebRTC está priorizando 60 FPS constantes. <em>Dica de áudio no Windows:</em> para capturar o som do jogo, selecione a aba <strong>"Tela inteira"</strong> (ou Guia) e marque <strong>"Compartilhar áudio do sistema"</strong>.
-    </div>
-    <button class="card-btn" id="close-banner-btn" style="background:transparent; border:none; color:#c4b5fd;">✕</button>
-  </div>
-
-  <main id="video-grid" class="video-grid">
-    <div class="empty-state" id="empty-state">
-      <div class="empty-state-icon">⚡🎮📺</div>
-      <h3>Nenhuma transmissão ativa no momento</h3>
-      <p>Clique em <strong>"Transmitir Jogo"</strong> para transmitir sua tela com <strong>trava de 60 FPS</strong> e motor de baixa latência, ou cole o ID do seu amigo acima para assistir em tempo real.</p>
+        <div>
+          <div class="portal-quick-connect">
+            <input 
+              type="text" 
+              id="portal-target-id" 
+              placeholder="Cole o ID ou link do streamer..." 
+              aria-label="ID ou link do streamer para assistir">
+            <button id="portal-connect-btn" class="mode-btn cyan-btn">
+              <span>👀</span> Assistir
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 
-  <div id="toast-container"></div>
+  <div id="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <footer>
-    <span>SeeMyGame • Transmissão P2P com prioridade absoluta de 60 FPS • </span>
-    <a id="open-terms-link">Termos de Uso</a>
+    <span>SeeMyGame • Transmissão P2P com prioridade de taxa de quadros • </span>
+    <a id="open-terms-link" tabindex="0" role="button" style="color: var(--accent-purple); cursor: pointer; text-decoration: underline;">Termos de Uso</a>
   </footer>
 
-  <!-- Script Modular Principal -->
-  <script type="module" src="js/app.js"></script>
+  <script>
+    // Quick Connect a partir da página inicial
+    const portalBtn = document.getElementById('portal-connect-btn');
+    const portalInput = document.getElementById('portal-target-id');
+
+    function executeQuickConnect() {
+      let val = portalInput?.value?.trim() || '';
+      let basePath = window.location.pathname;
+      if (basePath.endsWith('.html')) {
+        basePath = basePath.substring(0, basePath.lastIndexOf('/') + 1);
+      } else if (!basePath.endsWith('/')) {
+        basePath += '/';
+      }
+
+      if (val) {
+        if (val.includes('#watch=')) {
+          val = val.split('#watch=')[1].split('&')[0];
+        } else if (val.includes('watch=')) {
+          const params = new URLSearchParams(val.split('?')[1] || val);
+          val = params.get('watch') || val;
+        }
+        window.location.href = `${window.location.origin}${basePath}viewer.html#watch=${encodeURIComponent(val)}`;
+      } else {
+        window.location.href = `${window.location.origin}${basePath}viewer.html`;
+      }
+    }
+
+    if (portalBtn) {
+      portalBtn.addEventListener('click', executeQuickConnect);
+    }
+    if (portalInput) {
+      portalInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') executeQuickConnect();
+      });
+    }
+
+    // Modal simples de termos no index
+    const openTermsLink = document.getElementById('open-terms-link');
+    const termsModal = document.getElementById('terms-modal');
+    const closeTermsBtn = document.getElementById('close-terms-btn');
+
+    if (openTermsLink && termsModal) {
+      openTermsLink.addEventListener('click', () => {
+        termsModal.style.display = 'flex';
+      });
+    }
+    if (closeTermsBtn && termsModal) {
+      closeTermsBtn.addEventListener('click', () => {
+        termsModal.style.display = 'none';
+      });
+    }
+  </script>
 </body>
 </html>

@@ -1,40 +1,65 @@
 # 🎮 SeeMyGame
 
-Plataforma de streaming P2P (*Peer-to-Peer*) em tempo real no navegador com foco em **trava de 60 FPS** e **latência ultra-baixa** (*Zero Lag*).
+Plataforma de streaming P2P (*Peer-to-Peer*) em tempo real no navegador com foco em **alta fluidez (Alvo de 60 FPS)** e **baixa latência**.
 
-Desenvolvido para transmitir jogos e telas diretamente entre navegadores usando WebRTC e sinalização via PeerJS, sem necessidade de servidores de mídia intermediários.
-
----
-
-## ⚡ Principais Recursos
-
-- **Trava Estrita de 60 FPS:** Configuração WebRTC com `degradationPreference = 'maintain-framerate'`, instruindo o codificador a priorizar a taxa de quadros e nunca sofrer com engasgos.
-- **Aceleração por Hardware (H.264):** Priorização do codec H.264 via `setCodecPreferences` para reduzir o uso de CPU e acionar codificação por GPU (NVENC, Intel QuickSync, AMD AMF).
-- **Zerar Jitter Buffer:** Configuração de `jitterBufferTarget = 0` e `playoutDelayHint = 0` nos receptores para reprodução instantânea dos pacotes de vídeo.
-- **Áudio Estéreo Opus Gamer 128 kbps:** Injeção no SDP para áudio estéreo real em 48 kHz CBR com `stereo=1;sprop-stereo=1;cbr=1`.
-- **VU Meter Estéreo L / R:** Analisador visual de áudio estéreo em tempo real utilizando Web Audio API (`AudioContext`, `ChannelSplitterNode`).
-- **Tuning em Tempo Real:** Slider dinâmico de bitrate (2.5 a 16 Mbps) e perfis prontos (Ultra 720p60, Balanced 1080p60 e High 1080p60).
-- **HUD de Telemetria Integrado:** Medição ao vivo de FPS, ping/latência RTT (ms), bitrate consumido (Mbps) e resolução atual através de `RTCPeerConnection.getStats()`.
-- **Recursos de Player:** Picture-in-Picture (PiP), tela cheia e controle de áudio independente.
+Desenvolvido para transmitir jogos e telas diretamente entre navegadores usando WebRTC e sinalização via PeerJS, sem necessidade de servidores de mídia intermediários centralizados.
 
 ---
 
-## 📁 Arquitetura Modular
+## ⚡ Principais Recursos & Diretrizes Técnicas
+
+- **Prioridade de Taxa de Quadros (Alvo 60 FPS):** Configuração WebRTC com `degradationPreference = 'maintain-framerate'` e `contentHint = 'motion'`, instruindo o navegador e o codificador a priorizarem 60 FPS mesmo sob pequenas variações de banda.
+- **Preferência por H.264:** Priorização do codec H.264 via `setCodecPreferences` em transceivers de vídeo para permitir aceleração por hardware (NVENC, Intel QuickSync, AMD AMF) quando suportada pelo navegador e GPU do sistema.
+- **Controle de Jitter Buffer & Latência:** Configuração de `jitterBufferTarget = 0` e `playoutDelayHint = 0` para modo ultra baixa latência, ou `0.05` para redes com oscilação moderada.
+- **Áudio Estéreo Opus Gamer 128 kbps:** Injeção no SDP em conformidade com a RFC 8866 para áudio estéreo real em 48 kHz CBR (`stereo=1;sprop-stereo=1;maxaveragebitrate=128000;cbr=1`).
+- **VU Meter Estéreo L / R com Liberação de Recursos:** Analisador visual de áudio Web Audio API (`AudioContext`, `ChannelSplitterNode`), com desconexão explícita de todos os nós ao encerrar o player para evitar vazamentos de memória.
+- **Tuning Dinâmico e Restrições em Tempo Real:** Slider de bitrate (2.5 a 16 Mbps) e perfis (720p60 e 1080p60) que atualizam ativamente as constraints da trilha (`applyConstraints`) e o encoder durante a transmissão.
+- **Telemetria WebRTC Real (HUD):** Medição ao vivo de FPS, ping/latência RTT (ms) a partir do candidate-pair ativo/nomeado, bitrate consumido (Mbps), pacotes perdidos e resolução atual via `RTCPeerConnection.getStats()`.
+- **Blindagem contra Injeção de HTML (XSS):** Validação estrita de Peer IDs (`^[a-zA-Z0-9_-]{1,64}$`) e manipulação de DOM através de APIs nativas seguras com `textContent`.
+- **Gerenciamento Idempotente de Chamadas:** Prevenção de chamadas duplicadas por espectador, encerramento completo de conexões WebRTC ao parar a transmissão e máquina de estados para cancelamento de conexões pendentes.
+- **Suporte a TURN Dinâmico via Serverless (/api/turn):** Resolução dinâmica de servidores TURN/STUN com credenciais temporárias (compatível com Metered Video no Vercel via `METERED_DOMAIN` e `METERED_API_KEY`) e fallback automático para OpenRelay, garantindo 100% de conectividade em redes móveis (4G/5G) e CGNAT restritivos.
+- **Controle Remoto Co-op Player 2 (Parsec no Navegador):** Espectadores podem solicitar autorização ao streamer para jogar como Player 2. Os comandos (teclado, mouse normalizado e gamepad a 60 Hz) trafegam via WebRTC DataChannel de baixíssima latência.
+- **Botão de Pânico / Killswitch Instantâneo:** O streamer tem total controle com autorização explícita via modal e revogação imediata a qualquer momento ao pressionar a tecla `Escape` ou o botão de pânico na interface.
+- **Agente Companion para Jogos de PC (tools/coop-agent.py):** Agente local em Python opcional para o streamer que injeta os comandos remotos do Player 2 diretamente em jogos nativos do Windows (Steam, emuladores, etc.).
+- **Responsividade & Acessibilidade:** Grade fluida sem overflow em telas móveis, semântica ARIA para modais e leitores de tela, e integridade SRI no CDN do PeerJS.
+
+---
+
+## 🎮 Como Funciona o Co-op Player 2 & Agente PC
+
+1. **Jogos Web / Emuladores no Navegador:** Funciona 100% nativo no navegador sem nenhum programa adicional instalado. O streamer clica em autorizar e o Player 2 já assume o controle!
+2. **Jogos Nativos do Windows (Steam, RetroArch, etc.):**
+   - O streamer executa uma única vez no terminal:
+     ```bash
+     python tools/coop-agent.py
+     ```
+   - O SeeMyGame conecta automaticamente via WebSocket local (`ws://localhost:9876`). Os inputs recebidos do Player 2 passam a ser injetados diretamente na janela ativa do Windows com suporte a gamepad e teclado.
+
+---
+
+## 📁 Arquitetura Modular & Páginas Dedicadas
 
 ```
 SeeMyGame/
+├── index.html            # Portal inicial: seleção de modo e roteamento inteligente
+├── streamer.html         # Estúdio do Streamer: transmissão, presets 60 FPS, áudio e telemetria
+├── viewer.html           # Sala do Espectador: conexão por ID/link, reprodução a 60 FPS e Co-op
+├── api/
+│   └── turn.js           # Serverless Function: credenciais TURN dinâmicas (Vercel/Node)
+├── tools/
+│   └── coop-agent.py     # Agente Companion para injeção de inputs em jogos nativos do PC
 ├── css/
-│   ├── main.css          # Variáveis de design, layout, cabeçalho, painel de tuning, modal e toasts
-│   └── player.css        # Grade multi-stream, cartões de vídeo, HUD de telemetria e VU meter estéreo
+│   ├── main.css          # Variáveis de design, layout, responsividade mobile, modal acessível e toasts
+│   └── player.css        # Grade fluida, cartões de vídeo, HUDs, overlays e estilo Player 2
 ├── js/
-│   ├── config.js         # Servidores STUN/TURN, perfis de qualidade e constantes de bitrate
-│   ├── webrtc.js         # Motor WebRTC: SDP mangling, preferência H.264, zero jitter buffer e FPS lock
-│   ├── audio.js          # Analisador estéreo Web Audio API e loop do VU meter
-│   ├── stats.js          # Coletor de telemetria via getStats (FPS, RTT, bitrate e resolução)
-│   ├── ui.js             # Manipulação do DOM, toasts, modal de termos e gerenciamento de cartões de vídeo
-│   └── app.js            # Orquestrador central: PeerJS, captura de tela (getDisplayMedia) e eventos
-├── index.html            # Ponto de entrada limpo e semântico
-└── README.md             # Documentação do projeto
+│   ├── config.js         # Servidores STUN/TURN, fetchIceServersFromApi, perfis de qualidade
+│   ├── webrtc.js         # Motor WebRTC: SDP RFC 8866, preferência H.264, Jitter Buffer e FPS target
+│   ├── coop.js           # Módulo Co-op: DataChannel, inputs P2, gamepad polling, killswitch
+│   ├── audio.js          # Analisador estéreo Web Audio API, VU meter e ciclo de vida de nós
+│   ├── stats.js          # Coletor de telemetria getStats (FPS, RTT ativo, bitrate, perda de pacotes)
+│   ├── ui.js             # Manipulação segura do DOM (sem XSS), validação de IDs, modais Co-op
+│   └── app.js            # Orquestrador central: PeerJS, getDisplayMedia resiliente, chamadas
+└── README.md             # Documentação técnica e operacional
 ```
 
 ---
@@ -43,24 +68,38 @@ SeeMyGame/
 
 Como a aplicação é modular e utiliza ES Modules (`<script type="module">`), ela deve ser servida através de um servidor HTTP local simples:
 
-### Opção 1: Usando Python
+### Opção 1: Usando Node / npx
+```bash
+npx serve .
+```
+
+### Opção 2: Usando Python
 ```bash
 python -m http.server 8080
 ```
 Acesse no navegador: `http://localhost:8080`
 
-### Opção 2: Usando Node / npx
+---
+
+## 🧪 Testes Automatizados & Cobertura
+
+Para executar a suíte de testes com o Vitest:
 ```bash
-npx serve .
+npm test
 ```
 
-### Opção 3: Extensão VSCode / IDE
-Utilize a extensão **Live Server** ou similar e abra o `index.html`.
+Para verificar o relatório de cobertura de código (v8):
+```bash
+npm run test:coverage
+```
 
 ---
 
 ## 🌐 Como Compartilhar com Amigos
 
-1. Clique em **"Transmitir Jogo"** e selecione a janela ou tela desejada (lembre-se de marcar a opção de compartilhar áudio do sistema).
-2. Clique no botão **"Copiar Link"** (ou copie seu ID gerado no topo).
-3. Envie o link ou ID para seus amigos. Quando eles abrirem o link ou colarem o ID no campo "Assistir Amigo", a transmissão será iniciada em tempo real ponto-a-ponto!
+1. Acesse o **Estúdio do Streamer** (`streamer.html`) ou escolha "Quero Transmitir" na página inicial.
+2. Configure a qualidade desejada (presets 60 FPS e bitrate) e fonte de áudio.
+3. Clique em **"Transmitir Jogo"** e selecione a janela ou tela desejada (lembre-se de marcar a opção de compartilhar áudio do sistema).
+4. Clique no botão **"Copiar Link"** (que gera um link direto para a sala do espectador `viewer.html#watch=SEU_ID`).
+5. Envie o link para seus amigos. Quando eles abrirem o link, serão direcionados para a página dedicada do espectador e a conexão iniciará automaticamente, sem botões confusos de transmissão!
+

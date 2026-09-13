@@ -3,7 +3,7 @@
 // ==========================================
 
 let audioCtx = null;
-const vuIntervals = new Map(); // PeerId -> animationFrameId
+const activeAudioPipelines = new Map(); // PeerId -> { source, splitter, analyserL, analyserR, rafId }
 
 /**
  * Obtém ou inicializa o contexto de áudio
@@ -27,11 +27,14 @@ export function getAudioContext() {
 export function initAudioAnalyser(stream, peerId) {
   if (!stream || stream.getAudioTracks().length === 0) return;
 
+  // Garante que qualquer loop/pipeline anterior desse peer seja completamente encerrado e desconectado
+  stopAudioAnalyser(peerId);
+
   try {
     const ctx = getAudioContext();
     const source = ctx.createMediaStreamSource(stream);
     const splitter = ctx.createChannelSplitter(2);
-    
+
     const analyserL = ctx.createAnalyser();
     const analyserR = ctx.createAnalyser();
     analyserL.fftSize = 64;
@@ -47,8 +50,13 @@ export function initAudioAnalyser(stream, peerId) {
     const barL = document.getElementById(`vu-l-${peerId}`);
     const barR = document.getElementById(`vu-r-${peerId}`);
 
-    // Garante que qualquer loop anterior desse peer seja encerrado
-    stopAudioAnalyser(peerId);
+    const pipeline = {
+      source,
+      splitter,
+      analyserL,
+      analyserR,
+      rafId: null
+    };
 
     function renderVU() {
       if (!document.getElementById(`card-${peerId}`)) {
@@ -70,9 +78,10 @@ export function initAudioAnalyser(stream, peerId) {
       if (barL) barL.style.width = `${avgL}%`;
       if (barR) barR.style.width = `${avgR}%`;
 
-      vuIntervals.set(peerId, requestAnimationFrame(renderVU));
+      pipeline.rafId = requestAnimationFrame(renderVU);
     }
 
+    activeAudioPipelines.set(peerId, pipeline);
     renderVU();
   } catch (err) {
     console.warn('Erro ao inicializar VU meter de áudio:', err);
@@ -80,12 +89,55 @@ export function initAudioAnalyser(stream, peerId) {
 }
 
 /**
- * Encerra a animação e análise de áudio de um peer específico
+ * Encerra a animação e desconecta explicitamente todos os nós de áudio do peer
  * @param {string} peerId
  */
 export function stopAudioAnalyser(peerId) {
-  if (vuIntervals.has(peerId)) {
-    cancelAnimationFrame(vuIntervals.get(peerId));
-    vuIntervals.delete(peerId);
+  const pipeline = activeAudioPipelines.get(peerId);
+  if (pipeline) {
+    if (pipeline.rafId) {
+      cancelAnimationFrame(pipeline.rafId);
+    }
+
+    // Desconecta explicitamente cada nó da Web Audio API para prevenir memory leaks
+    try {
+      if (pipeline.source && typeof pipeline.source.disconnect === 'function') {
+        pipeline.source.disconnect();
+      }
+    } catch (e) {}
+
+    try {
+      if (pipeline.splitter && typeof pipeline.splitter.disconnect === 'function') {
+        pipeline.splitter.disconnect();
+      }
+    } catch (e) {}
+
+    try {
+      if (pipeline.analyserL && typeof pipeline.analyserL.disconnect === 'function') {
+        pipeline.analyserL.disconnect();
+      }
+    } catch (e) {}
+
+    try {
+      if (pipeline.analyserR && typeof pipeline.analyserR.disconnect === 'function') {
+        pipeline.analyserR.disconnect();
+      }
+    } catch (e) {}
+
+    activeAudioPipelines.delete(peerId);
   }
+
+  // Reseta visualmente as barras se ainda presentes
+  const barL = document.getElementById(`vu-l-${peerId}`);
+  const barR = document.getElementById(`vu-r-${peerId}`);
+  if (barL) barL.style.width = '0%';
+  if (barR) barR.style.width = '0%';
+}
+
+/**
+ * Interrompe todos os analisadores ativos
+ */
+export function stopAllAudioAnalysers() {
+  const peerIds = Array.from(activeAudioPipelines.keys());
+  peerIds.forEach(id => stopAudioAnalyser(id));
 }

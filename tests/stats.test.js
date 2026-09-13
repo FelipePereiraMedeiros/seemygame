@@ -177,6 +177,66 @@ describe('Módulo: stats.js', () => {
       await vi.advanceTimersByTimeAsync(1000);
       stopStatsMonitor(peerId);
     });
+
+    it('deve priorizar candidate-pair ativo (nominated/selected) sobre outros pares bem-sucedidos', async () => {
+      const peerId = 'peer-stats-nominated';
+      setupStatsDom(peerId);
+
+      const pc = new MockRTCPeerConnection();
+      pc.getStats = vi.fn().mockResolvedValue([
+        {
+          type: 'candidate-pair',
+          state: 'succeeded',
+          nominated: false,
+          currentRoundTripTime: 0.050 // 50 ms (não nomeado)
+        },
+        {
+          type: 'candidate-pair',
+          state: 'succeeded',
+          nominated: true,
+          currentRoundTripTime: 0.012 // 12 ms (nomeado / ativo)
+        }
+      ]);
+
+      startStatsMonitor(peerId, pc);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      const rttElem = document.getElementById(`stat-rtt-${peerId}`);
+      expect(rttElem.innerText).toBe('12 ms');
+
+      stopStatsMonitor(peerId);
+    });
+
+    it('deve atualizar elementos de perda de pacotes e limitação de qualidade quando presentes', async () => {
+      const peerId = 'peer-stats-adv';
+      document.body.innerHTML = `
+        <div id="stat-rtt-${peerId}">-- ms</div>
+        <div id="stat-fps-${peerId}">-- FPS</div>
+        <div id="stat-bitrate-${peerId}">-- Mbps</div>
+        <div id="stat-res-${peerId}">--</div>
+        <div id="stat-loss-${peerId}">--</div>
+        <div id="stat-quality-${peerId}">--</div>
+      `;
+
+      const pc = new MockRTCPeerConnection();
+      pc.getStats = vi.fn().mockResolvedValue([
+        {
+          type: 'inbound-rtp',
+          kind: 'video',
+          framesPerSecond: 60,
+          bytesReceived: 2000000,
+          packetsLost: 5
+        }
+      ]);
+
+      startStatsMonitor(peerId, pc, false);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      const lossElem = document.getElementById(`stat-loss-${peerId}`);
+      expect(lossElem.innerText).toBe('5 perdidos');
+
+      stopStatsMonitor(peerId);
+    });
   });
 
   describe('stopStatsMonitor', () => {

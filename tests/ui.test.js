@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  isValidPeerId,
   showToast,
   initTermsModal,
   updateGridEmptyState,
   createPlaceholderCard,
   updateCardStatus,
   hideCardLoading,
+  setCardStreamPaused,
   removeVideoCard,
   addOrUpdateVideoCard
 } from '../js/ui.js';
@@ -365,6 +367,66 @@ describe('Módulo: ui.js', () => {
       await pipBtn.click();
 
       expect(pipSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('Segurança e Sanitização contra XSS', () => {
+    it('isValidPeerId deve aceitar IDs alfanuméricos válidos com hífen e underline', () => {
+      expect(isValidPeerId('peer-123')).toBe(true);
+      expect(isValidPeerId('user_stream_456')).toBe(true);
+      expect(isValidPeerId('a1b2c3d4e5')).toBe(true);
+    });
+
+    it('isValidPeerId deve rejeitar IDs com payloads maliciosos de injeção HTML/XSS ou caracteres inválidos', () => {
+      expect(isValidPeerId('<img src=x onerror=alert(1)>')).toBe(false);
+      expect(isValidPeerId('user"><script>alert(1)</script>')).toBe(false);
+      expect(isValidPeerId('peer id with spaces')).toBe(false);
+      expect(isValidPeerId('peer#hash')).toBe(false);
+      expect(isValidPeerId('')).toBe(false);
+      expect(isValidPeerId(null)).toBe(false);
+      expect(isValidPeerId(undefined)).toBe(false);
+      // Mais de 64 caracteres
+      expect(isValidPeerId('a'.repeat(65))).toBe(false);
+    });
+
+    it('showToast deve renderizar mensagens com tags HTML como texto puro sem interpretar como elementos do DOM', () => {
+      showToast('<b id="xss-test-element">Payload Negrito</b>', 'error');
+
+      const container = document.getElementById('toast-container');
+      const injectedElement = container.querySelector('#xss-test-element');
+
+      // Não deve ter criado a tag <b> no DOM
+      expect(injectedElement).toBeNull();
+      // O texto literal deve estar presente
+      expect(container.textContent).toContain('<b id="xss-test-element">Payload Negrito</b>');
+    });
+
+    it('createPlaceholderCard não deve criar cartão se o peerId for inválido/malformado', () => {
+      createPlaceholderCard('<img src=x onerror=alert(1)>', 'Texto teste');
+      const cards = document.querySelectorAll('.video-card');
+      expect(cards.length).toBe(0);
+    });
+  });
+
+  describe('setCardStreamPaused', () => {
+    it('deve alternar a visibilidade do overlay de stream pausado', () => {
+      const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'paused-peer',
+        label: 'Pausado Test'
+      });
+
+      const pausedOverlay = document.getElementById('paused-overlay-paused-peer');
+      expect(pausedOverlay).not.toBeNull();
+      expect(pausedOverlay.style.display).toBe('none');
+
+      setCardStreamPaused('paused-peer', true, 'A transmissão foi pausada');
+      expect(pausedOverlay.style.display).toBe('flex');
+      expect(pausedOverlay.textContent).toContain('A transmissão foi pausada');
+
+      setCardStreamPaused('paused-peer', false);
+      expect(pausedOverlay.style.display).toBe('none');
     });
   });
 });

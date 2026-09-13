@@ -139,5 +139,56 @@ describe('Módulo: audio.js', () => {
     it('não deve lançar erro se chamado para um peerId inexistente', () => {
       expect(() => stopAudioAnalyser('inexistent-peer')).not.toThrow();
     });
+
+    it('deve desconectar explicitamente todos os nós de áudio (source, splitter, analysers) para evitar vazamento de recursos', () => {
+      const audioTrack = new MockMediaStreamTrack('audio');
+      const stream = new MockMediaStream([audioTrack]);
+      const ctx = getAudioContext();
+
+      let createdSource = null;
+      let createdSplitter = null;
+      const createdAnalysers = [];
+
+      vi.spyOn(ctx, 'createMediaStreamSource').mockImplementation((s) => {
+        createdSource = { stream: s, connect: vi.fn(), disconnect: vi.fn() };
+        return createdSource;
+      });
+
+      vi.spyOn(ctx, 'createChannelSplitter').mockImplementation((n) => {
+        createdSplitter = { numberOfOutputs: n, connect: vi.fn(), disconnect: vi.fn() };
+        return createdSplitter;
+      });
+
+      vi.spyOn(ctx, 'createAnalyser').mockImplementation(() => {
+        const a = {
+          fftSize: 64,
+          frequencyBinCount: 32,
+          getByteFrequencyData: vi.fn(),
+          connect: vi.fn(),
+          disconnect: vi.fn()
+        };
+        createdAnalysers.push(a);
+        return a;
+      });
+
+      document.body.innerHTML = `
+        <div id="card-peer-nodes">
+          <div id="vu-l-peer-nodes"></div>
+          <div id="vu-r-peer-nodes"></div>
+        </div>
+      `;
+
+      initAudioAnalyser(stream, 'peer-nodes');
+      expect(createdSource).not.toBeNull();
+      expect(createdSplitter).not.toBeNull();
+      expect(createdAnalysers.length).toBe(2);
+
+      stopAudioAnalyser('peer-nodes');
+
+      expect(createdSource.disconnect).toHaveBeenCalled();
+      expect(createdSplitter.disconnect).toHaveBeenCalled();
+      expect(createdAnalysers[0].disconnect).toHaveBeenCalled();
+      expect(createdAnalysers[1].disconnect).toHaveBeenCalled();
+    });
   });
 });

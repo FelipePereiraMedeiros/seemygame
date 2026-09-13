@@ -1,5 +1,5 @@
 // ==========================================
-// MONITOR DE ESTATÍSTICAS (FPS / RTT / BITRATE)
+// MONITOR DE ESTATÍSTICAS REAL (FPS / RTT / BITRATE)
 // ==========================================
 
 const statsIntervals = new Map();   // PeerId -> intervalId
@@ -31,35 +31,43 @@ export function startStatsMonitor(peerId, pc, isLocal = false) {
       let bytes = 0;
       let width = null;
       let height = null;
+      let packetsLost = null;
+      let qualityReason = null;
 
+      // Primeiro busca pelo candidate-pair ativo (nominated ou selected)
       stats.forEach((report) => {
-        // RTT (Ping)
         if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-          if (report.currentRoundTripTime !== undefined) {
-            rtt = Math.round(report.currentRoundTripTime * 1000);
+          const isNominated = report.nominated === true || report.selected === true;
+          if (isNominated || rtt === null) {
+            if (report.currentRoundTripTime !== undefined) {
+              rtt = Math.round(report.currentRoundTripTime * 1000);
+            }
           }
         }
+      });
 
-        // Inbound (Espectador)
-        if (report.type === 'inbound-rtp' && report.kind === 'video') {
+      // Separação estrita: Inbound (espectador) vs Outbound (streamer local)
+      stats.forEach((report) => {
+        if (!isLocal && report.type === 'inbound-rtp' && report.kind === 'video') {
           if (report.framesPerSecond !== undefined) fps = Math.round(report.framesPerSecond);
           if (report.bytesReceived !== undefined) bytes = report.bytesReceived;
           if (report.frameWidth !== undefined) width = report.frameWidth;
           if (report.frameHeight !== undefined) height = report.frameHeight;
+          if (report.packetsLost !== undefined) packetsLost = report.packetsLost;
         }
 
-        // Outbound (Transmissor)
-        if (report.type === 'outbound-rtp' && report.kind === 'video') {
+        if (isLocal && report.type === 'outbound-rtp' && report.kind === 'video') {
           if (report.framesPerSecond !== undefined) fps = Math.round(report.framesPerSecond);
           if (report.bytesSent !== undefined) bytes = report.bytesSent;
           if (report.frameWidth !== undefined) width = report.frameWidth;
           if (report.frameHeight !== undefined) height = report.frameHeight;
+          if (report.qualityLimitationReason !== undefined) qualityReason = report.qualityLimitationReason;
         }
 
-        // Track info
+        // Informações adicionais da trilha
         if (report.type === 'track' && report.kind === 'video') {
-          if (report.frameWidth) width = report.frameWidth;
-          if (report.frameHeight) height = report.frameHeight;
+          if (report.frameWidth && !width) width = report.frameWidth;
+          if (report.frameHeight && !height) height = report.frameHeight;
         }
       });
 
@@ -77,11 +85,36 @@ export function startStatsMonitor(peerId, pc, isLocal = false) {
       const fpsElem = document.getElementById(`stat-fps-${peerId}`);
       const bitElem = document.getElementById(`stat-bitrate-${peerId}`);
       const resElem = document.getElementById(`stat-res-${peerId}`);
+      const lossElem = document.getElementById(`stat-loss-${peerId}`);
+      const qualityElem = document.getElementById(`stat-quality-${peerId}`);
 
-      if (rttElem && rtt !== null) rttElem.innerText = `${rtt} ms`;
-      if (fpsElem && fps !== null) fpsElem.innerText = `${fps} FPS`;
-      if (bitElem) bitElem.innerText = `${bitrateMbps} Mbps`;
-      if (resElem && width && height) resElem.innerText = `${width}x${height}`;
+      if (rttElem) {
+        if (rtt !== null) {
+          rttElem.innerText = `${rtt} ms`;
+        } else if (isLocal) {
+          rttElem.innerText = '0 ms (local)';
+        }
+      }
+
+      if (fpsElem && fps !== null) {
+        fpsElem.innerText = `${fps} FPS`;
+      }
+
+      if (bitElem) {
+        bitElem.innerText = isLocal ? `${bitrateMbps} Mbps (Envio)` : `${bitrateMbps} Mbps`;
+      }
+
+      if (resElem && width && height) {
+        resElem.innerText = `${width}x${height}`;
+      }
+
+      if (lossElem && packetsLost !== null) {
+        lossElem.innerText = `${packetsLost} perdidos`;
+      }
+
+      if (qualityElem && qualityReason) {
+        qualityElem.innerText = qualityReason === 'none' ? 'Normal' : qualityReason.toUpperCase();
+      }
 
     } catch (err) {}
   }, 1000);

@@ -395,3 +395,294 @@ footer a:hover {
   justify-content: flex-end;
   gap: 10px;
 }
+
+/* Responsividade Mobile & Tablet */
+@media (max-width: 768px) {
+  body {
+    padding: 12px 14px;
+  }
+
+  header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .brand {
+    justify-content: center;
+  }
+
+  .actions-container {
+    flex-direction: column;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .room-actions, .stream-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .room-actions input[type="text"] {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .stream-actions {
+    flex-direction: column;
+  }
+
+  .stream-actions button, .stream-actions span {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .tuning-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 12px 14px;
+  }
+
+  .tuning-group {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .tuning-group select {
+    flex: 1;
+    max-width: 100%;
+  }
+
+  #toast-container {
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+  }
+
+  .toast {
+    min-width: unset;
+    width: 100%;
+  }
+}
+
+/* ==========================================
+   Badges de Papel e Navegação entre Páginas
+   ========================================== */
+.role-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(139, 92, 246, 0.15);
+  color: #c4b5fd;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.role-badge.viewer {
+  background: rgba(6, 182, 212, 0.15);
+  color: #67e8f9;
+  border-color: rgba(6, 182, 212, 0.3);
+}
+
+.nav-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.nav-switch-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: var(--border-hover);
+}
+
+/* ==========================================
+   Portal Landing Page (index.html)
+   ========================================== */
+.portal-container {
+  max-width: 960px;
+  margin: 32px auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  width: 100%;
+}
+
+.portal-hero {
+  text-align: center;
+  max-width: 680px;
+}
+
+.portal-hero h1 {
+  font-size: 2.3rem;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #fff 40%, var(--accent-purple) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.portal-hero p {
+  font-size: 1.05rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.mode-cards-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+  width: 100%;
+}
+
+.mode-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 30px 26px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.mode-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan));
+  opacity: 0.8;
+}
+
+.mode-card.viewer-card::before {
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+}
+
+.mode-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent-purple);
+  box-shadow: 0 16px 32px rgba(139, 92, 246, 0.15);
+}
+
+.mode-card.viewer-card:hover {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 16px 32px rgba(6, 182, 212, 0.15);
+}
+
+.mode-card-icon {
+  font-size: 2.5rem;
+  margin-bottom: 16px;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.mode-card.viewer-card .mode-card-icon {
+  background: rgba(6, 182, 212, 0.1);
+  border-color: rgba(6, 182, 212, 0.2);
+}
+
+.mode-card h2 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 10px;
+  color: #fff;
+}
+
+.mode-card p {
+  color: var(--text-muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+  margin-bottom: 18px;
+}
+
+.mode-features {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.mode-features li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 20px;
+  font-size: 14.5px;
+  font-weight: 700;
+  border-radius: 10px;
+  text-decoration: none;
+  background: var(--accent-purple);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px var(--accent-purple-glow);
+}
+
+.mode-btn:hover {
+  background: var(--accent-purple-hover);
+  transform: scale(1.02);
+}
+
+.mode-btn.cyan-btn {
+  background: #0284c7;
+  box-shadow: 0 4px 14px rgba(6, 182, 212, 0.25);
+}
+
+.mode-btn.cyan-btn:hover {
+  background: #0369a1;
+}
+
+.portal-quick-connect {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.portal-quick-connect input {
+  flex: 1;
+  min-width: 0;
+}
+

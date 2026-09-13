@@ -95,6 +95,7 @@ describe('Módulo: app.js', () => {
         <span id="copy-badge" class="id-badge">Gerando ID...</span>
         <button id="share-link-btn" style="display:none;">Copiar Link</button>
         <button id="stream-btn" disabled>Transmitir Jogo</button>
+        <span id="viewer-count">0 espectadores</span>
         <input type="text" id="target-id">
         <button id="connect-btn">Assistir Amigo</button>
       </header>
@@ -215,21 +216,24 @@ describe('Módulo: app.js', () => {
       expect(writeTextSpy).toHaveBeenCalledWith('my-test-id-123');
     });
 
-    it('deve copiar link direto com hash watch ao clicar em shareLinkBtn', () => {
+    it('deve copiar link direto apontando para viewer.html com hash watch ao clicar em shareLinkBtn', () => {
       const shareLinkBtn = document.getElementById('share-link-btn');
       const writeTextSpy = vi.spyOn(navigator.clipboard, 'writeText');
 
       shareLinkBtn.click();
 
-      expect(writeTextSpy).toHaveBeenCalledWith(expect.stringContaining('#watch=my-test-id-123'));
+      expect(writeTextSpy).toHaveBeenCalledWith(expect.stringContaining('viewer.html#watch=my-test-id-123'));
     });
 
-    it('deve gerenciar conexões de dados recebidas (connection)', () => {
+    it('deve gerenciar conexões de dados recebidas (connection) e atualizar o contador de espectadores', () => {
       const peerInstance = MockPeer.lastInstance;
       const mockConn = new MockDataConnection('viewer-peer-1');
+      const countBadge = document.getElementById('viewer-count');
 
       peerInstance.emit('connection', mockConn);
       mockConn.emit('open');
+
+      expect(countBadge.textContent).toContain('1 espectador');
 
       expect(mockConn.send).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'STREAM_STATUS' })
@@ -237,11 +241,16 @@ describe('Módulo: app.js', () => {
 
       mockConn.emit('data', { type: 'REQUEST_STREAM' });
       mockConn.emit('close');
+
+      expect(countBadge.textContent).toContain('0 espectadores');
     });
 
-    it('deve gerenciar chamadas de mídia recebidas (call) e renderizar vídeo remoto', () => {
+    it('deve gerenciar chamadas de mídia recebidas (call) e renderizar vídeo remoto quando solicitadas', () => {
       const peerInstance = MockPeer.lastInstance;
       const mockCall = new MockMediaConnection('streamer-host-789');
+
+      // Registra que estamos assistindo a este host
+      app.watchFriend('streamer-host-789');
 
       peerInstance.emit('call', mockCall);
       expect(mockCall.answer).toHaveBeenCalled();
@@ -254,6 +263,15 @@ describe('Módulo: app.js', () => {
 
       mockCall.emit('close');
       expect(document.getElementById('card-streamer-host-789')).toBeNull();
+    });
+
+    it('deve rejeitar chamadas de mídia não solicitadas de peers desconhecidos', () => {
+      const peerInstance = MockPeer.lastInstance;
+      const unsolicitedCall = new MockMediaConnection('unknown-spammer');
+
+      peerInstance.emit('call', unsolicitedCall);
+      expect(unsolicitedCall.answer).not.toHaveBeenCalled();
+      expect(unsolicitedCall.close).toHaveBeenCalled();
     });
 
     it('deve tratar evento de erro peer-unavailable', () => {
@@ -384,6 +402,76 @@ describe('Módulo: app.js', () => {
 
       await expect(app.startLocalStream()).resolves.not.toThrow();
       expect(document.getElementById('card-local-me')).toBeNull();
+    });
+
+    it('deve fechar todas as chamadas de mídia ativas dos espectadores ao invocar stopLocalStream', async () => {
+      const videoTrack = new MockMediaStreamTrack('video');
+      const mockStream = new MockMediaStream([videoTrack]);
+      navigator.mediaDevices.getDisplayMedia = vi.fn().mockResolvedValue(mockStream);
+
+      await app.startLocalStream();
+
+      // Simula conexão de um espectador
+      const peerInstance = MockPeer.lastInstance;
+      const mockConn = new MockDataConnection('viewer-close-test');
+      peerInstance.emit('connection', mockConn);
+      mockConn.emit('open');
+
+      const mediaCall = MockPeer.lastMediaCall;
+      expect(mediaCall).not.toBeNull();
+      const closeSpy = vi.spyOn(mediaCall, 'close');
+
+      app.stopLocalStream();
+
+      expect(closeSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('Auditoria: Idempotência de Chamadas e Cancelamento Pendente', () => {
+    it('deve garantir idempotência: conexão + REQUEST_STREAM não devem disparar duas chamadas de mídia', async () => {
+      const videoTrack = new MockMediaStreamTrack('video');
+      const mockStream = new MockMediaStream([videoTrack]);
+      navigator.mediaDevices.getDisplayMedia = vi.fn().mockResolvedValue(mockStream);
+
+      await app.startLocalStream();
+
+      const peerInstance = MockPeer.lastInstance;
+      const callSpy = vi.spyOn(peerInstance, 'call');
+
+      const mockConn = new MockDataConnection('viewer-idempotent-1');
+      peerInstance.emit('connection', mockConn);
+
+      // Evento 1: open dispara primeira chamada
+      mockConn.emit('open');
+      expect(callSpy).toHaveBeenCalledTimes(1);
+
+      // Evento 2: REQUEST_STREAM NÃO deve disparar segunda chamada
+      mockConn.emit('data', { type: 'REQUEST_STREAM' });
+      expect(callSpy).toHaveBeenCalledTimes(1);
+
+      app.stopLocalStream();
+    });
+
+    it('deve cancelar conexão pendente imediatamente ao desconectar antes do evento open', () => {
+      // Simula conexão lenta cujo open ainda não ocorreu
+      const conn = new MockDataConnection('pending-host-1');
+      const closeSpy = vi.spyOn(conn, 'close');
+      const sendSpy = vi.spyOn(conn, 'send');
+
+      const peerInstance = MockPeer.lastInstance;
+      vi.spyOn(peerInstance, 'connect').mockReturnValue(conn);
+
+      app.watchFriend('pending-host-1');
+
+      // Usuário clica em desconectar antes do open
+      app.disconnectHost('pending-host-1');
+      expect(closeSpy).toHaveBeenCalled();
+
+      // Quando o evento open finalmente ocorrer no WebSocket atrasado
+      conn.emit('open');
+
+      // Não deve ter enviado REQUEST_STREAM pois foi cancelado
+      expect(sendSpy).not.toHaveBeenCalledWith({ type: 'REQUEST_STREAM' });
     });
   });
 });

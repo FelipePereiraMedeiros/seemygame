@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SeeMyGame • Estúdio do Streamer (Alvo 60 FPS)</title>
+  
+  <!-- Estilos Modulares -->
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/player.css">
+
+  <!-- PeerJS CDN com Subresource Integrity (SRI) -->
+  <script 
+    src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"
+    integrity="sha384-PMNj1TmCgXfW24/rfIyxYSAWwj2mffkMfguUWv08iNFcy0kTC0JN7E/tE+pJ7+fa"
+    crossorigin="anonymous">
+  </script>
+</head>
+<body>
+
+  <!-- Modal de Termos de Uso e Idade (Acessível) -->
+  <div id="terms-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="terms-title">
+    <div class="modal-content">
+      <h3 id="terms-title">🛡️ Termos de Uso & Responsabilidade</h3>
+      
+      <div class="terms-box">
+        <p><strong>1. Natureza da Aplicação:</strong> O <em>SeeMyGame</em> é uma ferramenta técnica de comunicação direta ponto-a-ponto (Peer-to-Peer - WebRTC). Todo o tráfego audiovisual ocorre exclusivamente entre os navegadores conectados, sem armazenamento, gravação ou moderação em servidores centrais.</p>
+        <p><strong>2. Isenção Total de Responsabilidade do Desenvolvedor:</strong> O desenvolvedor/mantenedor desta aplicação não tem acesso nem controle sobre as telas, transmissões, áudios ou informações compartilhadas. O desenvolvedor <strong>isenta-se integralmente</strong> de qualquer responsabilidade legal, cível ou criminal decorrente de conteúdos ilícitos, direitos autorais violados, dados confidenciais expostos ou condutas inadequadas praticadas pelos usuários.</p>
+        <p><strong>3. Responsabilidade do Usuário:</strong> Você é o único e exclusivo responsável por todo o conteúdo que decidir transmitir e pelas conexões que estabelecer.</p>
+      </div>
+
+      <div class="checkbox-group">
+        <label class="checkbox-item">
+          <input type="checkbox" id="check-age" aria-label="Declaro que sou maior de 18 anos">
+          <span>Declaro que sou <strong>maior de 18 anos</strong>.</span>
+        </label>
+        <label class="checkbox-item">
+          <input type="checkbox" id="check-terms" aria-label="Concordo com os termos de uso">
+          <span>Li e concordo com a isenção de responsabilidade e termos de uso.</span>
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <button id="accept-btn" disabled>Aceitar e Continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Autorização Co-op (Player 2) -->
+  <div id="coop-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="coop-modal-title">
+    <div class="modal-content" style="max-width: 480px;">
+      <h3 id="coop-modal-title">🎮 Pedido de Controle Player 2</h3>
+      <p style="color: var(--text-muted); font-size: 13.5px; line-height: 1.5; margin-bottom: 16px;">
+        O espectador <strong id="coop-requester-id" style="color: var(--accent-green);">Amigo</strong> quer entrar na sua sessão como <strong>Player 2</strong> para jogar junto.
+      </p>
+      <div style="background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 12px; font-size: 12px; margin-bottom: 20px; color: #c4b5fd;">
+        🛡️ <strong>Segurança:</strong> Você pode revogar o controle a qualquer momento pressionando <strong>Escape</strong> ou no botão de pânico na tela.
+      </div>
+      <div class="modal-actions">
+        <button id="coop-deny-btn" class="btn-secondary">Recusar</button>
+        <button id="coop-approve-btn" style="background: var(--accent-green);">✓ Autorizar Player 2</button>
+      </div>
+    </div>
+  </div>
+
+  <header>
+    <div class="brand">
+      <a href="index.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 10px;">
+        <div class="brand-icon">🎙️</div>
+        <div>See<span>MyGame</span></div>
+      </a>
+      <span class="role-badge">Estúdio do Streamer</span>
+    </div>
+
+    <div class="actions-container">
+      <div class="stream-actions">
+        <span 
+          id="copy-badge" 
+          class="id-badge" 
+          role="button" 
+          tabindex="0" 
+          title="Clique para copiar seu ID" 
+          aria-label="Copiar seu ID de transmissão">
+          <span>⏳</span> Gerando ID...
+        </span>
+        <button 
+          id="share-link-btn" 
+          class="btn-secondary" 
+          title="Copiar link direto para amigos assistirem" 
+          aria-label="Copiar link de convite" 
+          style="display:none;">
+          <span>🔗</span> Copiar Link
+        </button>
+        <button id="stream-btn" disabled aria-label="Iniciar transmissão da sua tela">
+          <span>🚀</span> Transmitir Jogo
+        </button>
+        <span id="viewer-count" class="id-badge" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: var(--accent-green);" title="Quantidade de espectadores conectados">
+          <span>👥</span> <strong>0</strong> espectadores
+        </span>
+      </div>
+
+      <a href="viewer.html" class="nav-switch-btn" title="Ir para modo espectador">
+        <span>👀</span> Assistir Amigo
+      </a>
+    </div>
+  </header>
+
+  <!-- Painel de Tuning em Tempo Real (Alvo de FPS & Latência) -->
+  <div class="tuning-bar">
+    <div class="tuning-group">
+      <span>⚡ <strong>Engine:</strong></span>
+      <select id="quality-preset" aria-label="Preset de qualidade e taxa de quadros">
+        <option value="ultra">⚡ 60 FPS Competitivo (720p @ 60 FPS Alvo - Fluidez Máxima)</option>
+        <option value="balanced" selected>🎮 60 FPS Dinâmico (1080p @ 60 FPS Alvo - Equilibrado)</option>
+        <option value="high">💎 60 FPS Alta Fidelidade (1080p @ 60 FPS Alvo - Alta Taxa)</option>
+      </select>
+      <div class="fps-lock-badge" title="Instrui o codificador WebRTC a manter taxa de quadros">
+        <span>🎯</span> Alvo: 60 FPS
+      </div>
+    </div>
+
+    <div class="tuning-group slider-container">
+      <span>🎯 <strong>Bitrate:</strong></span>
+      <input 
+        type="range" 
+        id="bitrate-slider" 
+        min="2500" 
+        max="16000" 
+        step="500" 
+        value="7500" 
+        aria-label="Ajuste fino de bitrate em megabits por segundo">
+      <span class="bitrate-value" id="bitrate-display">7.5 Mbps</span>
+    </div>
+
+    <div class="tuning-group">
+      <span>🎧 <strong>Áudio:</strong></span>
+      <select id="audio-mode-select" aria-label="Fonte de áudio da transmissão">
+        <option value="system" selected>🎮 Som do Jogo (Sistema)</option>
+        <option value="mic">🎙️ Microfone</option>
+        <option value="none">🔇 Apenas Vídeo</option>
+      </select>
+    </div>
+
+    <div class="tuning-group">
+      <span>🎮 <strong>Co-op:</strong></span>
+      <select id="coop-mode-select" aria-label="Permissão de controle remoto Co-op Player 2">
+        <option value="enabled" selected>🎮 Player 2 Habilitado</option>
+        <option value="disabled">🔒 Co-op Desativado</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="banner-info" id="audio-tip-banner">
+    <div>
+      🚀 <strong>Modo Alta Fluidez Ativo:</strong> O codificador WebRTC prioriza taxa de quadros contínua (Maintain-Framerate). <em>Dica de áudio no Windows:</em> para transmitir o som do jogo, selecione a aba <strong>"Tela inteira"</strong> (ou Guia) e marque a opção <strong>"Compartilhar áudio do sistema"</strong>.
+    </div>
+    <button class="card-btn" id="close-banner-btn" aria-label="Fechar aviso de dica de áudio" style="background:transparent; border:none; color:#c4b5fd;">✕</button>
+  </div>
+
+  <main id="video-grid" class="video-grid">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-state-icon">🎙️🎮⚡</div>
+      <h3>Painel de Transmissão Pronto</h3>
+      <p>Configure a resolução e taxa de bitrate desejadas acima e clique em <strong>"Transmitir Jogo"</strong> para iniciar o compartilhamento com <strong>alvo de 60 FPS</strong> e som estéreo.</p>
+    </div>
+  </main>
+
+  <div id="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <footer>
+    <span>SeeMyGame • Estúdio do Streamer P2P com prioridade de taxa de quadros • </span>
+    <a id="open-terms-link" tabindex="0" role="button">Termos de Uso</a>
+  </footer>
+
+  <!-- Script Modular Principal -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
