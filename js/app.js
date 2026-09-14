@@ -55,6 +55,17 @@ import { tacticalPingManager } from './ping.js';
 import { floatingReactionsManager } from './reactions.js';
 import { soundboardManager } from './soundboard.js';
 import { adaptiveBitrateController } from './abr.js';
+import {
+  AUDIO_MEME_EFFECTS,
+  getAudioContext,
+  decodeAudioFromBlob,
+  trimAudioBuffer,
+  applyMemeEffect,
+  audioBufferToWavBlob,
+  wavBlobToBase64,
+  base64ToWavBlob,
+  playAudioBuffer
+} from './audio-meme.js';
 
 // Estado da Aplicação
 let selectedProfile = DEFAULT_PROFILE;
@@ -747,6 +758,28 @@ export function handleIncomingP2PMessage(data, sourceConn) {
   if (data.type === 'SOUNDBOARD_PLAY') {
     soundboardManager.playSound(data.soundId);
     showToast(`🔊 ${data.senderName || 'Alguém'} tocou um som no soundboard!`, 'info', 2500);
+    if (connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+    return;
+  }
+
+  if (data.type === 'SOUNDBOARD_PLAY_CUSTOM') {
+    if (data.audioBase64) {
+      try {
+        const wavBlob = base64ToWavBlob(data.audioBase64);
+        const ctx = getAudioContext();
+        if (ctx) {
+          decodeAudioFromBlob(wavBlob, ctx).then(buf => {
+            if (buf) playAudioBuffer(buf, ctx);
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.warn('[AudioMeme] Erro ao reproduzir som customizado P2P:', err);
+      }
+    }
+    const effectLabel = data.effectName ? ` (${data.effectName})` : '';
+    showToast(`🎙️ ${data.senderName || 'Alguém'} disparou um áudio meme${effectLabel}!`, 'info', 3000);
     if (connectedViewers.size > 0) {
       broadcastDataMessage(data, sourceConn?.peer);
     }
@@ -2017,6 +2050,304 @@ export function initFacecam() {
   }
 }
 
+let currentPreviewController = null;
+let activeClipBlob = null;
+let activeAudioBuffer = null;
+let activeEffectId = 'none';
+
+export function closeClipPostModal() {
+  if (currentPreviewController) {
+    try { currentPreviewController.stop(); } catch {}
+    currentPreviewController = null;
+  }
+  const modal = document.getElementById('clip-post-modal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+}
+
+export async function openClipPostModal(clipBlob) {
+  const modal = document.getElementById('clip-post-modal');
+  if (!modal) return;
+
+  activeClipBlob = clipBlob;
+  activeAudioBuffer = null;
+  activeEffectId = 'none';
+  modal.style.display = 'flex';
+
+  const closeBtn = document.getElementById('clip-post-close-btn');
+  const downloadVideoBtn = document.getElementById('clip-download-video-btn');
+  const statusPill = document.getElementById('clip-audio-status');
+  const startSlider = document.getElementById('clip-trim-start-slider');
+  const endSlider = document.getElementById('clip-trim-end-slider');
+  const startVal = document.getElementById('clip-trim-start-val');
+  const endVal = document.getElementById('clip-trim-end-val');
+  const durationVal = document.getElementById('clip-trim-duration-val');
+  const effectsGrid = document.getElementById('clip-effects-grid');
+  const previewBtn = document.getElementById('clip-preview-audio-btn');
+  const downloadWavBtn = document.getElementById('clip-download-wav-btn');
+  const broadcastVoiceBtn = document.getElementById('clip-broadcast-voice-btn');
+
+  if (closeBtn) {
+    closeBtn.onclick = () => closeClipPostModal();
+  }
+
+  // Seção 1: Download do Vídeo Original
+  if (downloadVideoBtn) {
+    downloadVideoBtn.onclick = () => {
+      if (!activeClipBlob) return;
+      try {
+        const url = URL.createObjectURL(activeClipBlob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = activeClipBlob.fileName || `SeeMyGame-Clip-${Date.now()}.webm`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 1500);
+      } catch (err) {
+        console.warn('Falha no download manual do vídeo:', err);
+      }
+    };
+  }
+
+  // Renderiza a grade de efeitos sonoros engraçados
+  if (effectsGrid) {
+    effectsGrid.innerHTML = '';
+    AUDIO_MEME_EFFECTS.forEach(eff => {
+      const chip = document.createElement('div');
+      chip.className = `clip-effect-chip ${eff.id === activeEffectId ? 'active' : ''}`;
+      chip.dataset.effectId = eff.id;
+      chip.title = eff.desc;
+      chip.innerHTML = `
+        <span class="icon">${eff.icon}</span>
+        <span class="name">${eff.name}</span>
+        <span class="desc">${eff.desc}</span>
+      `;
+      chip.onclick = () => {
+        activeEffectId = eff.id;
+        effectsGrid.querySelectorAll('.clip-effect-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        if (currentPreviewController && previewBtn) {
+          currentPreviewController.stop();
+          currentPreviewController = null;
+          previewBtn.innerHTML = '<span>🎧</span> Ouvir Prévia';
+        }
+      };
+      effectsGrid.appendChild(chip);
+    });
+  }
+
+  // Atualização dos sliders de trimming
+  const updateTrimLabels = () => {
+    let start = parseFloat(startSlider?.value) || 0;
+    let end = parseFloat(endSlider?.value) || 3;
+    if (start >= end) {
+      start = Math.max(0, end - 0.2);
+      if (startSlider) startSlider.value = start;
+    }
+    const dur = Math.max(0.1, end - start);
+    if (startVal) startVal.textContent = `${start.toFixed(1)}s`;
+    if (endVal) endVal.textContent = `${end.toFixed(1)}s`;
+    if (durationVal) durationVal.textContent = `${dur.toFixed(1)}s`;
+  };
+
+  if (startSlider) startSlider.oninput = updateTrimLabels;
+  if (endSlider) endSlider.oninput = updateTrimLabels;
+
+  // Botões de atalho rápido (presets de range)
+  const presetBtns = modal.querySelectorAll('.btn-preset-quick');
+  presetBtns.forEach(btn => {
+    btn.onclick = () => {
+      const maxDur = activeAudioBuffer?.duration || 30;
+      const type = btn.dataset.presetRange;
+      if (type === 'first3') {
+        if (startSlider) startSlider.value = 0;
+        if (endSlider) endSlider.value = Math.min(3, maxDur);
+      } else if (type === 'last3') {
+        if (startSlider) startSlider.value = Math.max(0, maxDur - 3);
+        if (endSlider) endSlider.value = maxDur;
+      } else if (type === 'last5') {
+        if (startSlider) startSlider.value = Math.max(0, maxDur - 5);
+        if (endSlider) endSlider.value = maxDur;
+      } else if (type === 'all') {
+        if (startSlider) startSlider.value = 0;
+        if (endSlider) endSlider.value = maxDur;
+      }
+      updateTrimLabels();
+    };
+  });
+
+  // Decodifica a trilha de áudio do Blob
+  if (statusPill) {
+    statusPill.textContent = '⏳ Decodificando áudio...';
+    statusPill.classList.remove('ready');
+  }
+
+  const audioCtx = getAudioContext();
+  try {
+    activeAudioBuffer = await decodeAudioFromBlob(clipBlob, audioCtx);
+  } catch (err) {
+    console.warn('[AudioMeme] Erro ao decodificar áudio:', err);
+    activeAudioBuffer = null;
+  }
+
+  if (activeAudioBuffer) {
+    const totalDuration = activeAudioBuffer.duration || (activeAudioBuffer.length / activeAudioBuffer.sampleRate);
+    if (statusPill) {
+      statusPill.textContent = '✓ Pronto para recortar';
+      statusPill.classList.add('ready');
+    }
+    if (startSlider) {
+      startSlider.max = totalDuration.toFixed(1);
+      startSlider.value = Math.max(0, totalDuration - 3.0).toFixed(1);
+    }
+    if (endSlider) {
+      endSlider.max = totalDuration.toFixed(1);
+      endSlider.value = totalDuration.toFixed(1);
+    }
+    updateTrimLabels();
+  } else {
+    if (statusPill) {
+      statusPill.textContent = 'Trilha de áudio silenciosa ou ausente';
+      statusPill.classList.remove('ready');
+    }
+  }
+
+  // Ouvir Prévia
+  if (previewBtn) {
+    previewBtn.onclick = async () => {
+      if (currentPreviewController) {
+        currentPreviewController.stop();
+        currentPreviewController = null;
+        previewBtn.innerHTML = '<span>🎧</span> Ouvir Prévia';
+        return;
+      }
+
+      if (!activeAudioBuffer) {
+        showToast('Nenhuma trilha de áudio disponível no clipe.', 'warning');
+        return;
+      }
+
+      const prevText = previewBtn.innerHTML;
+      previewBtn.innerHTML = '<span>⏳</span> Processando...';
+      try {
+        const startSec = parseFloat(startSlider?.value) || 0;
+        const endSec = parseFloat(endSlider?.value) || activeAudioBuffer.duration;
+        const trimmed = trimAudioBuffer(activeAudioBuffer, startSec, endSec, audioCtx);
+        const processed = await applyMemeEffect(trimmed, activeEffectId, audioCtx);
+        currentPreviewController = playAudioBuffer(processed, audioCtx);
+        previewBtn.innerHTML = '<span>⏹️</span> Parar Prévia';
+
+        const playDurationMs = (processed.duration || (processed.length / processed.sampleRate)) * 1000;
+        setTimeout(() => {
+          if (currentPreviewController) {
+            currentPreviewController = null;
+            previewBtn.innerHTML = '<span>🎧</span> Ouvir Prévia';
+          }
+        }, playDurationMs + 200);
+      } catch (err) {
+        console.error('Erro ao tocar prévia:', err);
+        showToast('Erro ao reproduzir prévia do áudio meme.', 'error');
+        previewBtn.innerHTML = prevText;
+      }
+    };
+  }
+
+  // Baixar Áudio (.wav)
+  if (downloadWavBtn) {
+    downloadWavBtn.onclick = async () => {
+      if (!activeAudioBuffer) {
+        showToast('Nenhuma trilha de áudio disponível para exportar.', 'warning');
+        return;
+      }
+
+      const prevText = downloadWavBtn.innerHTML;
+      downloadWavBtn.disabled = true;
+      downloadWavBtn.innerHTML = '<span>⏳</span> Exportando WAV...';
+      try {
+        const startSec = parseFloat(startSlider?.value) || 0;
+        const endSec = parseFloat(endSlider?.value) || activeAudioBuffer.duration;
+        const trimmed = trimAudioBuffer(activeAudioBuffer, startSec, endSec, audioCtx);
+        const processed = await applyMemeEffect(trimmed, activeEffectId, audioCtx);
+        const wavBlob = audioBufferToWavBlob(processed);
+
+        const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const fileName = `SeeMyGame-Meme-${activeEffectId}-${dateStr}.wav`;
+
+        const url = URL.createObjectURL(wavBlob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 1500);
+
+        showToast(`Áudio meme salvo: ${fileName}!`, 'success');
+      } catch (err) {
+        console.error('Erro ao baixar WAV:', err);
+        showToast('Erro ao converter áudio em WAV.', 'error');
+      } finally {
+        downloadWavBtn.disabled = false;
+        downloadWavBtn.innerHTML = prevText;
+      }
+    };
+  }
+
+  // Tocar na Sala de Voz
+  if (broadcastVoiceBtn) {
+    broadcastVoiceBtn.onclick = async () => {
+      if (!activeAudioBuffer) {
+        showToast('Nenhum áudio disponível para transmitir.', 'warning');
+        return;
+      }
+
+      const prevText = broadcastVoiceBtn.innerHTML;
+      broadcastVoiceBtn.disabled = true;
+      broadcastVoiceBtn.innerHTML = '<span>⏳</span> Transmitindo...';
+      try {
+        const startSec = parseFloat(startSlider?.value) || 0;
+        const endSec = parseFloat(endSlider?.value) || activeAudioBuffer.duration;
+        const trimmed = trimAudioBuffer(activeAudioBuffer, startSec, endSec, audioCtx);
+        const processed = await applyMemeEffect(trimmed, activeEffectId, audioCtx);
+        const wavBlob = audioBufferToWavBlob(processed);
+        const base64 = await wavBlobToBase64(wavBlob);
+
+        const isHost = !window.location.pathname.endsWith('viewer.html');
+        const coopState = getCoopState();
+        const senderName = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+        const effectObj = AUDIO_MEME_EFFECTS.find(e => e.id === activeEffectId);
+        const effectName = effectObj ? `${effectObj.icon} ${effectObj.name}` : 'Meme';
+
+        broadcastDataMessage({
+          type: 'SOUNDBOARD_PLAY_CUSTOM',
+          audioBase64: base64,
+          effectName,
+          senderName
+        });
+
+        // Reproduz localmente para o próprio usuário escutar também
+        playAudioBuffer(processed, audioCtx);
+
+        showToast(`Áudio meme (${effectName}) transmitido para a sala de voz!`, 'success');
+      } catch (err) {
+        console.error('Erro ao transmitir áudio meme:', err);
+        showToast('Erro ao transmitir áudio para a sala de voz.', 'error');
+      } finally {
+        broadcastVoiceBtn.disabled = false;
+        broadcastVoiceBtn.innerHTML = prevText;
+      }
+    };
+  }
+}
+
 export function initGamerFeatures() {
   initTacticalPing();
   initFloatingReactions();
@@ -2038,7 +2369,8 @@ export function initGamerFeatures() {
       try {
         const result = await clipRecorder.exportClip();
         if (result) {
-          showToast(`🎬 Clip salvo com sucesso: ${result.fileName}!`, 'success');
+          showToast(`🎬 Clip salvo com sucesso: ${result.fileName || 'vídeo.webm'}!`, 'success');
+          openClipPostModal(result);
         } else {
           showToast('Aguarde alguns segundos de gravação antes de clipar.', 'info');
         }

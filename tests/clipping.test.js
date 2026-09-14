@@ -97,6 +97,23 @@ describe('Módulo: clipping.js (ClipRecorder)', () => {
     expect(recorder.exportClip()).toBeNull();
   });
 
+  it('deve armazenar e recuperar o clipe recente com getRecentClipBlob e hasRecentClip', () => {
+    const recorder = new ClipRecorder();
+    expect(recorder.hasRecentClip()).toBe(false);
+    expect(recorder.getRecentClipBlob()).toBeNull();
+
+    recorder.chunks.push({ blob: new Blob(['clip data']), timestamp: Date.now() });
+    const exported = recorder.exportClip('meu-clip.webm');
+
+    expect(recorder.hasRecentClip()).toBe(true);
+    expect(recorder.getRecentClipBlob()).toBe(exported);
+    expect(exported.fileName).toBe('meu-clip.webm');
+
+    recorder.clear();
+    expect(recorder.hasRecentClip()).toBe(false);
+    expect(recorder.getRecentClipBlob()).toBeNull();
+  });
+
   it('stop() deve parar o MediaRecorder e resetar o estado', () => {
     const recorder = new ClipRecorder();
     recorder.start({ id: 'test' });

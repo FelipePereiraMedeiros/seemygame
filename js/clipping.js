@@ -88,6 +88,11 @@ export class ClipRecorder {
     const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const filename = customFilename || `SeeMyGame-Clip-${dateStr}.webm`;
 
+    clipBlob.fileName = filename;
+    clipBlob.blob = clipBlob;
+    this.lastClipBlob = clipBlob;
+    this.lastClipFileName = filename;
+
     if (typeof document !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
       try {
         const url = URL.createObjectURL(clipBlob);
@@ -110,6 +115,22 @@ export class ClipRecorder {
   }
 
   /**
+   * Retorna o último Blob de clipe gerado
+   * @returns {Blob|null}
+   */
+  getRecentClipBlob() {
+    return this.lastClipBlob || null;
+  }
+
+  /**
+   * Verifica se há um clipe recente pronto para edição
+   * @returns {boolean}
+   */
+  hasRecentClip() {
+    return !!this.lastClipBlob;
+  }
+
+  /**
    * Encerra a gravação e limpa o buffer
    */
   stop() {
@@ -127,6 +148,8 @@ export class ClipRecorder {
 
   clear() {
     this.chunks = [];
+    this.lastClipBlob = null;
+    this.lastClipFileName = null;
   }
 }
 

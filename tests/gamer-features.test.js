@@ -7,6 +7,8 @@ import {
   initFacecam,
   initGamerFeatures,
   toggleFacecam,
+  openClipPostModal,
+  closeClipPostModal,
 } from '../js/app.js';
 import { tacticalPingManager } from '../js/ping.js';
 import { floatingReactionsManager } from '../js/reactions.js';
@@ -44,6 +46,25 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
       <button id="abr-toggle-btn" class="active"><span>⚡</span> ABR (Auto)</button>
       <button id="pip-btn"><span>📺</span> PiP</button>
       <button id="toggle-facecam-btn"><span>📷</span> Facecam</button>
+
+      <div id="clip-post-modal" style="display: none;">
+        <button id="clip-post-close-btn">✕</button>
+        <button id="clip-download-video-btn">Baixar Vídeo</button>
+        <span id="clip-audio-status"></span>
+        <input type="range" id="clip-trim-start-slider" value="0">
+        <input type="range" id="clip-trim-end-slider" value="3">
+        <span id="clip-trim-start-val">0.0s</span>
+        <span id="clip-trim-end-val">3.0s</span>
+        <span id="clip-trim-duration-val">3.0s</span>
+        <button class="btn-preset-quick" data-preset-range="first3">Primeiros 3s</button>
+        <button class="btn-preset-quick" data-preset-range="last3">Últimos 3s</button>
+        <button class="btn-preset-quick" data-preset-range="last5">Últimos 5s</button>
+        <button class="btn-preset-quick" data-preset-range="all">Tudo</button>
+        <div id="clip-effects-grid"></div>
+        <button id="clip-preview-audio-btn">Ouvir Prévia</button>
+        <button id="clip-download-wav-btn">Baixar WAV</button>
+        <button id="clip-broadcast-voice-btn">Tocar na Voz</button>
+      </div>
     `;
   });
 
@@ -105,6 +126,17 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
       handleIncomingP2PMessage(soundData, null);
 
       expect(playSpy).toHaveBeenCalledWith('victory');
+    });
+
+    it('deve processar SOUNDBOARD_PLAY_CUSTOM e disparar notificação com áudio', () => {
+      const customData = {
+        type: 'SOUNDBOARD_PLAY_CUSTOM',
+        audioBase64: 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=',
+        effectName: '🐿️ Esquilo',
+        senderName: 'Streamer'
+      };
+
+      expect(() => handleIncomingP2PMessage(customData, null)).not.toThrow();
     });
   });
 
@@ -254,6 +286,83 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
       pipBtn.click();
 
       expect(videoEl.requestPictureInPicture).toHaveBeenCalled();
+    });
+  });
+
+  describe('Modal Pós-Clipping e Gerador de Áudio Meme', () => {
+    it('clique em #clip-btn com gravação ativa deve abrir #clip-post-modal', async () => {
+      initGamerFeatures();
+      const clipBtn = document.getElementById('clip-btn');
+      const modal = document.getElementById('clip-post-modal');
+
+      clipRecorder.isRecording = true;
+      const fakeBlob = new Blob(['clip'], { type: 'video/webm' });
+      fakeBlob.fileName = 'clip-test.webm';
+      vi.spyOn(clipRecorder, 'exportClip').mockResolvedValue(fakeBlob);
+
+      clipBtn.click();
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(modal.style.display).toBe('flex');
+      clipRecorder.isRecording = false;
+    });
+
+    it('openClipPostModal deve renderizar chips de efeitos sonoros', async () => {
+      const fakeBlob = new Blob(['clip'], { type: 'video/webm' });
+      await openClipPostModal(fakeBlob);
+
+      const modal = document.getElementById('clip-post-modal');
+      expect(modal.style.display).toBe('flex');
+
+      const grid = document.getElementById('clip-effects-grid');
+      const chips = grid.querySelectorAll('.clip-effect-chip');
+      expect(chips.length).toBeGreaterThanOrEqual(8);
+
+      // Clicar no chip de esquilo
+      const chipmunkChip = Array.from(chips).find(c => c.dataset.effectId === 'chipmunk');
+      expect(chipmunkChip).toBeDefined();
+      chipmunkChip.click();
+      expect(chipmunkChip.classList.contains('active')).toBe(true);
+    });
+
+    it('sliders de trimming e atalhos rápidos devem atualizar os labels de tempo', async () => {
+      const fakeBlob = new Blob(['clip'], { type: 'video/webm' });
+      await openClipPostModal(fakeBlob);
+
+      const startSlider = document.getElementById('clip-trim-start-slider');
+      const endSlider = document.getElementById('clip-trim-end-slider');
+      const startVal = document.getElementById('clip-trim-start-val');
+      const endVal = document.getElementById('clip-trim-end-val');
+      const durationVal = document.getElementById('clip-trim-duration-val');
+
+      endSlider.value = '9.5';
+      startSlider.value = '5.0';
+      startSlider.oninput();
+      expect(startVal.textContent).toBe('5.0s');
+      expect(endVal.textContent).toBe('9.5s');
+      expect(durationVal.textContent).toBe('4.5s');
+
+      // Testar botão de atalho rápido
+      const btnFirst3 = document.querySelector('.btn-preset-quick[data-preset-range="first3"]');
+      btnFirst3.click();
+      expect(startSlider.value).toBe('0');
+      expect(startVal.textContent).toBe('0.0s');
+    });
+
+    it('closeClipPostModal e botão de fechar devem ocultar o modal', async () => {
+      const fakeBlob = new Blob(['clip'], { type: 'video/webm' });
+      await openClipPostModal(fakeBlob);
+      const modal = document.getElementById('clip-post-modal');
+      expect(modal.style.display).toBe('flex');
+
+      const closeBtn = document.getElementById('clip-post-close-btn');
+      closeBtn.click();
+      expect(modal.style.display).toBe('none');
+
+      await openClipPostModal(fakeBlob);
+      expect(modal.style.display).toBe('flex');
+      closeClipPostModal();
+      expect(modal.style.display).toBe('none');
     });
   });
 });
