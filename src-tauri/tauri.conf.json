@@ -5,8 +5,8 @@
   "identifier": "com.seemygame.streamer",
   "build": {
     "frontendDist": "../dist",
-    "beforeDevCommand": "node ../tools/build-dist.js",
-    "beforeBuildCommand": "node ../tools/build-dist.js"
+    "beforeDevCommand": "npm run build:dist",
+    "beforeBuildCommand": "npm run build:dist"
   },
   "app": {
     "windows": [
