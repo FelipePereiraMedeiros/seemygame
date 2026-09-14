@@ -19,8 +19,11 @@ pub fn run() {
 
             if let Some(window) = app.get_webview_window("main") {
                 log::info!("[SeeMyGame Desktop] Janela 'main' inicializada com sucesso!");
+                let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x: 100.0, y: 100.0 }));
                 let _ = window.show();
+                let _ = window.unminimize();
                 let _ = window.set_focus();
+                let _ = window.set_always_on_top(true);
             } else {
                 log::warn!("[SeeMyGame Desktop] Janela 'main' não encontrada pelo label!");
             }

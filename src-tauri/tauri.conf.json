@@ -14,14 +14,16 @@
         "label": "main",
         "title": "SeeMyGame - Streamer",
         "url": "index.html",
+        "x": 100,
+        "y": 100,
         "width": 1100,
         "height": 800,
         "minWidth": 800,
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
-        "center": true,
-        "visible": true
+        "visible": true,
+        "alwaysOnTop": true
       }
     ],
     "security": {
