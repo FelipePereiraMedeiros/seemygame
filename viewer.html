@@ -148,6 +148,93 @@
     </div>
   </div>
 
+  <!-- Modal da Lousa Interativa Colaborativa (Estilo Excalidraw) -->
+  <div id="whiteboard-modal" class="whiteboard-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="whiteboard-title">
+    <!-- Barra Superior Flutuante de Ferramentas (Estilo Excalidraw) -->
+    <div class="whiteboard-topbar">
+      <div class="whiteboard-brand">
+        <span class="whiteboard-icon">🎨</span>
+        <span id="whiteboard-title" class="whiteboard-title">Lousa Colaborativa</span>
+        <span id="whiteboard-sync-badge" class="whiteboard-sync-badge">P2P Sincronizado</span>
+      </div>
+
+      <div class="whiteboard-tools" id="whiteboard-tools-group">
+        <button class="wb-tool-btn active" data-tool="pencil" title="Caneta Livre (P)">✏️</button>
+        <button class="wb-tool-btn" data-tool="rectangle" title="Retângulo (R)">⬜</button>
+        <button class="wb-tool-btn" data-tool="diamond" title="Losango (D)">💎</button>
+        <button class="wb-tool-btn" data-tool="circle" title="Círculo (C)">⭕</button>
+        <button class="wb-tool-btn" data-tool="arrow" title="Flecha (A)">➡️</button>
+        <button class="wb-tool-btn" data-tool="line" title="Linha (L)">📏</button>
+        <button class="wb-tool-btn" data-tool="text" title="Texto (T)">🔤</button>
+        <button class="wb-tool-btn" data-tool="eraser" title="Borracha (E)">🧼</button>
+      </div>
+
+      <div class="whiteboard-actions">
+        <button id="wb-undo-btn" class="wb-action-btn" title="Desfazer (Ctrl+Z)">↩️</button>
+        <button id="wb-redo-btn" class="wb-action-btn" title="Refazer (Ctrl+Y)">↪️</button>
+        <button id="wb-clear-btn" class="wb-action-btn" title="Limpar Lousa">🗑️</button>
+        <button id="wb-export-btn" class="wb-action-btn primary" title="Baixar Imagem PNG">💾 Exportar</button>
+        <button id="wb-chat-btn" class="wb-action-btn" title="Compartilhar no Chat">💬 Chat</button>
+        <button id="wb-close-btn" class="wb-close-btn" title="Fechar Lousa" aria-label="Fechar Lousa">✕</button>
+      </div>
+    </div>
+
+    <!-- Barra Lateral Flutuante de Estilos & Cores -->
+    <div class="whiteboard-stylebar">
+      <div class="wb-style-section">
+        <label>Cor do Traço:</label>
+        <div class="wb-color-palette" id="wb-stroke-palette">
+          <button class="wb-color-dot active" data-color="#ffffff" style="background:#ffffff;"></button>
+          <button class="wb-color-dot" data-color="#ef4444" style="background:#ef4444;"></button>
+          <button class="wb-color-dot" data-color="#10b981" style="background:#10b981;"></button>
+          <button class="wb-color-dot" data-color="#06b6d4" style="background:#06b6d4;"></button>
+          <button class="wb-color-dot" data-color="#a855f7" style="background:#a855f7;"></button>
+          <button class="wb-color-dot" data-color="#f59e0b" style="background:#f59e0b;"></button>
+          <button class="wb-color-dot" data-color="#ec4899" style="background:#ec4899;"></button>
+          <button class="wb-color-dot" data-color="#1e1e2e" style="background:#1e1e2e; border: 1px solid #555;"></button>
+        </div>
+      </div>
+
+      <div class="wb-style-section">
+        <label>Espessura:</label>
+        <div class="wb-button-group" id="wb-width-group">
+          <button class="wb-opt-btn" data-width="2">Fina</button>
+          <button class="wb-opt-btn active" data-width="4">Média</button>
+          <button class="wb-opt-btn" data-width="8">Grossa</button>
+        </div>
+      </div>
+
+      <div class="wb-style-section">
+        <label>Preenchimento:</label>
+        <div class="wb-button-group" id="wb-fill-group">
+          <button class="wb-opt-btn active" data-fill="none">Vazio</button>
+          <button class="wb-opt-btn" data-fill="semi">Semi</button>
+          <button class="wb-opt-btn" data-fill="solid">Sólido</button>
+        </div>
+      </div>
+
+      <div class="wb-style-section">
+        <label>Traço Hand-drawn:</label>
+        <div class="wb-button-group" id="wb-rough-group">
+          <button class="wb-opt-btn active" data-rough="true">Rascunho</button>
+          <button class="wb-opt-btn" data-rough="false">Preciso</button>
+        </div>
+      </div>
+
+      <div class="wb-style-section">
+        <label>Fundo:</label>
+        <div class="wb-button-group" id="wb-bg-group">
+          <button class="wb-opt-btn active" data-bg="dark">Dark Grid</button>
+          <button class="wb-opt-btn" data-bg="light">Light Grid</button>
+          <button class="wb-opt-btn" data-bg="transparent" title="Desenhar por cima do jogo ao vivo">Overlay</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Canvas Principal da Lousa -->
+    <canvas id="whiteboard-canvas" class="whiteboard-canvas"></canvas>
+  </div>
+
   <header>
     <div class="brand">
       <a href="index.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 10px;">
@@ -178,6 +265,9 @@
         </button>
         <button id="toggle-chat-btn" class="discord-toggle-btn" title="Bate-papo da transmissão" aria-label="Abrir bate-papo">
           <span>💬</span> Chat <span id="chat-unread-badge" class="counter-badge" style="display:none;">0</span>
+        </button>
+        <button id="toggle-whiteboard-btn" class="discord-toggle-btn" title="Lousa Interativa Colaborativa (Excalidraw)" aria-label="Abrir Lousa">
+          <span>🎨</span> Lousa
         </button>
       </div>
 

@@ -9,12 +9,14 @@ import {
   toggleFacecam,
   openClipPostModal,
   closeClipPostModal,
+  initWhiteboard,
 } from '../js/app.js';
 import { tacticalPingManager } from '../js/ping.js';
 import { floatingReactionsManager } from '../js/reactions.js';
 import { soundboardManager } from '../js/soundboard.js';
 import { adaptiveBitrateController } from '../js/abr.js';
 import { clipRecorder } from '../js/clipping.js';
+import { whiteboardManager } from '../js/whiteboard.js';
 
 describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
   beforeEach(() => {
@@ -64,6 +66,46 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
         <button id="clip-preview-audio-btn">Ouvir Prévia</button>
         <button id="clip-download-wav-btn">Baixar WAV</button>
         <button id="clip-broadcast-voice-btn">Tocar na Voz</button>
+      </div>
+
+      <button id="toggle-whiteboard-btn"><span>🎨</span> Lousa</button>
+
+      <div id="whiteboard-modal" style="display: none;">
+        <button id="wb-close-btn">✕</button>
+        <div id="whiteboard-tools-group">
+          <button class="wb-tool-btn active" data-tool="pencil">✏️</button>
+          <button class="wb-tool-btn" data-tool="rectangle">⬜</button>
+          <button class="wb-tool-btn" data-tool="circle">⭕</button>
+          <button class="wb-tool-btn" data-tool="eraser">🧼</button>
+        </div>
+        <div id="wb-stroke-palette">
+          <button class="wb-color-dot active" data-color="#ffffff"></button>
+          <button class="wb-color-dot" data-color="#ef4444"></button>
+          <button class="wb-color-dot" data-color="#10b981"></button>
+        </div>
+        <div id="wb-width-group">
+          <button class="wb-opt-btn" data-width="2">Fina</button>
+          <button class="wb-opt-btn active" data-width="4">Média</button>
+          <button class="wb-opt-btn" data-width="8">Grossa</button>
+        </div>
+        <div id="wb-fill-group">
+          <button class="wb-opt-btn active" data-fill="none">Vazio</button>
+          <button class="wb-opt-btn" data-fill="semi">Semi</button>
+        </div>
+        <div id="wb-rough-group">
+          <button class="wb-opt-btn active" data-rough="true">Rascunho</button>
+          <button class="wb-opt-btn" data-rough="false">Preciso</button>
+        </div>
+        <div id="wb-bg-group">
+          <button class="wb-opt-btn active" data-bg="dark">Dark</button>
+          <button class="wb-opt-btn" data-bg="transparent">Overlay</button>
+        </div>
+        <button id="wb-undo-btn">↩️</button>
+        <button id="wb-redo-btn">↪️</button>
+        <button id="wb-clear-btn">🗑️</button>
+        <button id="wb-export-btn">💾</button>
+        <button id="wb-chat-btn">💬</button>
+        <canvas id="whiteboard-canvas" width="1280" height="720"></canvas>
       </div>
     `;
   });
@@ -137,6 +179,49 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
       };
 
       expect(() => handleIncomingP2PMessage(customData, null)).not.toThrow();
+    });
+
+    it('deve processar WHITEBOARD_ELEMENT_ADD e adicionar elemento na lousa', () => {
+      const addElementSpy = vi.spyOn(whiteboardManager, 'addElement');
+      const data = {
+        type: 'WHITEBOARD_ELEMENT_ADD',
+        element: { id: 'wb-remote-1', type: 'circle', startX: 10, startY: 10, endX: 50, endY: 50 }
+      };
+
+      handleIncomingP2PMessage(data, null);
+      expect(addElementSpy).toHaveBeenCalledWith(data.element, false);
+    });
+
+    it('deve processar WHITEBOARD_CLEAR e limpar a lousa', () => {
+      const clearSpy = vi.spyOn(whiteboardManager, 'clear');
+      handleIncomingP2PMessage({ type: 'WHITEBOARD_CLEAR' }, null);
+      expect(clearSpy).toHaveBeenCalledWith(false);
+    });
+
+    it('deve processar WHITEBOARD_CURSOR e atualizar cursor multiplayer', () => {
+      const cursorSpy = vi.spyOn(whiteboardManager, 'updateRemoteCursor');
+      const cursorData = {
+        type: 'WHITEBOARD_CURSOR',
+        x: 0.5,
+        y: 0.5,
+        userName: 'PlayerX',
+        color: '#ef4444'
+      };
+
+      handleIncomingP2PMessage(cursorData, { peer: 'peer-cursor' });
+      expect(cursorSpy).toHaveBeenCalledWith('peer-cursor', {
+        x: 0.5,
+        y: 0.5,
+        userName: 'PlayerX',
+        color: '#ef4444'
+      });
+    });
+
+    it('deve processar WHITEBOARD_SYNC e carregar elementos na lousa', () => {
+      const syncSpy = vi.spyOn(whiteboardManager, 'setElements');
+      const elements = [{ id: '1', type: 'line' }];
+      handleIncomingP2PMessage({ type: 'WHITEBOARD_SYNC', elements }, null);
+      expect(syncSpy).toHaveBeenCalledWith(elements);
     });
   });
 
@@ -362,6 +447,55 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
       await openClipPostModal(fakeBlob);
       expect(modal.style.display).toBe('flex');
       closeClipPostModal();
+      expect(modal.style.display).toBe('none');
+    });
+  });
+
+  describe('Lousa Interativa Colaborativa (Excalidraw Style)', () => {
+    it('clicar em #toggle-whiteboard-btn deve alternar abertura da lousa', () => {
+      initWhiteboard();
+      const toggleBtn = document.getElementById('toggle-whiteboard-btn');
+      const modal = document.getElementById('whiteboard-modal');
+
+      expect(modal.style.display).toBe('none');
+
+      toggleBtn.click();
+      expect(modal.style.display).toBe('flex');
+
+      toggleBtn.click();
+      expect(modal.style.display).toBe('none');
+    });
+
+    it('botões de ferramentas da lousa devem atualizar selectedTool e classe active', () => {
+      initWhiteboard();
+      const rectBtn = document.querySelector('.wb-tool-btn[data-tool="rectangle"]');
+      rectBtn.click();
+
+      expect(whiteboardManager.selectedTool).toBe('rectangle');
+      expect(rectBtn.classList.contains('active')).toBe(true);
+    });
+
+    it('paleta de cores e modo de fundo devem atualizar parâmetros do whiteboardManager', () => {
+      initWhiteboard();
+      const redDot = document.querySelector('.wb-color-dot[data-color="#ef4444"]');
+      redDot.click();
+      expect(whiteboardManager.currentColor).toBe('#ef4444');
+
+      const overlayBtn = document.querySelector('#wb-bg-group .wb-opt-btn[data-bg="transparent"]');
+      overlayBtn.click();
+      expect(whiteboardManager.backgroundMode).toBe('transparent');
+    });
+
+    it('botão de fechar lousa #wb-close-btn deve ocultar o modal', () => {
+      initWhiteboard();
+      const toggleBtn = document.getElementById('toggle-whiteboard-btn');
+      const closeBtn = document.getElementById('wb-close-btn');
+      const modal = document.getElementById('whiteboard-modal');
+
+      toggleBtn.click();
+      expect(modal.style.display).toBe('flex');
+
+      closeBtn.click();
       expect(modal.style.display).toBe('none');
     });
   });

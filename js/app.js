@@ -66,6 +66,7 @@ import {
   base64ToWavBlob,
   playAudioBuffer
 } from './audio-meme.js';
+import { whiteboardManager, WHITEBOARD_TOOLS, WHITEBOARD_COLORS } from './whiteboard.js';
 
 // Estado da Aplicação
 let selectedProfile = DEFAULT_PROFILE;
@@ -783,6 +784,58 @@ export function handleIncomingP2PMessage(data, sourceConn) {
     if (connectedViewers.size > 0) {
       broadcastDataMessage(data, sourceConn?.peer);
     }
+    return;
+  }
+
+  if (data.type === 'WHITEBOARD_ELEMENT_ADD') {
+    whiteboardManager.addElement(data.element, false);
+    if (connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+    return;
+  }
+
+  if (data.type === 'WHITEBOARD_ELEMENT_DELETE') {
+    whiteboardManager.removeElement(data.elementId, false);
+    if (connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+    return;
+  }
+
+  if (data.type === 'WHITEBOARD_CLEAR') {
+    whiteboardManager.clear(false);
+    if (connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+    return;
+  }
+
+  if (data.type === 'WHITEBOARD_CURSOR') {
+    whiteboardManager.updateRemoteCursor(sourceConn?.peer || 'remote-peer', {
+      x: data.x,
+      y: data.y,
+      userName: data.userName,
+      color: data.color
+    });
+    if (connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+    return;
+  }
+
+  if (data.type === 'WHITEBOARD_REQUEST_SYNC') {
+    if (sourceConn && sourceConn.open) {
+      sourceConn.send({
+        type: 'WHITEBOARD_SYNC',
+        elements: whiteboardManager.elements
+      });
+    }
+    return;
+  }
+
+  if (data.type === 'WHITEBOARD_SYNC') {
+    whiteboardManager.setElements(data.elements);
     return;
   }
 }
@@ -2348,11 +2401,279 @@ export async function openClipPostModal(clipBlob) {
   }
 }
 
+export function initWhiteboard() {
+  const toggleBtn = document.getElementById('toggle-whiteboard-btn');
+  const modal = document.getElementById('whiteboard-modal');
+  const canvas = document.getElementById('whiteboard-canvas');
+  if (!modal || !canvas) return;
+
+  // Conecta callbacks P2P do WhiteboardManager
+  whiteboardManager.onElementCreated = (element) => {
+    broadcastDataMessage({ type: 'WHITEBOARD_ELEMENT_ADD', element });
+  };
+  whiteboardManager.onElementDeleted = (element) => {
+    broadcastDataMessage({ type: 'WHITEBOARD_ELEMENT_DELETE', elementId: element.id });
+  };
+  whiteboardManager.onBoardCleared = () => {
+    broadcastDataMessage({ type: 'WHITEBOARD_CLEAR' });
+  };
+
+  let lastCursorSend = 0;
+  whiteboardManager.onCursorMoved = ({ x, y }) => {
+    const now = Date.now();
+    if (now - lastCursorSend > 50) {
+      lastCursorSend = now;
+      const isHost = !window.location.pathname.endsWith('viewer.html');
+      const coopState = getCoopState();
+      const senderName = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+      broadcastDataMessage({
+        type: 'WHITEBOARD_CURSOR',
+        x,
+        y,
+        userName: senderName,
+        color: whiteboardManager.currentColor
+      });
+    }
+  };
+
+  const resizeCanvas = () => {
+    if (typeof window === 'undefined') return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+      whiteboardManager.render();
+    }
+  };
+
+  window.addEventListener('resize', resizeCanvas);
+
+  const openWhiteboard = () => {
+    modal.style.display = 'flex';
+    resizeCanvas();
+    whiteboardManager.setCanvas(canvas);
+    whiteboardManager.render();
+    // Solicita sincronização com peers na sala
+    broadcastDataMessage({ type: 'WHITEBOARD_REQUEST_SYNC' });
+  };
+
+  const closeWhiteboard = () => {
+    modal.style.display = 'none';
+  };
+
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      if (modal.style.display === 'flex') {
+        closeWhiteboard();
+      } else {
+        openWhiteboard();
+      }
+    });
+  }
+
+  // Fechar
+  const closeBtn = document.getElementById('wb-close-btn');
+  if (closeBtn) closeBtn.onclick = closeWhiteboard;
+
+  // Botões de Ferramentas
+  const toolBtns = modal.querySelectorAll('.wb-tool-btn');
+  toolBtns.forEach(btn => {
+    btn.onclick = () => {
+      toolBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      whiteboardManager.setTool(btn.dataset.tool);
+    };
+  });
+
+  // Paleta de Cores
+  const colorDots = modal.querySelectorAll('.wb-color-dot');
+  colorDots.forEach(dot => {
+    dot.onclick = () => {
+      colorDots.forEach(d => d.classList.remove('active'));
+      dot.classList.add('active');
+      whiteboardManager.setColor(dot.dataset.color);
+    };
+  });
+
+  // Espessura
+  const widthBtns = modal.querySelectorAll('#wb-width-group .wb-opt-btn');
+  widthBtns.forEach(btn => {
+    btn.onclick = () => {
+      widthBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      whiteboardManager.setStrokeWidth(Number(btn.dataset.width));
+    };
+  });
+
+  // Preenchimento
+  const fillBtns = modal.querySelectorAll('#wb-fill-group .wb-opt-btn');
+  fillBtns.forEach(btn => {
+    btn.onclick = () => {
+      fillBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      whiteboardManager.setFill(btn.dataset.fill);
+    };
+  });
+
+  // Estilo Rascunho / Preciso
+  const roughBtns = modal.querySelectorAll('#wb-rough-group .wb-opt-btn');
+  roughBtns.forEach(btn => {
+    btn.onclick = () => {
+      roughBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      whiteboardManager.setRough(btn.dataset.rough === 'true');
+    };
+  });
+
+  // Modo de Fundo
+  const bgBtns = modal.querySelectorAll('#wb-bg-group .wb-opt-btn');
+  bgBtns.forEach(btn => {
+    btn.onclick = () => {
+      bgBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const mode = btn.dataset.bg;
+      whiteboardManager.setBackgroundMode(mode);
+      if (mode === 'transparent') {
+        modal.style.background = 'transparent';
+      } else if (mode === 'light') {
+        modal.style.background = '#f8fafc';
+      } else {
+        modal.style.background = '#12131c';
+      }
+    };
+  });
+
+  // Desfazer / Refazer
+  const undoBtn = document.getElementById('wb-undo-btn');
+  if (undoBtn) {
+    undoBtn.onclick = () => {
+      if (whiteboardManager.undo()) {
+        broadcastDataMessage({ type: 'WHITEBOARD_SYNC', elements: whiteboardManager.elements });
+      }
+    };
+  }
+
+  const redoBtn = document.getElementById('wb-redo-btn');
+  if (redoBtn) {
+    redoBtn.onclick = () => {
+      if (whiteboardManager.redo()) {
+        broadcastDataMessage({ type: 'WHITEBOARD_SYNC', elements: whiteboardManager.elements });
+      }
+    };
+  }
+
+  // Limpar
+  const clearBtn = document.getElementById('wb-clear-btn');
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      if (confirm('Deseja realmente limpar toda a lousa?')) {
+        whiteboardManager.clear(true);
+      }
+    };
+  }
+
+  // Exportar PNG
+  const exportBtn = document.getElementById('wb-export-btn');
+  if (exportBtn) {
+    exportBtn.onclick = async () => {
+      try {
+        const blob = await whiteboardManager.exportToBlob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `SeeMyGame-Lousa-${Date.now()}.png`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 1500);
+        showToast('Lousa exportada com sucesso em PNG!', 'success');
+      } catch (err) {
+        console.error('Erro ao exportar lousa:', err);
+        showToast('Erro ao exportar imagem da lousa.', 'error');
+      }
+    };
+  }
+
+  // Compartilhar no Chat
+  const chatBtn = document.getElementById('wb-chat-btn');
+  if (chatBtn) {
+    chatBtn.onclick = () => {
+      const isHost = !window.location.pathname.endsWith('viewer.html');
+      const coopState = getCoopState();
+      const role = isHost ? 'host' : (coopState.isPlayer2 ? 'player2' : 'viewer');
+      const senderName = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+
+      const msg = chatManager.createMessage({
+        senderId: myId,
+        senderName,
+        role,
+        text: '🎨 Compartilhou um esquema na Lousa Interativa! Abra a lousa no botão acima para ver.',
+        channel: chatManager.getActiveChannel(),
+      });
+
+      if (msg) {
+        chatManager.addMessage(msg);
+        broadcastDataMessage({ type: 'CHAT_MESSAGE', message: msg });
+        showToast('Aviso enviado para o chat da sala!', 'info');
+      }
+    };
+  }
+
+  // Atalhos de Teclado
+  window.addEventListener('keydown', (e) => {
+    if (modal.style.display !== 'flex') return;
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+
+    if (e.key === 'Escape') {
+      closeWhiteboard();
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      if (e.shiftKey) {
+        if (whiteboardManager.redo()) broadcastDataMessage({ type: 'WHITEBOARD_SYNC', elements: whiteboardManager.elements });
+      } else {
+        if (whiteboardManager.undo()) broadcastDataMessage({ type: 'WHITEBOARD_SYNC', elements: whiteboardManager.elements });
+      }
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+      e.preventDefault();
+      if (whiteboardManager.redo()) broadcastDataMessage({ type: 'WHITEBOARD_SYNC', elements: whiteboardManager.elements });
+      return;
+    }
+
+    const toolMap = {
+      p: 'pencil',
+      r: 'rectangle',
+      d: 'diamond',
+      c: 'circle',
+      a: 'arrow',
+      l: 'line',
+      t: 'text',
+      e: 'eraser'
+    };
+    const key = e.key.toLowerCase();
+    if (toolMap[key]) {
+      whiteboardManager.setTool(toolMap[key]);
+      toolBtns.forEach(b => {
+        b.classList.toggle('active', b.dataset.tool === toolMap[key]);
+      });
+    }
+  });
+}
+
 export function initGamerFeatures() {
   initTacticalPing();
   initFloatingReactions();
   initAdaptiveBitrate();
   initFacecam();
+  initWhiteboard();
 
   // Botão de Clipping instantâneo ("Clipa isso! - 30s")
   const clipBtn = document.getElementById('clip-btn');
