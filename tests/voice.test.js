@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { VoiceManager } from '../js/voice.js';
 
 describe('Módulo: voice.js (Chat de Voz P2P Estilo Discord)', () => {
@@ -97,6 +97,34 @@ describe('Módulo: voice.js (Chat de Voz P2P Estilo Discord)', () => {
       expect(voice.isDeafened).toBe(true);
       expect(voice.isMuted).toBe(true);
       expect(mockTrack.enabled).toBe(false);
+    });
+
+    it('toggleDeafen deve funcionar como alias para toggleDeaf', () => {
+      expect(voice.toggleDeafen()).toBe(true);
+      expect(voice.isDeafened).toBe(true);
+    });
+
+    it('setVoiceMode e setPttActive devem controlar Push-to-Talk', () => {
+      voice.setVoiceMode('ptt');
+      expect(voice.voiceMode).toBe('ptt');
+      expect(voice.isMuted).toBe(true);
+
+      // Pressiona tecla PTT
+      voice.setPttActive(true);
+      expect(voice.isPttActive).toBe(true);
+      expect(voice.isMuted).toBe(false);
+      expect(mockTrack.enabled).toBe(true);
+
+      // Solta tecla PTT
+      voice.setPttActive(false);
+      expect(voice.isPttActive).toBe(false);
+      expect(voice.isMuted).toBe(true);
+      expect(mockTrack.enabled).toBe(false);
+
+      // Retorna para VAD contínuo
+      voice.setVoiceMode('vad');
+      expect(voice.voiceMode).toBe('vad');
+      expect(voice.isMuted).toBe(false);
     });
   });
 

@@ -42,6 +42,7 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
           <div class="voice-dock">
             <button id="voice-mute-btn" class="voice-dock-btn">Mutar</button>
             <button id="voice-deaf-btn" class="voice-dock-btn">Ensurdecer</button>
+            <button id="voice-mode-btn" class="voice-dock-btn">VAD</button>
             <button id="voice-connect-btn" class="voice-dock-btn join-btn">Entrar na Voz</button>
           </div>
         </div>
@@ -206,6 +207,20 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
 
       voiceManager.emit('speakingChange', { peerId: 'peer-1', isSpeaking: false });
       expect(avatar.classList.contains('speaking')).toBe(false);
+    });
+
+    it('deve alternar entre VAD e PTT ao clicar no voice-mode-btn', () => {
+      voiceManager.isInVoice = true;
+      const modeBtn = document.getElementById('voice-mode-btn');
+      modeBtn.disabled = false;
+
+      expect(voiceManager.voiceMode).toBe('vad');
+
+      modeBtn.click();
+      expect(voiceManager.voiceMode).toBe('ptt');
+
+      modeBtn.click();
+      expect(voiceManager.voiceMode).toBe('vad');
     });
   });
 });

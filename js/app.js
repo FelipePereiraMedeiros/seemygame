@@ -2163,5 +2163,20 @@ window.addEventListener('keydown', (e) => {
       });
     }
   }
+
+  // Push-to-Talk (PTT) Hotkey (CapsLock ou ControlRight)
+  if (voiceManager.isInVoice && voiceManager.voiceMode === 'ptt' && (e.code === 'CapsLock' || e.code === 'ControlRight')) {
+    e.preventDefault();
+    if (!voiceManager.isPttActive) {
+      voiceManager.setPttActive(true);
+    }
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (voiceManager.isInVoice && voiceManager.voiceMode === 'ptt' && (e.code === 'CapsLock' || e.code === 'ControlRight')) {
+    e.preventDefault();
+    voiceManager.setPttActive(false);
+  }
 });
 

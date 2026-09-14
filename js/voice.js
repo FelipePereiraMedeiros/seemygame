@@ -12,6 +12,8 @@ export class VoiceManager {
     this.isInVoice = false;
     this.isMuted = false;
     this.isDeafened = false;
+    this.voiceMode = 'vad'; // 'vad' | 'ptt'
+    this.isPttActive = false;
     this.localStream = null;
     this.myPeerId = null;
     this.myName = 'Você';
@@ -153,6 +155,28 @@ export class VoiceManager {
     return this.setDeafened(!this.isDeafened);
   }
 
+  toggleDeafen() {
+    return this.toggleDeaf();
+  }
+
+  setVoiceMode(mode) {
+    this.voiceMode = mode === 'ptt' ? 'ptt' : 'vad';
+    if (this.voiceMode === 'ptt' && !this.isPttActive) {
+      this.setMuted(true);
+    } else if (this.voiceMode === 'vad') {
+      this.setMuted(false);
+    }
+    this.emit('voiceStateChange', this.getLocalVoiceState());
+    return this.voiceMode;
+  }
+
+  setPttActive(active) {
+    if (this.voiceMode !== 'ptt') return false;
+    this.isPttActive = Boolean(active);
+    this.setMuted(!this.isPttActive);
+    return this.isPttActive;
+  }
+
   setDeafened(deafened) {
     this.isDeafened = Boolean(deafened);
 
@@ -183,6 +207,8 @@ export class VoiceManager {
       isInVoice: this.isInVoice,
       isMuted: this.isMuted,
       isDeafened: this.isDeafened,
+      voiceMode: this.voiceMode,
+      isPttActive: this.isPttActive,
       peerId: this.myPeerId,
       name: this.myName,
       role: this.myRole,

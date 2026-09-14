@@ -41,6 +41,7 @@ export class DiscordUIController {
       voiceParticipants: document.getElementById('voice-participants-list'),
       voiceMuteBtn: document.getElementById('voice-mute-btn'),
       voiceDeafBtn: document.getElementById('voice-deaf-btn'),
+      voiceModeBtn: document.getElementById('voice-mode-btn'),
       voiceConnectBtn: document.getElementById('voice-connect-btn'),
       voiceStatusBar: document.getElementById('voice-status-bar'),
     };
@@ -52,7 +53,7 @@ export class DiscordUIController {
   }
 
   bindEvents() {
-    const { toggleChatBtn, toggleVoiceBtn, closeBtn, tabVoice, tabChat, tabSoundboard, chatInput, chatSendBtn, voiceMuteBtn, voiceDeafBtn, voiceConnectBtn } = this.elements;
+    const { toggleChatBtn, toggleVoiceBtn, closeBtn, tabVoice, tabChat, tabSoundboard, chatInput, chatSendBtn, voiceMuteBtn, voiceDeafBtn, voiceModeBtn, voiceConnectBtn } = this.elements;
 
     if (toggleChatBtn) {
       toggleChatBtn.addEventListener('click', () => this.toggleDrawer('chat'));
@@ -105,6 +106,12 @@ export class DiscordUIController {
     if (voiceDeafBtn) {
       voiceDeafBtn.addEventListener('click', () => {
         voiceManager.toggleDeafen();
+      });
+    }
+    if (voiceModeBtn) {
+      voiceModeBtn.addEventListener('click', () => {
+        const nextMode = voiceManager.voiceMode === 'vad' ? 'ptt' : 'vad';
+        voiceManager.setVoiceMode(nextMode);
       });
     }
     if (voiceConnectBtn) {
@@ -323,7 +330,7 @@ export class DiscordUIController {
   }
 
   updateVoiceControls(state) {
-    const { voiceMuteBtn, voiceDeafBtn, voiceConnectBtn, voiceStatusBar } = this.elements;
+    const { voiceMuteBtn, voiceDeafBtn, voiceModeBtn, voiceConnectBtn, voiceStatusBar } = this.elements;
 
     if (voiceConnectBtn) {
       if (state.isInVoice) {
@@ -354,6 +361,19 @@ export class DiscordUIController {
       } else {
         voiceDeafBtn.innerHTML = '<span>🎧</span> Ensurdecer';
         voiceDeafBtn.classList.remove('active');
+      }
+    }
+
+    if (voiceModeBtn) {
+      voiceModeBtn.disabled = !state.isInVoice;
+      if (state.voiceMode === 'ptt') {
+        voiceModeBtn.innerHTML = '<span>🎙️</span> PTT (Caps)';
+        voiceModeBtn.classList.add('active');
+        voiceModeBtn.title = 'Modo Push-to-Talk ativo (segure Caps Lock ou Ctrl Direito para falar)';
+      } else {
+        voiceModeBtn.innerHTML = '<span>🎤</span> VAD (Auto)';
+        voiceModeBtn.classList.remove('active');
+        voiceModeBtn.title = 'Modo Detecção de Voz (VAD) contínuo ativo';
       }
     }
 
