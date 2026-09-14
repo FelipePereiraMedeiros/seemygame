@@ -8,8 +8,10 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
   let onSendMock;
   let onJoinMock;
   let onLeaveMock;
+  let onPlaySoundMock;
 
   beforeEach(() => {
+
     document.body.innerHTML = `
       <button id="toggle-chat-btn">Chat</button>
       <button id="toggle-voice-btn">Voz</button>
@@ -21,6 +23,7 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
           <div class="drawer-tabs">
             <button id="tab-btn-chat" class="drawer-tab active">Chat</button>
             <button id="tab-btn-voice" class="drawer-tab">Voz</button>
+            <button id="tab-btn-soundboard" class="drawer-tab">Soundboard</button>
           </div>
           <button id="drawer-close-btn">✕</button>
         </div>
@@ -42,12 +45,17 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
             <button id="voice-connect-btn" class="voice-dock-btn join-btn">Entrar na Voz</button>
           </div>
         </div>
+
+        <div id="drawer-panel-soundboard" class="soundboard-panel" style="display:none;">
+          <div id="soundboard-grid" class="soundboard-grid"></div>
+        </div>
       </div>
     `;
 
     onSendMock = vi.fn();
     onJoinMock = vi.fn();
     onLeaveMock = vi.fn();
+    onPlaySoundMock = vi.fn();
 
     chatManager.clearChannel('geral');
     chatManager.clearChannel('comandos');
@@ -57,6 +65,7 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
       onSendMessage: onSendMock,
       onJoinVoice: onJoinMock,
       onLeaveVoice: onLeaveMock,
+      onPlaySound: onPlaySoundMock,
     });
     controller.init();
   });
@@ -79,17 +88,40 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
       expect(controller.isDrawerOpen).toBe(false);
     });
 
-    it('deve alternar abas entre chat e voz', () => {
+    it('deve alternar abas entre chat, voz e soundboard', () => {
       const panelChat = document.getElementById('drawer-panel-chat');
       const panelVoice = document.getElementById('drawer-panel-voice');
+      const panelSoundboard = document.getElementById('drawer-panel-soundboard');
 
       controller.openDrawer('voice');
       expect(panelVoice.style.display).toBe('flex');
+      expect(panelChat.style.display).toBe('none');
+      expect(panelSoundboard.style.display).toBe('none');
+
+      controller.switchTab('soundboard');
+      expect(panelSoundboard.style.display).toBe('flex');
+      expect(panelVoice.style.display).toBe('none');
       expect(panelChat.style.display).toBe('none');
 
       controller.switchTab('chat');
       expect(panelChat.style.display).toBe('flex');
       expect(panelVoice.style.display).toBe('none');
+      expect(panelSoundboard.style.display).toBe('none');
+    });
+  });
+
+  describe('Soundboard P2P Gamer', () => {
+    it('deve inicializar a grade de sons com os presets e disparar onPlaySound ao clicar', () => {
+      const grid = document.getElementById('soundboard-grid');
+      const buttons = grid.querySelectorAll('.soundboard-btn');
+
+      expect(buttons.length).toBeGreaterThanOrEqual(6);
+
+      const ggBtn = grid.querySelector('[data-sound-id="gg"]');
+      expect(ggBtn).not.toBeNull();
+
+      ggBtn.click();
+      expect(onPlaySoundMock).toHaveBeenCalledWith('gg');
     });
   });
 

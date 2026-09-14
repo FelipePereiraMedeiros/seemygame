@@ -1,16 +1,18 @@
-﻿/**
+/**
  * SeeMyGame - Controlador de Interface Estilo Discord (Voz e Chat)
  */
 
 import { chatManager } from './chat.js';
 import { voiceManager } from './voice.js';
+import { SOUNDBOARD_PRESETS } from './soundboard.js';
 
 export class DiscordUIController {
-  constructor({ onSendMessage, onJoinVoice, onLeaveVoice } = {}) {
+  constructor({ onSendMessage, onJoinVoice, onLeaveVoice, onPlaySound } = {}) {
     this.onSendMessage = onSendMessage || (() => {});
     this.onJoinVoice = onJoinVoice || (() => {});
     this.onLeaveVoice = onLeaveVoice || (() => {});
-    this.activeTab = 'chat'; // 'chat' | 'voice'
+    this.onPlaySound = onPlaySound || (() => {});
+    this.activeTab = 'chat'; // 'chat' | 'voice' | 'soundboard'
     this.isDrawerOpen = false;
 
     this.elements = {};
@@ -28,8 +30,11 @@ export class DiscordUIController {
       closeBtn: document.getElementById('drawer-close-btn'),
       tabVoice: document.getElementById('tab-btn-voice'),
       tabChat: document.getElementById('tab-btn-chat'),
+      tabSoundboard: document.getElementById('tab-btn-soundboard'),
       panelVoice: document.getElementById('drawer-panel-voice'),
       panelChat: document.getElementById('drawer-panel-chat'),
+      panelSoundboard: document.getElementById('drawer-panel-soundboard'),
+      soundboardGrid: document.getElementById('soundboard-grid'),
       chatMessages: document.getElementById('chat-messages-container'),
       chatInput: document.getElementById('chat-input'),
       chatSendBtn: document.getElementById('chat-send-btn'),
@@ -43,10 +48,11 @@ export class DiscordUIController {
     this.bindEvents();
     this.bindChatEvents();
     this.bindVoiceEvents();
+    this.initSoundboard();
   }
 
   bindEvents() {
-    const { toggleChatBtn, toggleVoiceBtn, closeBtn, tabVoice, tabChat, chatInput, chatSendBtn, voiceMuteBtn, voiceDeafBtn, voiceConnectBtn } = this.elements;
+    const { toggleChatBtn, toggleVoiceBtn, closeBtn, tabVoice, tabChat, tabSoundboard, chatInput, chatSendBtn, voiceMuteBtn, voiceDeafBtn, voiceConnectBtn } = this.elements;
 
     if (toggleChatBtn) {
       toggleChatBtn.addEventListener('click', () => this.toggleDrawer('chat'));
@@ -63,6 +69,9 @@ export class DiscordUIController {
     }
     if (tabChat) {
       tabChat.addEventListener('click', () => this.switchTab('chat'));
+    }
+    if (tabSoundboard) {
+      tabSoundboard.addEventListener('click', () => this.switchTab('soundboard'));
     }
 
     // Envio de chat
@@ -95,7 +104,7 @@ export class DiscordUIController {
     }
     if (voiceDeafBtn) {
       voiceDeafBtn.addEventListener('click', () => {
-        voiceManager.toggleDeaf();
+        voiceManager.toggleDeafen();
       });
     }
     if (voiceConnectBtn) {
@@ -139,26 +148,44 @@ export class DiscordUIController {
 
   switchTab(tab) {
     this.activeTab = tab;
-    const { tabVoice, tabChat, panelVoice, panelChat, toggleChatBtn, toggleVoiceBtn } = this.elements;
+    const { tabVoice, tabChat, tabSoundboard, panelVoice, panelChat, panelSoundboard, toggleChatBtn, toggleVoiceBtn } = this.elements;
 
-    if (tab === 'voice') {
-      if (tabVoice) tabVoice.classList.add('active');
-      if (tabChat) tabChat.classList.remove('active');
-      if (panelVoice) panelVoice.style.display = 'flex';
-      if (panelChat) panelChat.style.display = 'none';
-      if (toggleVoiceBtn) toggleVoiceBtn.classList.add('active');
-      if (toggleChatBtn) toggleChatBtn.classList.remove('active');
-    } else {
-      if (tabChat) tabChat.classList.add('active');
-      if (tabVoice) tabVoice.classList.remove('active');
-      if (panelChat) panelChat.style.display = 'flex';
-      if (panelVoice) panelVoice.style.display = 'none';
-      if (toggleChatBtn) toggleChatBtn.classList.add('active');
-      if (toggleVoiceBtn) toggleVoiceBtn.classList.remove('active');
+    if (tabVoice) tabVoice.classList.toggle('active', tab === 'voice');
+    if (tabChat) tabChat.classList.toggle('active', tab === 'chat');
+    if (tabSoundboard) tabSoundboard.classList.toggle('active', tab === 'soundboard');
+
+    if (panelVoice) panelVoice.style.display = tab === 'voice' ? 'flex' : 'none';
+    if (panelChat) panelChat.style.display = tab === 'chat' ? 'flex' : 'none';
+    if (panelSoundboard) panelSoundboard.style.display = tab === 'soundboard' ? 'flex' : 'none';
+
+    if (toggleVoiceBtn) toggleVoiceBtn.classList.toggle('active', tab === 'voice');
+    if (toggleChatBtn) toggleChatBtn.classList.toggle('active', tab === 'chat');
+
+    if (tab === 'chat') {
       chatManager.markChannelAsRead();
       this.updateChatBadge(0);
       if (this.elements.chatInput) this.elements.chatInput.focus();
     }
+  }
+
+  initSoundboard() {
+    const grid = this.elements.soundboardGrid;
+    if (!grid) return;
+    grid.innerHTML = '';
+    SOUNDBOARD_PRESETS.forEach((preset) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'soundboard-btn';
+      btn.dataset.soundId = preset.id;
+      btn.innerHTML = `
+        <span class="sound-emoji">${preset.icon || preset.emoji || '🔊'}</span>
+        <span class="sound-name">${preset.name}</span>
+      `;
+      btn.addEventListener('click', () => {
+        this.onPlaySound(preset.id);
+      });
+      grid.appendChild(btn);
+    });
   }
 
   bindChatEvents() {

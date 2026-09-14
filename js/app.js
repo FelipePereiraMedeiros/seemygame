@@ -50,6 +50,11 @@ import {
 import { chatManager } from './chat.js';
 import { voiceManager } from './voice.js';
 import { DiscordUIController } from './discord-ui.js';
+import { clipRecorder } from './clipping.js';
+import { tacticalPingManager } from './ping.js';
+import { floatingReactionsManager } from './reactions.js';
+import { soundboardManager } from './soundboard.js';
+import { adaptiveBitrateController } from './abr.js';
 
 // Estado da Aplicação
 let selectedProfile = DEFAULT_PROFILE;
@@ -706,6 +711,47 @@ export function handleIncomingP2PMessage(data, sourceConn) {
     }
     return;
   }
+
+  if (data.type === 'TACTICAL_PING') {
+    if (data.ping) {
+      tacticalPingManager.addPing(data.ping);
+      if (connectedViewers.size > 0) {
+        broadcastDataMessage(data, sourceConn?.peer);
+      }
+    }
+    return;
+  }
+
+  if (data.type === 'TACTICAL_LASER') {
+    if (data.point) {
+      tacticalPingManager.addLaserPoint(data.point);
+      if (connectedViewers.size > 0) {
+        broadcastDataMessage(data, sourceConn?.peer);
+      }
+    }
+    return;
+  }
+
+  if (data.type === 'EMOJI_REACTION') {
+    floatingReactionsManager.spawnReaction({
+      emoji: data.emoji,
+      xPercent: data.xPercent,
+      senderName: data.senderName
+    });
+    if (connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+    return;
+  }
+
+  if (data.type === 'SOUNDBOARD_PLAY') {
+    soundboardManager.playSound(data.soundId);
+    showToast(`🔊 ${data.senderName || 'Alguém'} tocou um som no soundboard!`, 'info', 2500);
+    if (connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+    return;
+  }
 }
 
 export function initDiscordFeatures() {
@@ -729,6 +775,21 @@ export function initDiscordFeatures() {
       if (!msg) return;
       chatManager.addMessage(msg);
       broadcastDataMessage({ type: 'CHAT_MESSAGE', message: msg });
+    },
+    onPlaySound: (soundId) => {
+      if (!soundboardManager.canPlay()) {
+        showToast('Aguarde um instante antes de disparar outro som.', 'info');
+        return;
+      }
+      soundboardManager.playSound(soundId);
+      const isHost = !window.location.pathname.endsWith('viewer.html');
+      const coopState = getCoopState();
+      const senderName = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+      broadcastDataMessage({
+        type: 'SOUNDBOARD_PLAY',
+        soundId,
+        senderName
+      });
     },
     onJoinVoice: async () => {
       try {
@@ -878,7 +939,8 @@ function setupIncomingDataConnection(conn) {
       return;
     }
 
-    if (data.type === 'CHAT_MESSAGE' || data.type === 'VOICE_STATE_UPDATE' || data.type === 'VOICE_SIGNAL') {
+    if (data.type === 'CHAT_MESSAGE' || data.type === 'VOICE_STATE_UPDATE' || data.type === 'VOICE_SIGNAL' ||
+        data.type === 'TACTICAL_PING' || data.type === 'TACTICAL_LASER' || data.type === 'EMOJI_REACTION' || data.type === 'SOUNDBOARD_PLAY') {
       handleIncomingP2PMessage(data, conn);
       return;
     }
@@ -927,6 +989,15 @@ function initiateMediaCallToViewer(viewerPeerId) {
     if (call.peerConnection) {
       hookPeerConnectionSdp(call.peerConnection, () => customBitrateBps);
       applyTransceiverOptimizations(call.peerConnection);
+
+      startStatsMonitor(viewerPeerId, call.peerConnection, true, (sample) => {
+        if (adaptiveBitrateController.isEnabled) {
+          adaptiveBitrateController.processSample({
+            packetLossRate: sample.packetLossRate || 0,
+            rttMs: sample.rtt || 0
+          });
+        }
+      });
 
       setTimeout(() => {
         let scaleFactor = 1;
@@ -1002,6 +1073,10 @@ function handleIncomingMediaCall(call) {
     hideCardLoading(call.peer);
     setCardStreamPaused(call.peer, false);
 
+    clipRecorder.start(remoteStream);
+    const reactionsDock = document.getElementById('reactions-dock');
+    if (reactionsDock) reactionsDock.style.display = 'flex';
+
     const hostConn = watchingHosts.get(call.peer)?.conn;
 
     addOrUpdateVideoCard({
@@ -1029,6 +1104,10 @@ function handleIncomingMediaCall(call) {
   });
 
   call.on('close', () => {
+    clipRecorder.stop();
+    const reactionsDock = document.getElementById('reactions-dock');
+    if (reactionsDock && watchingHosts.size === 0) reactionsDock.style.display = 'none';
+
     const hostData = watchingHosts.get(call.peer);
     if (hostData && hostData.conn && hostData.conn.open === true) {
       // Streamer apenas pausou a transmissão ou alternou fonte; mantém o card pausado sem desmontar
@@ -1143,7 +1222,8 @@ export function watchFriend(rawTargetId) {
       return;
     }
 
-    if (data.type === 'CHAT_MESSAGE' || data.type === 'VOICE_STATE_UPDATE' || data.type === 'VOICE_SIGNAL') {
+    if (data.type === 'CHAT_MESSAGE' || data.type === 'VOICE_STATE_UPDATE' || data.type === 'VOICE_SIGNAL' ||
+        data.type === 'TACTICAL_PING' || data.type === 'TACTICAL_LASER' || data.type === 'EMOJI_REACTION' || data.type === 'SOUNDBOARD_PLAY') {
       handleIncomingP2PMessage(data, conn);
       return;
     }
@@ -1328,6 +1408,7 @@ export async function startLocalStream() {
     }
 
     localStream = capturedDisplayStream;
+    clipRecorder.start(localStream);
     if (wantSystemAudio && localStream.getAudioTracks().length > 0) {
       capturedSystemAudioTrack = localStream.getAudioTracks()[0];
     }
@@ -1424,6 +1505,7 @@ export async function startLocalStream() {
 }
 
 export function stopLocalStream() {
+  clipRecorder.stop();
   if (localStream) {
     const stream = localStream;
     localStream = null;
@@ -1707,9 +1789,300 @@ export function initFixedIdAndPinControls() {
   }
 }
 
-// Inicializa controles de ID e PIN se os elementos já existirem no DOM
+// ==========================================
+// RECURSOS GAMER PROFISSIONAIS (CLIPPING, PING, REAÇÕES, SOUNDBOARD, ABR, FACECAM, PIP)
+// ==========================================
+
+export let facecamStream = null;
+
+export async function toggleFacecam() {
+  const container = document.getElementById('facecam-container');
+  const videoEl = document.getElementById('facecam-video');
+  const toggleBtn = document.getElementById('toggle-facecam-btn');
+  if (!container || !videoEl) return;
+
+  if (facecamStream) {
+    facecamStream.getTracks().forEach(t => t.stop());
+    facecamStream = null;
+    videoEl.srcObject = null;
+    container.style.display = 'none';
+    if (toggleBtn) toggleBtn.classList.remove('active');
+    showToast('📷 Facecam desativada.', 'info');
+  } else {
+    try {
+      facecamStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+        audio: false
+      });
+      videoEl.srcObject = facecamStream;
+      container.style.display = 'flex';
+      if (toggleBtn) toggleBtn.classList.add('active');
+      showToast('📷 Facecam ativada!', 'success');
+    } catch (err) {
+      console.warn('Erro ao ativar facecam:', err);
+      showToast('Não foi possível acessar a câmera para a Facecam.', 'error');
+    }
+  }
+}
+
+export function initTacticalPing() {
+  const canvas = document.getElementById('ping-canvas');
+  if (!canvas) return;
+
+  tacticalPingManager.setCanvas(canvas);
+
+  const resize = () => {
+    const parent = canvas.parentElement;
+    if (parent) {
+      canvas.width = parent.clientWidth || 1280;
+      canvas.height = parent.clientHeight || 720;
+    }
+  };
+  resize();
+  window.addEventListener('resize', resize);
+
+  let currentPingMode = 'ping';
+  const pingModeBtn = document.getElementById('ping-mode-btn');
+  const dangerModeBtn = document.getElementById('danger-mode-btn');
+
+  if (pingModeBtn && dangerModeBtn) {
+    pingModeBtn.addEventListener('click', () => {
+      currentPingMode = 'ping';
+      pingModeBtn.classList.add('active');
+      dangerModeBtn.classList.remove('active');
+    });
+    dangerModeBtn.addEventListener('click', () => {
+      currentPingMode = 'danger';
+      dangerModeBtn.classList.add('active');
+      pingModeBtn.classList.remove('active');
+    });
+  }
+
+  let isPointerDown = false;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    isPointerDown = true;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1)));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / (rect.height || 1)));
+
+    const isHost = !window.location.pathname.endsWith('viewer.html');
+    const coopState = getCoopState();
+    const senderName = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+
+    if (e.shiftKey || e.button === 2) {
+      const color = isHost ? '#10b981' : '#00ffff';
+      tacticalPingManager.startLaserTrail({ color });
+      tacticalPingManager.addLaserPoint({ x, y });
+      broadcastDataMessage({ type: 'TACTICAL_LASER', point: { x, y, color } });
+    } else {
+      const ping = { x, y, type: currentPingMode, senderName };
+      tacticalPingManager.addPing(ping);
+      broadcastDataMessage({ type: 'TACTICAL_PING', ping });
+    }
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!isPointerDown) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1)));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / (rect.height || 1)));
+
+    if (tacticalPingManager.isDrawingLaser) {
+      tacticalPingManager.addLaserPoint({ x, y });
+      broadcastDataMessage({ type: 'TACTICAL_LASER', point: { x, y } });
+    }
+  });
+
+  const stopDrawing = () => {
+    if (isPointerDown) {
+      isPointerDown = false;
+      if (tacticalPingManager.isDrawingLaser) {
+        tacticalPingManager.stopLaserTrail();
+      }
+    }
+  };
+
+  canvas.addEventListener('pointerup', stopDrawing);
+  canvas.addEventListener('pointercancel', stopDrawing);
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+export function initFloatingReactions() {
+  const overlay = document.getElementById('reactions-overlay');
+  if (overlay) {
+    floatingReactionsManager.setContainer(overlay);
+  }
+
+  const dock = document.getElementById('reactions-dock');
+  if (dock) {
+    dock.querySelectorAll('.reaction-dock-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const emoji = btn.dataset.emoji;
+        if (!emoji || !floatingReactionsManager.canSend()) return;
+
+        const isHost = !window.location.pathname.endsWith('viewer.html');
+        const coopState = getCoopState();
+        const senderName = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+        const xPercent = Math.random() * 70 + 15;
+
+        floatingReactionsManager.spawnReaction({ emoji, xPercent, senderName });
+        broadcastDataMessage({
+          type: 'EMOJI_REACTION',
+          emoji,
+          xPercent,
+          senderName
+        });
+      });
+    });
+  }
+}
+
+export function initAdaptiveBitrate() {
+  adaptiveBitrateController.setTargetBitrate(customBitrateBps);
+
+  adaptiveBitrateController.onBitrateChange = (newBitrateBps) => {
+    customBitrateBps = newBitrateBps;
+    if (bitrateSlider) bitrateSlider.value = Math.round(customBitrateBps / 1000);
+    if (bitrateDisplay) bitrateDisplay.innerText = `${(customBitrateBps / 1000000).toFixed(1)} Mbps`;
+    applyLiveBitrateChange();
+
+    const abrToggleBtn = document.getElementById('abr-toggle-btn');
+    if (abrToggleBtn) {
+      abrToggleBtn.innerHTML = `<span>⚡</span> ABR: ${(newBitrateBps / 1000000).toFixed(1)}M`;
+    }
+  };
+
+  const abrToggleBtn = document.getElementById('abr-toggle-btn');
+  if (abrToggleBtn) {
+    abrToggleBtn.addEventListener('click', () => {
+      const isCurrentlyActive = abrToggleBtn.classList.contains('active');
+      const newState = !isCurrentlyActive;
+      abrToggleBtn.classList.toggle('active', newState);
+      adaptiveBitrateController.setEnabled(newState);
+      if (!newState) {
+        abrToggleBtn.innerHTML = '<span>⚡</span> ABR (Auto)';
+      }
+      showToast(newState ? '⚡ ABR Automático ativado (otimização dinâmica contra perdas).' : '⚡ ABR desativado (taxa de bitrate fixa).', 'info');
+    });
+  }
+}
+
+export function initFacecam() {
+  const toggleBtn = document.getElementById('toggle-facecam-btn');
+  const closeBtn = document.getElementById('facecam-close-btn');
+  const container = document.getElementById('facecam-container');
+  const header = container?.querySelector('.facecam-header');
+
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => toggleFacecam());
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => toggleFacecam());
+  }
+
+  if (container && header) {
+    let isDragging = false;
+    let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+    header.addEventListener('mousedown', (e) => {
+      if (e.target === closeBtn) return;
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = container.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+
+      const onMouseMove = (ev) => {
+        if (!isDragging) return;
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        container.style.position = 'fixed';
+        container.style.left = `${Math.max(10, Math.min(window.innerWidth - 200, startLeft + dx))}px`;
+        container.style.top = `${Math.max(10, Math.min(window.innerHeight - 150, startTop + dy))}px`;
+        container.style.right = 'auto';
+        container.style.bottom = 'auto';
+      };
+
+      const onMouseUp = () => {
+        isDragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+  }
+}
+
+export function initGamerFeatures() {
+  initTacticalPing();
+  initFloatingReactions();
+  initAdaptiveBitrate();
+  initFacecam();
+
+  // Botão de Clipping instantâneo ("Clipa isso! - 30s")
+  const clipBtn = document.getElementById('clip-btn');
+  if (clipBtn) {
+    clipBtn.addEventListener('click', async () => {
+      if (!clipRecorder.isRecording) {
+        showToast('Nenhuma transmissão ativa para clipar.', 'warning');
+        return;
+      }
+      const prevHtml = clipBtn.innerHTML;
+      clipBtn.innerHTML = '<span>⏳</span> Gravando Clip...';
+      clipBtn.disabled = true;
+      clipBtn.classList.add('saving');
+      try {
+        const result = await clipRecorder.exportClip();
+        if (result) {
+          showToast(`🎬 Clip salvo com sucesso: ${result.fileName}!`, 'success');
+        } else {
+          showToast('Aguarde alguns segundos de gravação antes de clipar.', 'info');
+        }
+      } catch (err) {
+        console.error('Erro ao gerar clip:', err);
+        showToast('Erro ao exportar clip.', 'error');
+      } finally {
+        clipBtn.innerHTML = prevHtml;
+        clipBtn.disabled = false;
+        clipBtn.classList.remove('saving');
+      }
+    });
+  }
+
+  // Botão de Picture-in-Picture nativo
+  const pipBtn = document.getElementById('pip-btn');
+  if (pipBtn) {
+    pipBtn.addEventListener('click', async () => {
+      try {
+        const videoEl = document.querySelector('#video-grid video:not(#facecam-video)') || document.querySelector('video');
+        if (!videoEl) {
+          showToast('Nenhum vídeo em reprodução para Picture-in-Picture.', 'warning');
+          return;
+        }
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+        } else if (document.pictureInPictureEnabled && typeof videoEl.requestPictureInPicture === 'function') {
+          await videoEl.requestPictureInPicture();
+          showToast('📺 Picture-in-Picture ativado!', 'info');
+        } else {
+          showToast('Picture-in-Picture não suportado neste navegador.', 'warning');
+        }
+      } catch (err) {
+        console.warn('Erro ao alternar Picture-in-Picture:', err);
+        showToast('Não foi possível ativar Picture-in-Picture.', 'error');
+      }
+    });
+  }
+}
+
+// Inicializa controles de ID, PIN e Gamer Features se os elementos já existirem no DOM
 if (typeof document !== 'undefined') {
   initFixedIdAndPinControls();
+  initGamerFeatures();
 }
 
 // ==========================================
@@ -1731,6 +2104,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Inicializa controles de ID fixo e PIN
   initFixedIdAndPinControls();
+
+  // Inicializa recursos Gamer (Clipping, Pings, Reações, ABR, PiP, Facecam)
+  initGamerFeatures();
 
   initTermsModal(() => {
     initPeer();

@@ -11,8 +11,9 @@ const lastTimestamp = {};
  * @param {string} peerId
  * @param {RTCPeerConnection} pc
  * @param {boolean} isLocal
+ * @param {Function} [onTelemetry=null]
  */
-export function startStatsMonitor(peerId, pc, isLocal = false) {
+export function startStatsMonitor(peerId, pc, isLocal = false, onTelemetry = null) {
   stopStatsMonitor(peerId);
 
   lastBytes[peerId] = 0;
@@ -32,6 +33,7 @@ export function startStatsMonitor(peerId, pc, isLocal = false) {
       let width = null;
       let height = null;
       let packetsLost = null;
+      let packetLossRate = 0;
       let qualityReason = null;
 
       // Primeiro busca pelo candidate-pair ativo (nominated ou selected)
@@ -44,6 +46,18 @@ export function startStatsMonitor(peerId, pc, isLocal = false) {
             }
           }
         }
+
+        // Telemetria remota recebida pelo emissor via RTCP
+        if (isLocal && report.type === 'remote-inbound-rtp' && report.kind === 'video') {
+          if (report.roundTripTime !== undefined) {
+            rtt = Math.round(report.roundTripTime * 1000);
+          }
+          if (report.fractionLost !== undefined) {
+            packetLossRate = report.fractionLost;
+          } else if (report.packetsLost !== undefined) {
+            packetsLost = report.packetsLost;
+          }
+        }
       });
 
       // Separação estrita: Inbound (espectador) vs Outbound (streamer local)
@@ -54,6 +68,10 @@ export function startStatsMonitor(peerId, pc, isLocal = false) {
           if (report.frameWidth !== undefined) width = report.frameWidth;
           if (report.frameHeight !== undefined) height = report.frameHeight;
           if (report.packetsLost !== undefined) packetsLost = report.packetsLost;
+          if (report.packetsLost !== undefined && report.packetsReceived) {
+            const total = report.packetsLost + report.packetsReceived;
+            if (total > 0) packetLossRate = report.packetsLost / total;
+          }
         }
 
         if (isLocal && report.type === 'outbound-rtp' && report.kind === 'video') {
@@ -114,6 +132,18 @@ export function startStatsMonitor(peerId, pc, isLocal = false) {
 
       if (qualityElem && qualityReason) {
         qualityElem.innerText = qualityReason === 'none' ? 'Normal' : qualityReason.toUpperCase();
+      }
+
+      if (typeof onTelemetry === 'function') {
+        onTelemetry({
+          peerId,
+          rtt,
+          fps,
+          bitrateMbps: parseFloat(bitrateMbps) || 0,
+          packetsLost,
+          packetLossRate,
+          qualityReason
+        });
       }
 
     } catch (err) {}

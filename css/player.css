@@ -1102,3 +1102,281 @@ video {
   font-size: 12.5px;
   border-radius: 8px;
 }
+
+/* ==========================================
+   Reações Flutuantes & Dock de Emojis
+   ========================================== */
+.reactions-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 50;
+}
+
+.floating-reaction {
+  position: absolute;
+  bottom: 60px;
+  font-size: 2.2rem;
+  user-select: none;
+  pointer-events: none;
+  animation: floatUpFade 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.8));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.reaction-sender {
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #c4b5fd;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.reaction-gg-badge {
+  background: linear-gradient(135deg, #10b981, #06b6d4);
+  color: #fff;
+  font-weight: 900;
+  font-size: 1.1rem;
+  padding: 4px 10px;
+  border-radius: 8px;
+  letter-spacing: 1px;
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.6);
+}
+
+@keyframes floatUpFade {
+  0% {
+    transform: translateY(0) translateX(0) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    transform: translateY(-40px) translateX(calc(var(--drift) * 0.3)) scale(1.25);
+    opacity: 1;
+  }
+  75% {
+    transform: translateY(-220px) translateX(calc(var(--drift) * 0.8)) scale(1.05);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(-340px) translateX(var(--drift)) scale(0.85);
+    opacity: 0;
+  }
+}
+
+.reactions-dock {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  background: rgba(14, 15, 23, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 30px;
+  padding: 6px 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  z-index: 60;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.reaction-dock-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.35rem;
+  padding: 4px 8px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.reaction-dock-btn:hover {
+  transform: scale(1.35) translateY(-4px);
+}
+
+.reaction-dock-btn:active {
+  transform: scale(0.95);
+}
+
+/* ==========================================
+   Tactical Ping & Telestrator Canvas
+   ========================================== */
+.ping-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  z-index: 40;
+}
+
+.ping-mode-bar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.ping-mode-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 11.5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ping-mode-btn.active {
+  background: var(--accent-cyan);
+  color: #000;
+  font-weight: 700;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.4);
+}
+
+/* ==========================================
+   Soundboard Gamer P2P
+   ========================================== */
+.soundboard-panel {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.soundboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.soundboard-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 12px 10px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.soundboard-btn:hover {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: var(--accent-purple);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.25);
+}
+
+.soundboard-btn:active {
+  transform: scale(0.96);
+}
+
+.soundboard-icon {
+  font-size: 1.6rem;
+}
+
+/* ==========================================
+   Facecam PIP Overlay Draggable
+   ========================================== */
+.facecam-overlay {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  width: 220px;
+  height: 140px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  border: 2px solid var(--accent-purple);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.8), 0 0 16px var(--accent-purple-glow);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  cursor: move;
+  resize: both;
+}
+
+.facecam-overlay video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* Efeito espelho para webcam */
+}
+
+.facecam-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  padding: 3px 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: #c4b5fd;
+  z-index: 10;
+}
+
+.facecam-close-btn {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+/* ==========================================
+   Botão de Clipping Instantâneo
+   ========================================== */
+.btn-clip {
+  background: linear-gradient(135deg, #ec4899, #8b5cf6);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  box-shadow: 0 0 14px rgba(236, 72, 153, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-clip:hover {
+  background: linear-gradient(135deg, #db2777, #7c3aed);
+  transform: translateY(-1px);
+  box-shadow: 0 0 20px rgba(236, 72, 153, 0.55);
+}
+
+.btn-clip.clipping-busy {
+  opacity: 0.7;
+  pointer-events: none;
+  animation: pulse 1s infinite;
+}
+
+/* ABR Badge */
+.abr-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--accent-green);
+  cursor: pointer;
+}
+.abr-badge.throttled {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}

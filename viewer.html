@@ -92,6 +92,12 @@
         <button id="connect-btn" disabled aria-label="Assistir transmissão do amigo">
           <span>👀</span> Assistir Transmissão
         </button>
+        <button id="clip-btn" class="btn-clip" title="Salvar os últimos 30 segundos da transmissão em vídeo" aria-label="Clipar últimos 30 segundos" style="display:none;">
+          <span>🎬</span> Clipa Isso!
+        </button>
+        <button id="pip-btn" class="btn-secondary" title="Destacar vídeo em janela Picture-in-Picture" aria-label="Picture in picture" style="display:none;">
+          <span>🪟</span> PIP
+        </button>
         <button id="toggle-voice-btn" class="discord-toggle-btn" title="Canal de Voz" aria-label="Abrir canal de voz">
           <span>🔊</span> Voz <span id="voice-badge" class="counter-badge voice-active-badge" style="display:none;">0</span>
         </button>
@@ -112,6 +118,27 @@
       <h3>Nenhuma transmissão conectada</h3>
       <p>Cole o ID ou link do seu amigo acima para assistir à gameplay em tempo real com <strong>máxima fluidez</strong> e telemetria ao vivo.</p>
     </div>
+
+    <!-- Canvas de Tactical Ping do Espectador -->
+    <canvas id="ping-canvas" class="ping-canvas"></canvas>
+
+    <!-- Overlay de Reações Flutuantes -->
+    <div id="reactions-overlay" class="reactions-overlay"></div>
+
+    <!-- Dock de Reações Rápidas e Modos de Ping do Espectador -->
+    <div id="reactions-dock" class="reactions-dock" style="display: none;">
+      <button class="reaction-dock-btn" data-emoji="🔥" title="Hype!">🔥</button>
+      <button class="reaction-dock-btn" data-emoji="💀" title="F / Morto">💀</button>
+      <button class="reaction-dock-btn" data-emoji="🎯" title="Mira boa!">🎯</button>
+      <button class="reaction-dock-btn" data-emoji="👏" title="Palmas!">👏</button>
+      <button class="reaction-dock-btn" data-emoji="😂" title="Kkkk">😂</button>
+      <button class="reaction-dock-btn" data-emoji="GG" title="Good Game!">GG</button>
+      <button class="reaction-dock-btn" data-emoji="🚀" title="Decolou!">🚀</button>
+      <div class="ping-mode-bar">
+        <button id="ping-mode-btn" class="ping-mode-btn active" title="Clique no vídeo para emitir Ping Tático">📍 Ping</button>
+        <button id="danger-mode-btn" class="ping-mode-btn" title="Clique no vídeo para emitir Alerta de Perigo">⚠️ Alerta</button>
+      </div>
+    </div>
   </main>
 
   <div id="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -130,6 +157,9 @@
         </button>
         <button id="tab-btn-voice" class="drawer-tab">
           <span>🔊</span> Voz
+        </button>
+        <button id="tab-btn-soundboard" class="drawer-tab">
+          <span>📻</span> Sons
         </button>
       </div>
       <button id="drawer-close-btn" class="drawer-close-btn" title="Fechar painel" aria-label="Fechar painel">✕</button>
@@ -176,6 +206,16 @@
         <button id="voice-connect-btn" class="voice-dock-btn join-btn">
           📞 Entrar na Voz
         </button>
+      </div>
+    </div>
+
+    <!-- Painel de Soundboard Gamer P2P -->
+    <div id="drawer-panel-soundboard" class="soundboard-panel" style="display: none;">
+      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+        🎮 Sons interativos transmitidos para a sala de voz:
+      </div>
+      <div class="soundboard-grid" id="soundboard-grid">
+        <!-- Botões de soundboard preenchidos dinamicamente -->
       </div>
     </div>
   </aside>

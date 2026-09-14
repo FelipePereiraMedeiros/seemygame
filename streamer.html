@@ -167,6 +167,9 @@
         <button id="stream-btn" disabled aria-label="Iniciar transmissão da sua tela">
           <span>🚀</span> Transmitir Jogo
         </button>
+        <button id="clip-btn" class="btn-clip" title="Salvar os últimos 30 segundos da transmissão em vídeo" aria-label="Clipar últimos 30 segundos" style="display:none;">
+          <span>🎬</span> Clipa Isso!
+        </button>
         <span id="viewer-count" class="id-badge" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: var(--accent-green);" title="Quantidade de espectadores conectados">
           <span>👥</span> <strong>0</strong> espectadores
         </span>
@@ -239,6 +242,20 @@
         title="Defina um PIN/Senha opcional para proteger o acesso à sua live"
         aria-label="Senha ou PIN da sala">
     </div>
+
+    <div class="tuning-group">
+      <span>📈 <strong>ABR:</strong></span>
+      <button id="abr-toggle-btn" class="abr-badge" title="Alternar Bitrate Adaptativo Automático">
+        Auto: Ativo
+      </button>
+    </div>
+
+    <div class="tuning-group">
+      <span>📷 <strong>Facecam:</strong></span>
+      <button id="toggle-facecam-btn" class="btn-secondary" style="font-size: 11px; padding: 3px 8px;" title="Ativar ou desativar câmera webcam flutuante">
+        Ligar Câmera
+      </button>
+    </div>
   </div>
 
   <div class="banner-info" id="audio-tip-banner">
@@ -253,6 +270,21 @@
       <div class="empty-state-icon">🎙️🎮⚡</div>
       <h3>Painel de Transmissão Pronto</h3>
       <p>Configure a resolução e taxa de bitrate desejadas acima e clique em <strong>"Transmitir Jogo"</strong> para iniciar o compartilhamento com <strong>máxima fluidez</strong> e som estéreo.</p>
+    </div>
+
+    <!-- Canvas de Tactical Ping do Streamer -->
+    <canvas id="ping-canvas" class="ping-canvas"></canvas>
+
+    <!-- Overlay de Reações Flutuantes -->
+    <div id="reactions-overlay" class="reactions-overlay"></div>
+
+    <!-- Facecam PIP Overlay -->
+    <div id="facecam-container" class="facecam-overlay" style="display: none;">
+      <div class="facecam-header">
+        <span>📷 Facecam (Ao Vivo)</span>
+        <button id="facecam-close-btn" class="facecam-close-btn" title="Fechar Facecam">✕</button>
+      </div>
+      <video id="facecam-video" autoplay playsinline muted></video>
     </div>
   </main>
 
@@ -272,6 +304,9 @@
         </button>
         <button id="tab-btn-voice" class="drawer-tab">
           <span>🔊</span> Voz
+        </button>
+        <button id="tab-btn-soundboard" class="drawer-tab">
+          <span>📻</span> Sons
         </button>
       </div>
       <button id="drawer-close-btn" class="drawer-close-btn" title="Fechar painel" aria-label="Fechar painel">✕</button>
@@ -318,6 +353,16 @@
         <button id="voice-connect-btn" class="voice-dock-btn join-btn">
           📞 Entrar na Voz
         </button>
+      </div>
+    </div>
+
+    <!-- Painel de Soundboard Gamer P2P -->
+    <div id="drawer-panel-soundboard" class="soundboard-panel" style="display: none;">
+      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+        🎮 Sons interativos transmitidos para a sala de voz:
+      </div>
+      <div class="soundboard-grid" id="soundboard-grid">
+        <!-- Botões de soundboard preenchidos dinamicamente -->
       </div>
     </div>
   </aside>
