@@ -49,8 +49,14 @@ class MockMediaConnection {
 }
 
 class MockPeer {
-  constructor(config) {
-    this.config = config;
+  constructor(idOrConfig, maybeConfig) {
+    if (typeof idOrConfig === 'string') {
+      this.id = idOrConfig;
+      this.config = maybeConfig;
+    } else {
+      this.id = null;
+      this.config = idOrConfig;
+    }
     this.events = {};
     this.destroyed = false;
     MockPeer.lastInstance = this;

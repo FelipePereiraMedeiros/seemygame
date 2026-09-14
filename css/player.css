@@ -1054,3 +1054,51 @@ video {
 .chat-send-btn:hover {
   background: #2563eb;
 }
+
+/* ==========================================
+   Controles de ID Fixo & Proteção por Senha (PIN)
+   ========================================== */
+.pin-input-field {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 5px 10px;
+  color: #fff;
+  font-size: 12px;
+  width: 130px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.pin-input-field:focus {
+  border-color: var(--accent-purple);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 8px var(--accent-purple-glow);
+}
+
+.custom-id-field {
+  width: 100%;
+  background: var(--bg-input, #0e0f17);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+
+.custom-id-field:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+
+#edit-id-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  border-radius: 8px;
+}

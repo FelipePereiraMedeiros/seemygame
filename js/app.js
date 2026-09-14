@@ -90,6 +90,123 @@ const closeBannerBtn = document.getElementById('close-banner-btn');
 const viewerCountBadge = document.getElementById('viewer-count');
 const coopModeSelect = document.getElementById('coop-mode-select');
 
+// Espectadores autorizados (após verificação de PIN se houver)
+export const authenticatedViewers = new Set();
+let currentPinTargetId = null;
+
+// Elementos DOM para ID Fixo Permanente
+const editIdBtn = document.getElementById('edit-id-btn');
+const customIdModal = document.getElementById('custom-id-modal');
+const customIdInput = document.getElementById('custom-id-input');
+const customIdError = document.getElementById('custom-id-error');
+const customIdSaveBtn = document.getElementById('custom-id-save-btn');
+const customIdResetBtn = document.getElementById('custom-id-reset-btn');
+const customIdCancelBtn = document.getElementById('custom-id-cancel-btn');
+const roomPinInput = document.getElementById('room-pin-input');
+
+// Elementos DOM para Modal de Desafio de PIN do Espectador
+const pinPromptModal = document.getElementById('pin-prompt-modal');
+const viewerPinInput = document.getElementById('viewer-pin-input');
+const viewerPinError = document.getElementById('viewer-pin-error');
+const viewerPinSubmitBtn = document.getElementById('viewer-pin-submit-btn');
+const viewerPinCancelBtn = document.getElementById('viewer-pin-cancel-btn');
+
+export function getCustomStreamerId() {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const id = localStorage.getItem('seemygame_custom_id');
+      if (id && isValidPeerId(id.trim())) {
+        return id.trim();
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+export function setCustomStreamerId(newId) {
+  if (!newId) {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('seemygame_custom_id');
+    }
+    return true;
+  }
+  const trimmed = String(newId).trim();
+  if (isValidPeerId(trimmed) && trimmed.length >= 3 && trimmed.length <= 30) {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('seemygame_custom_id', trimmed);
+    }
+    return true;
+  }
+  return false;
+}
+
+export function getStoredRoomPin() {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const pin = localStorage.getItem('seemygame_streamer_pin');
+      return pin ? String(pin).trim() : '';
+    }
+  } catch (e) {}
+  return '';
+}
+
+export function setStoredRoomPin(newPin) {
+  if (typeof localStorage === 'undefined') return;
+  if (!newPin) {
+    localStorage.removeItem('seemygame_streamer_pin');
+  } else {
+    localStorage.setItem('seemygame_streamer_pin', String(newPin).trim());
+  }
+}
+
+export function promptViewerPin(targetId, errorMsg = null) {
+  currentPinTargetId = targetId;
+  if (pinPromptModal) {
+    pinPromptModal.style.display = 'flex';
+    if (viewerPinInput) {
+      viewerPinInput.value = '';
+      viewerPinInput.focus();
+    }
+    if (viewerPinError) {
+      if (errorMsg) {
+        viewerPinError.textContent = errorMsg;
+        viewerPinError.style.display = 'block';
+      } else {
+        viewerPinError.textContent = '';
+        viewerPinError.style.display = 'none';
+      }
+    }
+  }
+}
+
+export function hideViewerPinModal() {
+  if (pinPromptModal) {
+    pinPromptModal.style.display = 'none';
+  }
+  if (viewerPinError) {
+    viewerPinError.textContent = '';
+    viewerPinError.style.display = 'none';
+  }
+  currentPinTargetId = null;
+}
+
+export function submitViewerPin(pin) {
+  const trimmed = pin ? String(pin).trim() : '';
+  if (!trimmed) {
+    if (viewerPinError) {
+      viewerPinError.textContent = 'Por favor, digite o PIN da sala.';
+      viewerPinError.style.display = 'block';
+    }
+    return;
+  }
+  if (currentPinTargetId) {
+    const hostData = watchingHosts.get(currentPinTargetId);
+    if (hostData && hostData.conn && hostData.conn.open) {
+      hostData.conn.send({ type: 'REQUEST_STREAM', pin: trimmed });
+    }
+  }
+}
+
 function updateViewerCountUI() {
   if (viewerCountBadge) {
     const count = connectedViewers.size;
@@ -309,6 +426,15 @@ if (closeBannerBtn && audioTipBanner) {
 // INICIALIZAÇÃO DO PEERJS & SINALIZAÇÃO
 // ==========================================
 
+export function resetPeer() {
+  if (peer) {
+    try {
+      peer.destroy();
+    } catch (e) {}
+    peer = null;
+  }
+}
+
 export function initPeer() {
   if (typeof Peer === 'undefined') {
     showToast('Erro: Biblioteca PeerJS não carregada.', 'error');
@@ -320,7 +446,18 @@ export function initPeer() {
   }
 
   const config = getPeerConfig();
-  peer = new Peer(config);
+  const customId = getCustomStreamerId();
+
+  try {
+    if (customId) {
+      peer = new Peer(customId, config);
+    } else {
+      peer = new Peer(config);
+    }
+  } catch (err) {
+    console.error('Falha ao inicializar PeerJS:', err);
+    peer = new Peer(config);
+  }
 
   peer.on('open', (id) => {
     myId = id;
@@ -435,6 +572,19 @@ export function initPeer() {
         if (hostData && hostData.state === 'CONNECTING') {
           disconnectHost(hostId);
           break;
+        }
+      }
+    } else if (err.type === 'unavailable-id') {
+      const takenId = getCustomStreamerId() || myId;
+      showToast(`O ID "${takenId}" já está em uso por outro streamer. Escolha outro ID fixo.`, 'error', 7000);
+      if (copyBadge) {
+        copyBadge.innerHTML = `<span>⚠️</span> ID <strong>${takenId}</strong> em uso`;
+      }
+      if (customIdModal) {
+        customIdModal.style.display = 'flex';
+        if (customIdError) {
+          customIdError.textContent = `O ID "${takenId}" já está em uso no momento. Por favor escolha outro.`;
+          customIdError.style.display = 'block';
         }
       }
     } else {
@@ -659,11 +809,20 @@ function setupIncomingDataConnection(conn) {
     connectedViewers.set(conn.peer, conn);
     updateViewerCountUI();
 
-    if (localStream) {
-      initiateMediaCallToViewer(conn.peer);
-      conn.send({ type: 'STREAM_STATUS', isStreaming: true });
+    const hostPin = getStoredRoomPin();
+
+    if (hostPin) {
+      // Sala protegida: envia desafio de PIN e não inicia chamada de mídia antes da senha
+      conn.send({ type: 'PIN_REQUIRED' });
     } else {
-      conn.send({ type: 'STREAM_STATUS', isStreaming: false });
+      // Sala aberta: autoriza imediatamente
+      authenticatedViewers.add(conn.peer);
+      if (localStream) {
+        initiateMediaCallToViewer(conn.peer);
+        conn.send({ type: 'STREAM_STATUS', isStreaming: true });
+      } else {
+        conn.send({ type: 'STREAM_STATUS', isStreaming: false });
+      }
     }
 
     // Sincroniza configurações atuais com o novo espectador conectado
@@ -684,17 +843,47 @@ function setupIncomingDataConnection(conn) {
   conn.on('data', (data) => {
     if (!data || typeof data !== 'object') return;
 
+    const hostPin = getStoredRoomPin();
+
+    if (data.type === 'REQUEST_STREAM') {
+      if (hostPin) {
+        const providedPin = data.pin ? String(data.pin).trim() : '';
+        if (providedPin !== hostPin) {
+          conn.send({ type: 'PIN_REQUIRED', error: 'PIN incorreto. Tente novamente.' });
+          return;
+        }
+        // PIN correto!
+        authenticatedViewers.add(conn.peer);
+        conn.send({ type: 'PIN_ACCEPTED' });
+        showToast(`Amigo (${conn.peer.slice(0, 6)}) autenticou com PIN.`, 'success');
+        if (localStream) {
+          initiateMediaCallToViewer(conn.peer);
+          conn.send({ type: 'STREAM_STATUS', isStreaming: true });
+        } else {
+          conn.send({ type: 'STREAM_STATUS', isStreaming: false });
+        }
+      } else {
+        authenticatedViewers.add(conn.peer);
+        showToast(`Amigo (${conn.peer.slice(0, 6)}) solicitou o stream.`, 'info');
+        if (localStream) {
+          initiateMediaCallToViewer(conn.peer);
+        }
+      }
+      return;
+    }
+
+    // Bloqueia chat, voz e co-op se a sala exigir PIN e o espectador ainda não tiver autenticado
+    if (hostPin && !authenticatedViewers.has(conn.peer)) {
+      conn.send({ type: 'PIN_REQUIRED', error: 'Autenticação necessária com PIN.' });
+      return;
+    }
+
     if (data.type === 'CHAT_MESSAGE' || data.type === 'VOICE_STATE_UPDATE' || data.type === 'VOICE_SIGNAL') {
       handleIncomingP2PMessage(data, conn);
       return;
     }
 
-    if (data.type === 'REQUEST_STREAM') {
-      showToast(`Amigo (${conn.peer.slice(0, 6)}) solicitou o stream.`, 'info');
-      if (localStream) {
-        initiateMediaCallToViewer(conn.peer);
-      }
-    } else if (data.type && (data.type.startsWith('COOP_') || data.type.startsWith('INPUT_'))) {
+    if (data.type && (data.type.startsWith('COOP_') || data.type.startsWith('INPUT_'))) {
       handleHostCoopMessage(conn.peer, data, conn);
     }
   });
@@ -703,6 +892,7 @@ function setupIncomingDataConnection(conn) {
     // Notifica módulo Co-op caso este espectador fosse o Player 2
     handleHostCoopMessage(conn.peer, { type: 'COOP_RELEASE' }, conn);
     connectedViewers.delete(conn.peer);
+    authenticatedViewers.delete(conn.peer);
     stopStatsMonitor(conn.peer);
     updateViewerCountUI();
   });
@@ -711,6 +901,7 @@ function setupIncomingDataConnection(conn) {
     console.error(`Erro na DataConnection com ${conn.peer}:`, err);
     handleHostCoopMessage(conn.peer, { type: 'COOP_RELEASE' }, conn);
     connectedViewers.delete(conn.peer);
+    authenticatedViewers.delete(conn.peer);
     stopStatsMonitor(conn.peer);
     updateViewerCountUI();
   });
@@ -941,6 +1132,17 @@ export function watchFriend(rawTargetId) {
   conn.on('data', (data) => {
     if (!data || typeof data !== 'object') return;
 
+    if (data.type === 'PIN_REQUIRED') {
+      promptViewerPin(targetId, data.error);
+      return;
+    }
+
+    if (data.type === 'PIN_ACCEPTED') {
+      hideViewerPinModal();
+      showToast('PIN correto! Conectando à transmissão...', 'success');
+      return;
+    }
+
     if (data.type === 'CHAT_MESSAGE' || data.type === 'VOICE_STATE_UPDATE' || data.type === 'VOICE_SIGNAL') {
       handleIncomingP2PMessage(data, conn);
       return;
@@ -1002,6 +1204,10 @@ export function watchFriend(rawTargetId) {
 }
 
 export function disconnectHost(peerId) {
+  if (currentPinTargetId === peerId) {
+    hideViewerPinModal();
+  }
+
   // Se o espectador era Player 2 deste host, libera os controles
   const coopState = getCoopState();
   if (coopState.isPlayer2 && coopState.activeHostPeerId === peerId) {
@@ -1180,10 +1386,13 @@ export async function startLocalStream() {
       streamBtn.classList.add('btn-stop');
     }
 
-    // Notifica e chama todos os espectadores conectados
+    // Notifica e chama todos os espectadores autorizados conectados
     connectedViewers.forEach((conn, viewerId) => {
-      conn.send({ type: 'STREAM_STATUS', isStreaming: true });
-      initiateMediaCallToViewer(viewerId);
+      const hostPin = getStoredRoomPin();
+      if (!hostPin || authenticatedViewers.has(viewerId)) {
+        conn.send({ type: 'STREAM_STATUS', isStreaming: true });
+        initiateMediaCallToViewer(viewerId);
+      }
     });
 
     showToast(`Transmissão ativa em alta fluidez (${(customBitrateBps / 1000000).toFixed(1)} Mbps)!`, 'success');
@@ -1382,6 +1591,128 @@ function checkAutoWatchUrl() {
 }
 
 // ==========================================
+// INICIALIZAÇÃO DE ID FIXO E PIN
+// ==========================================
+
+export function initFixedIdAndPinControls() {
+  // 1. PIN na barra de tuning do Streamer
+  if (roomPinInput) {
+    const savedPin = getStoredRoomPin();
+    if (savedPin) roomPinInput.value = savedPin;
+
+    roomPinInput.addEventListener('input', (e) => {
+      const val = e.target.value.trim();
+      setStoredRoomPin(val);
+    });
+
+    roomPinInput.addEventListener('change', (e) => {
+      const val = e.target.value.trim();
+      if (val) {
+        showToast('🔒 PIN da sala salvo. Novos espectadores precisarão da senha.', 'info');
+      } else {
+        showToast('🔓 PIN removido. Sala agora é aberta ao público.', 'info');
+      }
+    });
+  }
+
+  // 2. Modal de ID Fixo Permanente
+  if (editIdBtn && customIdModal) {
+    editIdBtn.addEventListener('click', () => {
+      if (customIdInput) {
+        customIdInput.value = getCustomStreamerId() || '';
+      }
+      if (customIdError) {
+        customIdError.textContent = '';
+        customIdError.style.display = 'none';
+      }
+      customIdModal.style.display = 'flex';
+      if (customIdInput) customIdInput.focus();
+    });
+  }
+
+  if (customIdCancelBtn && customIdModal) {
+    customIdCancelBtn.addEventListener('click', () => {
+      customIdModal.style.display = 'none';
+    });
+  }
+
+  if (customIdResetBtn && customIdModal) {
+    customIdResetBtn.addEventListener('click', () => {
+      setCustomStreamerId(null);
+      customIdModal.style.display = 'none';
+      showToast('ID fixo removido. Gerando novo ID aleatório...', 'info');
+      if (peer) {
+        try { peer.destroy(); } catch (e) {}
+        peer = null;
+      }
+      initPeer();
+    });
+  }
+
+  if (customIdSaveBtn && customIdModal) {
+    const handleSaveCustomId = () => {
+      const rawVal = customIdInput ? customIdInput.value.trim() : '';
+      if (!rawVal || rawVal.length < 3 || rawVal.length > 30 || !isValidPeerId(rawVal)) {
+        if (customIdError) {
+          customIdError.textContent = 'O ID deve ter entre 3 e 30 caracteres (letras, números, hífen ou underline).';
+          customIdError.style.display = 'block';
+        }
+        return;
+      }
+
+      setCustomStreamerId(rawVal);
+      customIdModal.style.display = 'none';
+      showToast(`ID Fixo "${rawVal}" salvo com sucesso! Reiniciando sessão P2P...`, 'success');
+      if (peer) {
+        try { peer.destroy(); } catch (e) {}
+        peer = null;
+      }
+      initPeer();
+    };
+
+    customIdSaveBtn.addEventListener('click', handleSaveCustomId);
+    if (customIdInput) {
+      customIdInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          handleSaveCustomId();
+        }
+      });
+    }
+  }
+
+  // 3. Modal de Desafio de PIN do Espectador
+  if (viewerPinSubmitBtn) {
+    viewerPinSubmitBtn.addEventListener('click', () => {
+      const val = viewerPinInput ? viewerPinInput.value.trim() : '';
+      submitViewerPin(val);
+    });
+  }
+
+  if (viewerPinInput) {
+    viewerPinInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const val = viewerPinInput ? viewerPinInput.value.trim() : '';
+        submitViewerPin(val);
+      }
+    });
+  }
+
+  if (viewerPinCancelBtn) {
+    viewerPinCancelBtn.addEventListener('click', () => {
+      if (currentPinTargetId) {
+        disconnectHost(currentPinTargetId);
+      }
+      hideViewerPinModal();
+    });
+  }
+}
+
+// Inicializa controles de ID e PIN se os elementos já existirem no DOM
+if (typeof document !== 'undefined') {
+  initFixedIdAndPinControls();
+}
+
+// ==========================================
 // INICIALIZAÇÃO GERAL
 // ==========================================
 
@@ -1397,6 +1728,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Inicializa recursos Discord (Chat e Voz P2P)
   initDiscordFeatures();
+
+  // Inicializa controles de ID fixo e PIN
+  initFixedIdAndPinControls();
 
   initTermsModal(() => {
     initPeer();

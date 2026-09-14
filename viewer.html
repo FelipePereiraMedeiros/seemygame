@@ -46,6 +46,33 @@
     </div>
   </div>
 
+  <!-- Modal de Solicitação de PIN / Senha da Sala -->
+  <div id="pin-prompt-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="pin-prompt-title">
+    <div class="modal-content" style="max-width: 440px;">
+      <h3 id="pin-prompt-title">🔒 Sala Protegida por Senha</h3>
+      <p style="color: var(--text-muted); font-size: 13.5px; line-height: 1.5; margin-bottom: 16px;">
+        Esta transmissão é privada e requer um <strong>PIN de acesso</strong> configurado pelo streamer para liberar o vídeo, áudio e chat.
+      </p>
+
+      <div style="margin-bottom: 16px;">
+        <label for="viewer-pin-input" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Digite a senha da sala:</label>
+        <input 
+          type="password" 
+          id="viewer-pin-input" 
+          class="custom-id-field"
+          placeholder="PIN ou senha da transmissão" 
+          maxlength="30"
+          autocomplete="current-password">
+        <div id="viewer-pin-error" style="color: #f87171; font-size: 12px; margin-top: 6px; display: none;"></div>
+      </div>
+
+      <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button id="viewer-pin-cancel-btn" class="btn-secondary">Cancelar</button>
+        <button id="viewer-pin-submit-btn" style="background: var(--accent-green);">Entrar na Sala</button>
+      </div>
+    </div>
+  </div>
+
   <header>
     <div class="brand">
       <a href="index.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 10px;">
