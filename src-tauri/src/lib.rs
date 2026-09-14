@@ -1,4 +1,6 @@
-﻿mod system;
+use tauri::Manager;
+
+mod system;
 mod windows_list;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -14,6 +16,15 @@ pub fn run() {
             }
             // Elevate process priority to HIGH_PRIORITY_CLASS to avoid GPU throttling
             let _ = system::set_high_priority();
+
+            if let Some(window) = app.get_webview_window("main") {
+                log::info!("[SeeMyGame Desktop] Janela 'main' inicializada com sucesso!");
+                let _ = window.show();
+                let _ = window.set_focus();
+            } else {
+                log::warn!("[SeeMyGame Desktop] Janela 'main' não encontrada pelo label!");
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
