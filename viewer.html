@@ -260,17 +260,26 @@
         <button id="pip-btn" class="btn-secondary" title="Destacar vídeo em janela Picture-in-Picture" aria-label="Picture in picture" style="display:none;">
           <span>🪟</span> PIP
         </button>
+        <button id="toggle-chat-btn" class="discord-toggle-btn" title="Bate-papo da transmissão" aria-label="Abrir bate-papo">
+          <span>💬</span> Chat <span id="chat-unread-badge" class="counter-badge" style="display:none;">0</span>
+        </button>
         <button id="toggle-voice-btn" class="discord-toggle-btn" title="Canal de Voz" aria-label="Abrir canal de voz">
           <span>🔊</span> Voz <span id="voice-badge" class="counter-badge voice-active-badge" style="display:none;">0</span>
         </button>
-        <button id="toggle-chat-btn" class="discord-toggle-btn" title="Bate-papo da transmissão" aria-label="Abrir bate-papo">
-          <span>💬</span> Chat <span id="chat-unread-badge" class="counter-badge" style="display:none;">0</span>
+        <button id="toggle-emojis-btn" class="discord-toggle-btn" title="Emojis e Reações" aria-label="Abrir emojis e reações">
+          <span>😀</span> Emojis
+        </button>
+        <button id="toggle-soundboard-btn" class="discord-toggle-btn" title="Soundboard Gamer" aria-label="Abrir sons">
+          <span>📻</span> Sons
         </button>
         <button id="toggle-whiteboard-btn" class="discord-toggle-btn" title="Lousa Interativa Colaborativa (Excalidraw)" aria-label="Abrir Lousa">
           <span>🎨</span> Lousa
         </button>
       </div>
 
+      <a href="room.html" class="nav-switch-btn" style="background: var(--accent-purple);" title="Entrar no novo modo Sala (Estilo Discord)">
+        <span>🎧</span> Modo Sala Discord
+      </a>
       <a href="streamer.html" class="nav-switch-btn" title="Ir para o estúdio de transmissão">
         <span>🚀</span> Quero Transmitir
       </a>
@@ -313,21 +322,48 @@
     <a id="open-terms-link" tabindex="0" role="button">Termos de Uso</a>
   </footer>
 
-  <!-- Drawer Estilo Discord (Voz e Chat) -->
-  <aside id="discord-drawer" class="discord-drawer" aria-label="Painel Discord de Voz e Chat">
+  <!-- Mini-Rail Lateral Discord (Margem Esquerda) -->
+  <nav id="discord-left-rail" class="discord-left-rail" aria-label="Menu rápido estilo Discord">
+    <button id="rail-btn-chat" class="discord-rail-btn active" title="Chat (#geral)" aria-label="Abrir chat">
+      <span>💬</span>
+      <span id="rail-chat-badge" class="rail-badge" style="display:none;">0</span>
+    </button>
+    <button id="rail-btn-voice" class="discord-rail-btn" title="Canal de Voz" aria-label="Abrir canal de voz">
+      <span>🔊</span>
+      <span id="rail-voice-badge" class="rail-badge rail-voice-badge" style="display:none;">0</span>
+    </button>
+    <button id="rail-btn-emojis" class="discord-rail-btn" title="Emojis & Reações" aria-label="Abrir emojis e reações">
+      <span>😀</span>
+    </button>
+    <button id="rail-btn-soundboard" class="discord-rail-btn" title="Sons & Soundboard" aria-label="Abrir sons">
+      <span>📻</span>
+    </button>
+  </nav>
+
+  <!-- Drawer Estilo Discord no Lado Esquerdo (Chat, Voz, Emojis e Sons) -->
+  <aside id="discord-drawer" class="discord-drawer" aria-label="Painel Discord de Voz, Chat, Emojis e Sons">
     <div class="drawer-header">
+      <div class="drawer-header-top">
+        <div class="drawer-server-info">
+          <span>🎮 SeeMyGame</span>
+          <span class="drawer-server-badge">AO VIVO</span>
+        </div>
+        <button id="drawer-close-btn" class="drawer-close-btn" title="Recolher painel" aria-label="Fechar painel">✕</button>
+      </div>
       <div class="drawer-tabs">
-        <button id="tab-btn-chat" class="drawer-tab active">
+        <button id="tab-btn-chat" class="drawer-tab active" title="Canal de Bate-papo">
           <span>💬</span> Chat
         </button>
-        <button id="tab-btn-voice" class="drawer-tab">
+        <button id="tab-btn-voice" class="drawer-tab" title="Canal de Voz">
           <span>🔊</span> Voz
         </button>
-        <button id="tab-btn-soundboard" class="drawer-tab">
+        <button id="tab-btn-emojis" class="drawer-tab" title="Emojis & Reações">
+          <span>😀</span> Emojis
+        </button>
+        <button id="tab-btn-soundboard" class="drawer-tab" title="Sons do Jogo">
           <span>📻</span> Sons
         </button>
       </div>
-      <button id="drawer-close-btn" class="drawer-close-btn" title="Fechar painel" aria-label="Fechar painel">✕</button>
     </div>
 
     <!-- Painel do Chat -->
@@ -338,6 +374,7 @@
         </div>
       </div>
       <div class="chat-input-bar">
+        <button id="chat-emoji-trigger-btn" class="chat-emoji-btn" title="Abrir painel de emojis" type="button">😀</button>
         <input 
           type="text" 
           id="chat-input" 
@@ -374,6 +411,19 @@
         <button id="voice-connect-btn" class="voice-dock-btn join-btn">
           📞 Entrar na Voz
         </button>
+      </div>
+    </div>
+
+    <!-- Painel de Emojis & Reações Estilo Discord -->
+    <div id="drawer-panel-emojis" class="emojis-panel" style="display: none;">
+      <div class="emojis-intro">
+        ✨ Clique em qualquer emoji abaixo para disparar reações flutuantes em tempo real na tela!
+      </div>
+      <div class="emojis-section-title">
+        <span>🔥 Reações Rápidas Gamer</span>
+      </div>
+      <div class="emojis-grid" id="emojis-grid">
+        <!-- Preenchido dinamicamente pelo DiscordUIController -->
       </div>
     </div>
 

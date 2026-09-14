@@ -162,6 +162,10 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
+    const customIdModal = document.getElementById('custom-id-modal');
+    if (customIdModal) customIdModal.style.display = 'none';
+    const pinModal = document.getElementById('pin-prompt-modal');
+    if (pinModal) pinModal.style.display = 'none';
     if (app && typeof app.resetPeer === 'function') {
       app.resetPeer();
     }
@@ -252,7 +256,7 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       expect(instance.id).toBeNull();
     });
 
-    it('deve exibir aviso e abrir modal quando o PeerJS emitir erro unavailable-id', () => {
+    it('deve exibir aviso e abrir modal quando o PeerJS emitir erro unavailable-id para ID não pertencente à sessão', () => {
       app.setCustomStreamerId('diogo');
       app.initPeer();
 
@@ -267,6 +271,79 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       expect(customIdModal.style.display).toBe('flex');
       expect(customIdError.style.display).toBe('block');
       expect(customIdError.textContent).toContain('já está em uso');
+    });
+
+    it('deve tentar reconectar automaticamente em reload/mesma sessão quando unavailable-id for emitido', () => {
+      sessionStorage.setItem('seemygame_last_id', 'diogo');
+      app.setCustomStreamerId('diogo');
+      app.initPeer();
+
+      const instance = MockPeer.lastInstance;
+      instance.emit('error', { type: 'unavailable-id', message: 'ID is taken' });
+
+      const copyBadge = document.getElementById('copy-badge');
+      const customIdModal = document.getElementById('custom-id-modal');
+
+      expect(app.getCustomIdRetryAttempts()).toBe(1);
+      expect(copyBadge.innerHTML).toContain('Liberando ID');
+      expect(customIdModal.style.display).not.toBe('flex');
+    });
+
+    it('quando reconexão for bem sucedida no open, deve zerar customIdRetryAttempts e persistir na sessionStorage', () => {
+      app.setCustomStreamerId('diogo');
+      app.setCustomIdRetryAttempts(2);
+      app.initPeer();
+
+      const instance = MockPeer.lastInstance;
+      instance.emit('open', 'diogo');
+
+      expect(app.getCustomIdRetryAttempts()).toBe(0);
+      expect(sessionStorage.getItem('seemygame_last_id')).toBe('diogo');
+    });
+
+    it('deve abrir modal após esgotar tentativas de reconexão de ID', () => {
+      sessionStorage.setItem('seemygame_last_id', 'diogo');
+      app.setCustomStreamerId('diogo');
+      app.setCustomIdRetryAttempts(app.MAX_CUSTOM_ID_RETRIES);
+      app.initPeer();
+
+      const instance = MockPeer.lastInstance;
+      instance.emit('error', { type: 'unavailable-id', message: 'ID is taken' });
+
+      const customIdModal = document.getElementById('custom-id-modal');
+      const customIdError = document.getElementById('custom-id-error');
+      const copyBadge = document.getElementById('copy-badge');
+
+      expect(customIdModal.style.display).toBe('flex');
+      expect(customIdError.style.display).toBe('block');
+      expect(copyBadge.innerHTML).toContain('em uso');
+      expect(sessionStorage.getItem('seemygame_last_id')).toBeNull();
+    });
+
+    it('deve chamar peer.destroy() no evento beforeunload para liberar o ID de forma limpa', () => {
+      app.initPeer();
+      const inst = MockPeer.lastInstance;
+      expect(inst.destroyed).toBe(false);
+
+      window.dispatchEvent(new Event('beforeunload'));
+      expect(inst.destroyed).toBe(true);
+    });
+
+    it('em viewer.html, não deve inicializar com o ID customizado do streamer', () => {
+      const origLocation = window.location;
+      delete window.location;
+      window.location = new URL('http://localhost/viewer.html');
+
+      try {
+        app.setCustomStreamerId('streamer-mason');
+        app.resetPeer();
+        app.initPeer();
+
+        const inst = MockPeer.lastInstance;
+        expect(inst.id).toBeNull();
+      } finally {
+        window.location = origLocation;
+      }
     });
   });
 

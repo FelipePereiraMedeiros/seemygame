@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SeeMyGame - Módulo de Integração com o App Desktop Nativo (Tauri v2 / Rust)
  */
 
@@ -51,3 +51,34 @@ export async function setHighPriority() {
         return false;
     }
 }
+
+/**
+ * Alterna dinamicamente se a janela do SeeMyGame deve ficar fixada no topo (always-on-top)
+ * @returns {Promise<boolean>} Retorna o novo estado
+ */
+export async function toggleAlwaysOnTop() {
+    if (!isDesktopApp()) return false;
+    try {
+        const result = await invokeDesktopCommand('toggle_always_on_top');
+        return Boolean(result);
+    } catch (err) {
+        console.warn('[Desktop] Falha ao alternar always-on-top:', err);
+        return false;
+    }
+}
+
+/**
+ * Consulta se a janela está fixada no topo
+ * @returns {Promise<boolean>}
+ */
+export async function isAlwaysOnTop() {
+    if (!isDesktopApp()) return false;
+    try {
+        const result = await invokeDesktopCommand('is_always_on_top');
+        return Boolean(result);
+    } catch (err) {
+        console.warn('[Desktop] Falha ao consultar always-on-top:', err);
+        return false;
+    }
+}
+

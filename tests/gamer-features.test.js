@@ -47,7 +47,7 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
       <button id="clip-btn"><span>🎬</span> Clipa isso!</button>
       <button id="abr-toggle-btn" class="active"><span>⚡</span> ABR (Auto)</button>
       <button id="pip-btn"><span>📺</span> PiP</button>
-      <button id="toggle-facecam-btn"><span>📷</span> Facecam</button>
+      <button id="toggle-facecam-btn"><span>📷</span> Ligar Câmera</button>
 
       <div id="clip-post-modal" style="display: none;">
         <button id="clip-post-close-btn">✕</button>
@@ -271,6 +271,33 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
         })
       );
     });
+
+    it('clique sobre botão ou cabeçalho de controle NÃO deve disparar addPing', () => {
+      initTacticalPing();
+      const canvas = document.getElementById('ping-canvas');
+      const addPingSpy = vi.spyOn(tacticalPingManager, 'addPing');
+
+      const headerBtn = document.createElement('button');
+      headerBtn.className = 'card-btn';
+      document.body.appendChild(headerBtn);
+
+      const origElementFromPoint = document.elementFromPoint;
+      document.elementFromPoint = vi.fn(() => headerBtn);
+
+      try {
+        const pointerEvent = new MouseEvent('pointerdown', {
+          clientX: 200,
+          clientY: 20,
+          button: 0,
+        });
+        canvas.dispatchEvent(pointerEvent);
+
+        expect(addPingSpy).not.toHaveBeenCalled();
+      } finally {
+        document.elementFromPoint = origElementFromPoint;
+        headerBtn.remove();
+      }
+    });
   });
 
   describe('Reações Rápidas e Adaptive Bitrate', () => {
@@ -316,11 +343,13 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
 
       initFacecam();
       expect(container.style.display).toBe('none');
+      expect(toggleBtn.textContent).toContain('Ligar Câmera');
 
       await toggleFacecam();
 
       expect(container.style.display).toBe('flex');
       expect(toggleBtn.classList.contains('active')).toBe(true);
+      expect(toggleBtn.textContent).toContain('Desligar Facecam');
       expect(videoEl.srcObject).toBe(mockStream);
 
       await toggleFacecam();
@@ -328,6 +357,41 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
       expect(container.style.display).toBe('none');
       expect(mockTrack.stop).toHaveBeenCalled();
       expect(toggleBtn.classList.contains('active')).toBe(false);
+      expect(toggleBtn.textContent).toContain('Ligar Câmera');
+    });
+
+    it('clicar no botão toggle-facecam-btn deve alternar estado e atualizar texto sem duplicar listeners', async () => {
+      const mockTrack = { stop: vi.fn(), kind: 'video' };
+      const mockStream = {
+        getTracks: () => [mockTrack],
+        getVideoTracks: () => [mockTrack],
+      };
+
+      navigator.mediaDevices = {
+        getUserMedia: vi.fn().mockResolvedValue(mockStream),
+      };
+
+      const container = document.getElementById('facecam-container');
+      const toggleBtn = document.getElementById('toggle-facecam-btn');
+
+      // Chama initFacecam duas vezes para garantir que listeners não sejam duplicados
+      initFacecam();
+      initFacecam();
+
+      toggleBtn.click();
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(container.style.display).toBe('flex');
+      expect(toggleBtn.classList.contains('active')).toBe(true);
+      expect(toggleBtn.textContent).toContain('Desligar Facecam');
+
+      toggleBtn.click();
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(container.style.display).toBe('none');
+      expect(mockTrack.stop).toHaveBeenCalled();
+      expect(toggleBtn.classList.contains('active')).toBe(false);
+      expect(toggleBtn.textContent).toContain('Ligar Câmera');
     });
   });
 

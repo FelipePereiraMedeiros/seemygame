@@ -23,7 +23,9 @@ pub fn run() {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
-                let _ = window.set_always_on_top(true);
+                // No paradigma de sala/Discord, a janela não fica travada forçadamente no topo por padrão,
+                // permitindo que o usuário alterne dinamicamente conforme sua necessidade.
+                let _ = window.set_always_on_top(false);
             } else {
                 log::warn!("[SeeMyGame Desktop] Janela 'main' não encontrada pelo label!");
             }
@@ -32,7 +34,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             system::set_high_priority,
-            windows_list::list_capturable_windows
+            windows_list::list_capturable_windows,
+            system::toggle_always_on_top,
+            system::is_always_on_top
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

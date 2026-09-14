@@ -9,20 +9,33 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
   let onJoinMock;
   let onLeaveMock;
   let onPlaySoundMock;
+  let onSendReactionMock;
 
   beforeEach(() => {
 
     document.body.innerHTML = `
       <button id="toggle-chat-btn">Chat</button>
       <button id="toggle-voice-btn">Voz</button>
+      <button id="toggle-emojis-btn">Emojis</button>
+      <button id="toggle-soundboard-btn">Sons</button>
       <span id="chat-unread-badge" style="display:none;">0</span>
       <span id="voice-badge" style="display:none;">0</span>
+
+      <nav id="discord-left-rail" class="discord-left-rail">
+        <button id="rail-btn-chat">💬</button>
+        <button id="rail-btn-voice">🔊</button>
+        <button id="rail-btn-emojis">😀</button>
+        <button id="rail-btn-soundboard">📻</button>
+        <span id="rail-chat-badge" style="display:none;">0</span>
+        <span id="rail-voice-badge" style="display:none;">0</span>
+      </nav>
 
       <div id="discord-drawer" class="discord-drawer">
         <div class="drawer-header">
           <div class="drawer-tabs">
             <button id="tab-btn-chat" class="drawer-tab active">Chat</button>
             <button id="tab-btn-voice" class="drawer-tab">Voz</button>
+            <button id="tab-btn-emojis" class="drawer-tab">Emojis</button>
             <button id="tab-btn-soundboard" class="drawer-tab">Soundboard</button>
           </div>
           <button id="drawer-close-btn">✕</button>
@@ -31,6 +44,7 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
         <div id="drawer-panel-chat" class="chat-panel">
           <div id="chat-messages-container" class="chat-messages-container"></div>
           <div class="chat-input-bar">
+            <button id="chat-emoji-trigger-btn">😀</button>
             <input type="text" id="chat-input">
             <button id="chat-send-btn">Enviar</button>
           </div>
@@ -47,6 +61,10 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
           </div>
         </div>
 
+        <div id="drawer-panel-emojis" class="emojis-panel" style="display:none;">
+          <div id="emojis-grid" class="emojis-grid"></div>
+        </div>
+
         <div id="drawer-panel-soundboard" class="soundboard-panel" style="display:none;">
           <div id="soundboard-grid" class="soundboard-grid"></div>
         </div>
@@ -57,6 +75,7 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
     onJoinMock = vi.fn();
     onLeaveMock = vi.fn();
     onPlaySoundMock = vi.fn();
+    onSendReactionMock = vi.fn();
 
     chatManager.clearChannel('geral');
     chatManager.clearChannel('comandos');
@@ -67,6 +86,7 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
       onJoinVoice: onJoinMock,
       onLeaveVoice: onLeaveMock,
       onPlaySound: onPlaySoundMock,
+      onSendReaction: onSendReactionMock,
     });
     controller.init();
   });
@@ -89,25 +109,69 @@ describe('Módulo: discord-ui.js (Controlador de UI Discord)', () => {
       expect(controller.isDrawerOpen).toBe(false);
     });
 
-    it('deve alternar abas entre chat, voz e soundboard', () => {
+    it('deve alternar abas entre chat, voz, emojis e soundboard', () => {
       const panelChat = document.getElementById('drawer-panel-chat');
       const panelVoice = document.getElementById('drawer-panel-voice');
+      const panelEmojis = document.getElementById('drawer-panel-emojis');
       const panelSoundboard = document.getElementById('drawer-panel-soundboard');
 
       controller.openDrawer('voice');
       expect(panelVoice.style.display).toBe('flex');
       expect(panelChat.style.display).toBe('none');
+      expect(panelEmojis.style.display).toBe('none');
+      expect(panelSoundboard.style.display).toBe('none');
+
+      controller.switchTab('emojis');
+      expect(panelEmojis.style.display).toBe('flex');
+      expect(panelVoice.style.display).toBe('none');
+      expect(panelChat.style.display).toBe('none');
       expect(panelSoundboard.style.display).toBe('none');
 
       controller.switchTab('soundboard');
       expect(panelSoundboard.style.display).toBe('flex');
+      expect(panelEmojis.style.display).toBe('none');
       expect(panelVoice.style.display).toBe('none');
       expect(panelChat.style.display).toBe('none');
 
       controller.switchTab('chat');
       expect(panelChat.style.display).toBe('flex');
+      expect(panelEmojis.style.display).toBe('none');
       expect(panelVoice.style.display).toBe('none');
       expect(panelSoundboard.style.display).toBe('none');
+    });
+
+    it('deve alternar abas ao clicar na mini-rail lateral', () => {
+      const railEmojisBtn = document.getElementById('rail-btn-emojis');
+      const drawer = document.getElementById('discord-drawer');
+      const panelEmojis = document.getElementById('drawer-panel-emojis');
+
+      railEmojisBtn.click();
+      expect(drawer.classList.contains('open')).toBe(true);
+      expect(controller.activeTab).toBe('emojis');
+      expect(panelEmojis.style.display).toBe('flex');
+    });
+
+    it('deve fechar o drawer ao pressionar Escape', () => {
+      controller.openDrawer('chat');
+      expect(controller.isDrawerOpen).toBe(true);
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      expect(controller.isDrawerOpen).toBe(false);
+    });
+  });
+
+  describe('Painel de Emojis e Reações Gamer', () => {
+    it('deve preencher o grid de emojis e disparar onSendReaction ao clicar', () => {
+      const grid = document.getElementById('emojis-grid');
+      const cards = grid.querySelectorAll('.emoji-reaction-card');
+
+      expect(cards.length).toBeGreaterThanOrEqual(6);
+
+      const fireCard = Array.from(cards).find((c) => c.dataset.emoji === '🔥');
+      expect(fireCard).toBeDefined();
+
+      fireCard.click();
+      expect(onSendReactionMock).toHaveBeenCalledWith('🔥');
     });
   });
 

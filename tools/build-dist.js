@@ -1,4 +1,4 @@
-﻿import fs from 'node:fs';
+import fs from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve('.');
@@ -9,7 +9,7 @@ if (fs.existsSync(dist)) {
 }
 fs.mkdirSync(dist, { recursive: true });
 
-const itemsToCopy = ['index.html', 'streamer.html', 'viewer.html', 'css', 'js'];
+const itemsToCopy = ['index.html', 'room.html', 'streamer.html', 'viewer.html', 'css', 'js'];
 
 for (const item of itemsToCopy) {
   const src = path.join(root, item);

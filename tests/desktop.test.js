@@ -1,5 +1,5 @@
-﻿import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { isDesktopApp, invokeDesktopCommand, getCapturableWindows, setHighPriority } from '../js/desktop.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { isDesktopApp, invokeDesktopCommand, getCapturableWindows, setHighPriority, toggleAlwaysOnTop, isAlwaysOnTop } from '../js/desktop.js';
 
 describe('Módulo: desktop.js (Tauri v2 / Rust Integration)', () => {
     const originalTauri = window.__TAURI_INTERNALS__;
@@ -76,5 +76,30 @@ describe('Módulo: desktop.js (Tauri v2 / Rust Integration)', () => {
 
         const result = await setHighPriority();
         expect(result).toBe(false);
+    });
+
+    it('toggleAlwaysOnTop deve invocar toggle_always_on_top e alternar estado', async () => {
+        window.__TAURI_INTERNALS__ = {
+            invoke: vi.fn().mockResolvedValue(true)
+        };
+
+        const res = await toggleAlwaysOnTop();
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('toggle_always_on_top', {});
+        expect(res).toBe(true);
+    });
+
+    it('toggleAlwaysOnTop deve retornar false em ambiente web', async () => {
+        const res = await toggleAlwaysOnTop();
+        expect(res).toBe(false);
+    });
+
+    it('isAlwaysOnTop deve invocar is_always_on_top e retornar booleano', async () => {
+        window.__TAURI_INTERNALS__ = {
+            invoke: vi.fn().mockResolvedValue(false)
+        };
+
+        const res = await isAlwaysOnTop();
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('is_always_on_top', {});
+        expect(res).toBe(false);
     });
 });

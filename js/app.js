@@ -67,8 +67,40 @@ import {
   playAudioBuffer
 } from './audio-meme.js';
 import { whiteboardManager, WHITEBOARD_TOOLS, WHITEBOARD_COLORS } from './whiteboard.js';
+import { RoomManager, sanitizeRoomId, getRoomMasterPeerId } from './room.js';
 
 // Estado da Aplicação
+export let roomManager = null;
+let isRoomMasterAttempt = true;
+
+export function isRoomMode() {
+  return typeof window !== 'undefined' && window.location ? window.location.pathname.endsWith('room.html') : false;
+}
+
+export function getRoomInfoFromUrl() {
+  if (typeof window === 'undefined' || !window.location) return { roomId: 'general', roomPin: null };
+  const hash = window.location.hash || '';
+  const search = window.location.search || '';
+
+  let roomId = 'general';
+  let pin = null;
+
+  if (hash.includes('room=')) {
+    roomId = hash.split('room=')[1].split('&')[0];
+  } else if (search.includes('room=')) {
+    const params = new URLSearchParams(search);
+    roomId = params.get('room') || 'general';
+  } else if (hash.includes('watch=')) {
+    roomId = `watch-${hash.split('watch=')[1].split('&')[0]}`;
+  }
+
+  if (hash.includes('pin=')) {
+    pin = hash.split('pin=')[1].split('&')[0];
+  }
+
+  return { roomId: sanitizeRoomId(roomId), roomPin: pin };
+}
+
 let selectedProfile = DEFAULT_PROFILE;
 let customBitrateBps = DEFAULT_BITRATE_BPS;
 let maxViewers = MAX_VIEWERS_DEFAULT;
@@ -144,6 +176,9 @@ export function setCustomStreamerId(newId) {
   if (!newId) {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem('seemygame_custom_id');
+    }
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('seemygame_last_id');
     }
     return true;
   }
@@ -443,12 +478,165 @@ if (closeBannerBtn && audioTipBanner) {
 // INICIALIZAÇÃO DO PEERJS & SINALIZAÇÃO
 // ==========================================
 
+export let customIdRetryAttempts = 0;
+export const MAX_CUSTOM_ID_RETRIES = 3;
+let customIdRetryTimer = null;
+
+export function getCustomIdRetryAttempts() {
+  return customIdRetryAttempts;
+}
+
+export function setCustomIdRetryAttempts(val) {
+  customIdRetryAttempts = Number(val) || 0;
+}
+
+if (typeof window !== 'undefined') {
+  const handlePageUnload = () => {
+    if (customIdRetryTimer) {
+      clearTimeout(customIdRetryTimer);
+      customIdRetryTimer = null;
+    }
+    if (peer && !peer.destroyed) {
+      try {
+        peer.destroy();
+      } catch (e) {}
+    }
+  };
+  window.addEventListener('beforeunload', handlePageUnload);
+  window.addEventListener('pagehide', handlePageUnload);
+}
+
 export function resetPeer() {
+  if (customIdRetryTimer) {
+    clearTimeout(customIdRetryTimer);
+    customIdRetryTimer = null;
+  }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  customIdRetryAttempts = 0;
   if (peer) {
     try {
       peer.destroy();
     } catch (e) {}
     peer = null;
+  }
+}
+
+export function setupRoomSession(id) {
+  const { roomId, roomPin } = getRoomInfoFromUrl();
+  const userName = (typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_user_name') : null) || 'Você';
+  const masterId = getRoomMasterPeerId(roomId);
+  const isMaster = (id === masterId);
+
+  if (!roomManager) {
+    roomManager = new RoomManager({
+      roomId,
+      userName,
+      roomPin,
+      onStateChange: (state) => {
+        if (discordUI) {
+          discordUI.updateRoomPresence(state.members);
+          discordUI.syncStageView(state.streamersCount > 0);
+        }
+        if (viewerCountBadge) {
+          viewerCountBadge.innerHTML = `<span>👥</span> <strong>${state.membersCount}</strong> online`;
+        }
+      }
+    });
+
+    roomManager.on('streamPublished', ({ peerId, details, member }) => {
+      if (peerId !== myId) {
+        showToast(`🎮 ${member?.name || 'Um amigo'} começou a transmitir!`, 'info', 4000);
+        if (!watchingHosts.has(peerId)) {
+          watchFriend(peerId);
+        }
+      }
+    });
+
+    roomManager.on('streamUnpublished', ({ peerId, member }) => {
+      if (peerId !== myId) {
+        showToast(`Transmissão de ${member?.name || peerId.slice(0, 6)} encerrada.`, 'info');
+        disconnectHost(peerId);
+      }
+    });
+  }
+
+  if (!discordUI) {
+    initDiscordFeatures();
+  }
+
+  roomManager.join(id, isMaster);
+
+  // Auto-conecta na sala de voz da sala P2P
+  setTimeout(async () => {
+    try {
+      if (voiceManager && !voiceManager.isInVoice) {
+        const stream = await voiceManager.joinVoice({
+          peerId: id,
+          name: userName,
+          role: isMaster ? 'host' : 'member'
+        });
+        showToast('Conectado ao canal de voz da sala!', 'success');
+
+        roomManager.members.forEach((m) => {
+          if (m.peerId !== id && !activeVoiceCalls.has(m.peerId)) {
+            const call = peer.call(m.peerId, stream, {
+              metadata: { type: 'VOICE_CHAT', name: userName, role: isMaster ? 'host' : 'member' }
+            });
+            setupVoiceMediaCall(call, m.peerId);
+          }
+        });
+      }
+    } catch (e) {
+      console.info('[Room] Entrada na sala de voz aguardando interação do microfone.');
+    }
+  }, 400);
+
+  // Se não for master, conecta ao master da sala para solicitar entrada
+  if (!isMaster) {
+    const masterConn = peer.connect(masterId, { reliable: true });
+    masterConn.on('open', () => {
+      masterConn.send({
+        type: 'ROOM_JOIN_REQUEST',
+        name: userName,
+        pin: roomPin,
+        isMuted: voiceManager.isMuted,
+        isDeafened: voiceManager.isDeafened,
+        isStreaming: false
+      });
+    });
+    setupIncomingDataConnection(masterConn);
+  }
+
+  const roomBadge = document.getElementById('room-header-badge');
+  if (roomBadge) roomBadge.textContent = `Sala: #${roomId}${isMaster ? ' (Host)' : ''}`;
+
+  const sidebarRoomName = document.getElementById('sidebar-room-name');
+  if (sidebarRoomName) sidebarRoomName.textContent = `🔊 #${roomId}`;
+
+  const localUserNameElem = document.getElementById('local-user-name');
+  if (localUserNameElem) localUserNameElem.textContent = userName;
+
+  const localAvatarElem = document.getElementById('local-avatar');
+  if (localAvatarElem) localAvatarElem.textContent = (userName || 'V').charAt(0).toUpperCase();
+
+  if (copyBadge) {
+    copyBadge.innerHTML = `<span>📋</span> Sala: <strong>#${roomId}</strong>`;
+  }
+
+  if (shareLinkBtn) {
+    shareLinkBtn.style.display = 'inline-flex';
+    shareLinkBtn.onclick = async () => {
+      const shareUrl = `${window.location.origin}${window.location.pathname}#room=${encodeURIComponent(roomId)}`;
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        showToast('Link da sala copiado!', 'success');
+      } catch (err) {
+        showToast(`Link: ${shareUrl}`, 'info');
+      }
+    };
   }
 }
 
@@ -462,8 +650,17 @@ export function initPeer() {
     return;
   }
 
+  const inRoom = isRoomMode();
+  const isHost = typeof window !== 'undefined' && window.location ? !window.location.pathname.endsWith('viewer.html') : true;
   const config = getPeerConfig();
-  const customId = getCustomStreamerId();
+
+  let customId = null;
+  if (inRoom) {
+    const { roomId } = getRoomInfoFromUrl();
+    customId = isRoomMasterAttempt ? getRoomMasterPeerId(roomId) : null;
+  } else if (isHost) {
+    customId = getCustomStreamerId();
+  }
 
   try {
     if (customId) {
@@ -479,9 +676,25 @@ export function initPeer() {
   peer.on('open', (id) => {
     myId = id;
     reconnectAttempts = 0;
+    customIdRetryAttempts = 0;
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
+    }
+    if (customIdRetryTimer) {
+      clearTimeout(customIdRetryTimer);
+      customIdRetryTimer = null;
+    }
+
+    if (inRoom) {
+      setupRoomSession(id);
+    }
+
+    if (typeof sessionStorage !== 'undefined' && isHost && !inRoom) {
+      const fixedId = getCustomStreamerId();
+      if (fixedId && fixedId === id) {
+        sessionStorage.setItem('seemygame_last_id', id);
+      }
     }
 
     if (copyBadge) {
@@ -592,15 +805,72 @@ export function initPeer() {
         }
       }
     } else if (err.type === 'unavailable-id') {
-      const takenId = getCustomStreamerId() || myId;
+      const inRoom = isRoomMode();
+      if (inRoom && isRoomMasterAttempt) {
+        console.log('[Room] Master da sala já existe. Conectando como membro regular da sala...');
+        isRoomMasterAttempt = false;
+        if (peer) {
+          try { peer.destroy(); } catch (e) {}
+          peer = null;
+        }
+        setTimeout(() => initPeer(), 100);
+        return;
+      }
+
+      const isHost = typeof window !== 'undefined' && window.location ? !window.location.pathname.endsWith('viewer.html') : true;
+      const takenId = (isHost ? getCustomStreamerId() : null) || myId;
+
+      const isSelfSession = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('seemygame_last_id') === takenId;
+      const isReload = typeof performance !== 'undefined' && (performance.getEntriesByType?.('navigation')?.[0]?.type === 'reload' || performance.navigation?.type === 1);
+
+      // Se o erro ocorreu durante o reload da página ou sessão recente do próprio streamer,
+      // a conexão anterior no servidor PeerJS ainda pode estar em processo de liberação (grace period).
+      if (isHost && takenId && (isSelfSession || isReload) && customIdRetryAttempts < MAX_CUSTOM_ID_RETRIES) {
+        customIdRetryAttempts++;
+        const delay = Math.min(1000 + 1000 * customIdRetryAttempts, 5000);
+        console.warn(`[PeerJS] ID "${takenId}" ainda retido pelo servidor de sinalização. Tentativa de recuperação ${customIdRetryAttempts}/${MAX_CUSTOM_ID_RETRIES} em ${delay}ms...`);
+
+        if (copyBadge) {
+          copyBadge.innerHTML = `<span>⏳</span> Liberando ID <strong>${takenId}</strong>... (${customIdRetryAttempts}/${MAX_CUSTOM_ID_RETRIES})`;
+        }
+        if (customIdModal) {
+          customIdModal.style.display = 'none';
+        }
+        showToast(`Aguardando liberação do ID "${takenId}" da sessão anterior... (${customIdRetryAttempts}/${MAX_CUSTOM_ID_RETRIES})`, 'info', delay);
+
+        if (peer) {
+          try { peer.destroy(); } catch (e) {}
+          peer = null;
+        }
+
+        if (customIdRetryTimer) clearTimeout(customIdRetryTimer);
+        customIdRetryTimer = setTimeout(() => {
+          initPeer();
+        }, delay);
+        return;
+      }
+
+      customIdRetryAttempts = 0;
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('seemygame_last_id');
+      }
       showToast(`O ID "${takenId}" já está em uso por outro streamer. Escolha outro ID fixo.`, 'error', 7000);
       if (copyBadge) {
-        copyBadge.innerHTML = `<span>⚠️</span> ID <strong>${takenId}</strong> em uso`;
+        copyBadge.innerHTML = `<span>⚠️</span> ID <strong>${takenId}</strong> em uso (clique para tentar)`;
+        copyBadge.style.cursor = 'pointer';
+        copyBadge.onclick = () => {
+          showToast(`Tentando reconectar com ID "${takenId}"...`, 'info');
+          resetPeer();
+          initPeer();
+        };
       }
       if (customIdModal) {
+        if (customIdInput) {
+          customIdInput.value = takenId || '';
+        }
         customIdModal.style.display = 'flex';
         if (customIdError) {
-          customIdError.textContent = `O ID "${takenId}" já está em uso no momento. Por favor escolha outro.`;
+          customIdError.textContent = `O ID "${takenId}" já está em uso no momento. Por favor escolha outro ou tente novamente.`;
           customIdError.style.display = 'block';
         }
       }
@@ -632,6 +902,11 @@ export function broadcastDataMessage(payload, excludePeerId = null) {
       } catch (e) {}
     }
   });
+
+  // Se estivermos em sala P2P (RoomManager), faz broadcast para todos na malha
+  if (roomManager) {
+    roomManager.broadcast(payload, excludePeerId);
+  }
 }
 
 export function setupVoiceMediaCall(call, remotePeerId) {
@@ -877,6 +1152,21 @@ export function initDiscordFeatures() {
         senderName
       });
     },
+    onSendReaction: (emoji) => {
+      if (!floatingReactionsManager.canSend()) return;
+      const isHost = !window.location.pathname.endsWith('viewer.html');
+      const coopState = getCoopState();
+      const senderName = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+      const xPercent = Math.random() * 70 + 15;
+
+      floatingReactionsManager.spawnReaction({ emoji, xPercent, senderName });
+      broadcastDataMessage({
+        type: 'EMOJI_REACTION',
+        emoji,
+        xPercent,
+        senderName
+      });
+    },
     onJoinVoice: async () => {
       try {
         const isHost = !window.location.pathname.endsWith('viewer.html');
@@ -918,7 +1208,46 @@ export function initDiscordFeatures() {
       broadcastDataMessage({ type: 'VOICE_SIGNAL', action: 'LEAVE', peerId: myId });
       showToast('Você saiu da sala de voz.', 'info');
     },
+    onToggleMic: (isMuted) => {
+      if (roomManager) {
+        roomManager.setLocalVoiceState({ isMuted });
+      }
+    },
+    onToggleDeaf: (isDeafened) => {
+      if (roomManager) {
+        roomManager.setLocalVoiceState({ isDeafened });
+      }
+    },
+    onToggleStream: () => {
+      handleStreamBtnClick();
+    },
+    onOpenTuning: () => {
+      const modal = document.getElementById('tuning-modal');
+      if (modal) modal.style.display = 'flex';
+    },
+    onOpenWhiteboard: () => {
+      const wbModal = document.getElementById('whiteboard-modal');
+      if (wbModal) wbModal.style.display = 'flex';
+    },
+    onLeaveRoom: () => {
+      if (roomManager) roomManager.leave();
+      window.location.href = 'index.html';
+    }
   });
+
+  const closeTuningBtn = document.getElementById('close-tuning-modal-btn');
+  const saveTuningBtn = document.getElementById('save-tuning-btn');
+  const tuningModal = document.getElementById('tuning-modal');
+
+  if (closeTuningBtn && tuningModal) {
+    closeTuningBtn.addEventListener('click', () => { tuningModal.style.display = 'none'; });
+  }
+  if (saveTuningBtn && tuningModal) {
+    saveTuningBtn.addEventListener('click', () => {
+      tuningModal.style.display = 'none';
+      showToast('Configurações atualizadas!', 'success');
+    });
+  }
 
   discordUI.init();
 
@@ -954,6 +1283,9 @@ function setupIncomingDataConnection(conn) {
   conn.on('open', () => {
     console.log(`Espectador conectado: ${conn.peer}`);
     connectedViewers.set(conn.peer, conn);
+    if (roomManager) {
+      roomManager.registerConnection(conn.peer, conn);
+    }
     updateViewerCountUI();
 
     const hostPin = getStoredRoomPin();
@@ -989,6 +1321,24 @@ function setupIncomingDataConnection(conn) {
 
   conn.on('data', (data) => {
     if (!data || typeof data !== 'object') return;
+
+    if (roomManager && roomManager.handleRoomMessage(conn.peer, data, conn)) {
+      if (data.type === 'ROOM_SYNC_ALL' && Array.isArray(data.members)) {
+        data.members.forEach((m) => {
+          if (m && m.peerId && m.peerId !== myId && !connectedViewers.has(m.peerId) && !watchingHosts.has(m.peerId)) {
+            const peerConn = peer.connect(m.peerId, { reliable: true });
+            setupIncomingDataConnection(peerConn);
+            if (voiceManager && voiceManager.isInVoice && voiceManager.localStream && !activeVoiceCalls.has(m.peerId)) {
+              const call = peer.call(m.peerId, voiceManager.localStream, {
+                metadata: { type: 'VOICE_CHAT', name: roomManager.userName, role: 'member' }
+              });
+              setupVoiceMediaCall(call, m.peerId);
+            }
+          }
+        });
+      }
+      return;
+    }
 
     const hostPin = getStoredRoomPin();
 
@@ -1037,6 +1387,9 @@ function setupIncomingDataConnection(conn) {
   });
 
   conn.on('close', () => {
+    if (roomManager) {
+      roomManager.removeMember(conn.peer);
+    }
     // Notifica módulo Co-op caso este espectador fosse o Player 2
     handleHostCoopMessage(conn.peer, { type: 'COOP_RELEASE' }, conn);
     connectedViewers.delete(conn.peer);
@@ -1047,6 +1400,9 @@ function setupIncomingDataConnection(conn) {
 
   conn.on('error', (err) => {
     console.error(`Erro na DataConnection com ${conn.peer}:`, err);
+    if (roomManager) {
+      roomManager.removeMember(conn.peer);
+    }
     handleHostCoopMessage(conn.peer, { type: 'COOP_RELEASE' }, conn);
     connectedViewers.delete(conn.peer);
     authenticatedViewers.delete(conn.peer);
@@ -1131,13 +1487,22 @@ function handleIncomingMediaCall(call) {
     return;
   }
 
-  // Rejeição de chamadas não solicitadas: só aceita se o host estiver cadastrado em watchingHosts
-  if (!watchingHosts.has(call.peer)) {
+  // Rejeição de chamadas não solicitadas: só aceita se o host estiver cadastrado em watchingHosts ou na sala (roomManager)
+  if (!watchingHosts.has(call.peer) && !(roomManager && roomManager.members.has(call.peer))) {
     console.warn(`Chamada de mídia não solicitada rejeitada de: ${call.peer}`);
     try {
       call.close();
     } catch (e) {}
     return;
+  }
+
+  if (!watchingHosts.has(call.peer) && roomManager && roomManager.members.has(call.peer)) {
+    watchingHosts.set(call.peer, {
+      state: 'CONNECTED',
+      conn: roomManager.meshConnections.get(call.peer) || null,
+      call: call,
+      timeoutTimer: null
+    });
   }
 
   // Se já existe uma chamada antiga desse host, fecha a anterior antes de aceitar a nova
@@ -1158,6 +1523,10 @@ function handleIncomingMediaCall(call) {
     
     hideCardLoading(call.peer);
     setCardStreamPaused(call.peer, false);
+
+    if (discordUI) {
+      discordUI.syncStageView(true);
+    }
 
     clipRecorder.start(remoteStream);
     const reactionsDock = document.getElementById('reactions-dock');
@@ -1553,6 +1922,24 @@ export async function startLocalStream() {
       streamBtn.classList.add('btn-stop');
     }
 
+    if (discordUI) {
+      discordUI.setStreamingState(true);
+      discordUI.syncStageView(true);
+    }
+
+    if (roomManager) {
+      roomManager.setLocalStreaming(true, {
+        title: 'Jogo / Tela',
+        preset: selectedProfile.id,
+        fps: selectedProfile.fps,
+        height: selectedProfile.height,
+        audioMode: audioModeSelect ? audioModeSelect.value : 'system'
+      });
+      roomManager.meshConnections.forEach((_, viewerId) => {
+        initiateMediaCallToViewer(viewerId);
+      });
+    }
+
     // Notifica e chama todos os espectadores autorizados conectados
     connectedViewers.forEach((conn, viewerId) => {
       const hostPin = getStoredRoomPin();
@@ -1628,6 +2015,17 @@ export function stopLocalStream() {
   if (streamBtn) {
     streamBtn.innerHTML = '<span>🚀</span> Transmitir Jogo';
     streamBtn.classList.remove('btn-stop');
+  }
+
+  if (discordUI) {
+    discordUI.setStreamingState(false);
+    if (watchingHosts.size === 0) {
+      discordUI.syncStageView(false);
+    }
+  }
+
+  if (roomManager) {
+    roomManager.setLocalStreaming(false);
   }
 
   connectedViewers.forEach((conn) => {
@@ -1809,10 +2207,7 @@ export function initFixedIdAndPinControls() {
       setCustomStreamerId(null);
       customIdModal.style.display = 'none';
       showToast('ID fixo removido. Gerando novo ID aleatório...', 'info');
-      if (peer) {
-        try { peer.destroy(); } catch (e) {}
-        peer = null;
-      }
+      resetPeer();
       initPeer();
     });
   }
@@ -1831,10 +2226,7 @@ export function initFixedIdAndPinControls() {
       setCustomStreamerId(rawVal);
       customIdModal.style.display = 'none';
       showToast(`ID Fixo "${rawVal}" salvo com sucesso! Reiniciando sessão P2P...`, 'success');
-      if (peer) {
-        try { peer.destroy(); } catch (e) {}
-        peer = null;
-      }
+      resetPeer();
       initPeer();
     };
 
@@ -1880,34 +2272,59 @@ export function initFixedIdAndPinControls() {
 // ==========================================
 
 export let facecamStream = null;
+let isTogglingFacecam = false;
 
 export async function toggleFacecam() {
-  const container = document.getElementById('facecam-container');
-  const videoEl = document.getElementById('facecam-video');
-  const toggleBtn = document.getElementById('toggle-facecam-btn');
-  if (!container || !videoEl) return;
+  if (isTogglingFacecam) return;
+  isTogglingFacecam = true;
 
-  if (facecamStream) {
-    facecamStream.getTracks().forEach(t => t.stop());
-    facecamStream = null;
-    videoEl.srcObject = null;
-    container.style.display = 'none';
-    if (toggleBtn) toggleBtn.classList.remove('active');
-    showToast('📷 Facecam desativada.', 'info');
-  } else {
-    try {
-      facecamStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
-        audio: false
+  try {
+    const container = document.getElementById('facecam-container');
+    const videoEl = document.getElementById('facecam-video');
+    const toggleBtn = document.getElementById('toggle-facecam-btn');
+    if (!container || !videoEl) return;
+
+    if (facecamStream) {
+      facecamStream.getTracks().forEach(t => {
+        try { t.stop(); } catch (e) {}
       });
-      videoEl.srcObject = facecamStream;
-      container.style.display = 'flex';
-      if (toggleBtn) toggleBtn.classList.add('active');
-      showToast('📷 Facecam ativada!', 'success');
-    } catch (err) {
-      console.warn('Erro ao ativar facecam:', err);
-      showToast('Não foi possível acessar a câmera para a Facecam.', 'error');
+      facecamStream = null;
+      videoEl.srcObject = null;
+      container.style.display = 'none';
+      if (toggleBtn) {
+        toggleBtn.classList.remove('active');
+        toggleBtn.innerHTML = '<span>📷</span> Ligar Câmera';
+        toggleBtn.title = 'Ativar câmera webcam flutuante';
+      }
+      showToast('📷 Facecam desativada.', 'info');
+    } else {
+      try {
+        facecamStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+          audio: false
+        });
+        videoEl.srcObject = facecamStream;
+        container.style.display = 'flex';
+        if (toggleBtn) {
+          toggleBtn.classList.add('active');
+          toggleBtn.innerHTML = '<span>🛑</span> Desligar Facecam';
+          toggleBtn.title = 'Desativar câmera webcam flutuante';
+        }
+        facecamStream.getVideoTracks().forEach(t => {
+          t.onended = () => {
+            if (facecamStream) {
+              toggleFacecam();
+            }
+          };
+        });
+        showToast('📷 Facecam ativada!', 'success');
+      } catch (err) {
+        console.warn('Erro ao ativar facecam:', err);
+        showToast('Não foi possível acessar a câmera para a Facecam.', 'error');
+      }
     }
+  } finally {
+    isTogglingFacecam = false;
   }
 }
 
@@ -1947,6 +2364,22 @@ export function initTacticalPing() {
   let isPointerDown = false;
 
   canvas.addEventListener('pointerdown', (e) => {
+    if (typeof document !== 'undefined') {
+      const clickedEl = document.elementFromPoint ? document.elementFromPoint(e.clientX, e.clientY) : null;
+      if (clickedEl && (
+        clickedEl.closest('.video-card-header') ||
+        clickedEl.closest('.card-controls') ||
+        clickedEl.closest('.card-btn') ||
+        clickedEl.closest('.reactions-dock') ||
+        clickedEl.closest('.facecam-overlay') ||
+        clickedEl.closest('button') ||
+        clickedEl.closest('header') ||
+        clickedEl.closest('nav')
+      )) {
+        return;
+      }
+    }
+
     isPointerDown = true;
     const rect = canvas.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1)));
@@ -2060,11 +2493,19 @@ export function initFacecam() {
   const container = document.getElementById('facecam-container');
   const header = container?.querySelector('.facecam-header');
 
-  if (toggleBtn) {
-    toggleBtn.addEventListener('click', () => toggleFacecam());
+  if (toggleBtn && !toggleBtn.dataset.facecamBound) {
+    toggleBtn.dataset.facecamBound = 'true';
+    toggleBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      toggleFacecam();
+    });
   }
-  if (closeBtn) {
-    closeBtn.addEventListener('click', () => toggleFacecam());
+  if (closeBtn && !closeBtn.dataset.facecamBound) {
+    closeBtn.dataset.facecamBound = 'true';
+    closeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      toggleFacecam();
+    });
   }
 
   if (container && header) {
