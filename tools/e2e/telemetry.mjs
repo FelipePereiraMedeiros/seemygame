@@ -22,7 +22,9 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
     'freezeCount', 'totalFreezesDuration', 'nackCount', 'pliCount',
     'qualityLimitationReason', 'qualityLimitationDurations',
     'selectedCandidatePairId', 'currentRoundTripTime', 'availableOutgoingBitrate',
-    'localCandidateId', 'remoteCandidateId', 'candidateType', 'protocol', 'state', 'nominated'
+    'localCandidateId', 'remoteCandidateId', 'candidateType', 'protocol', 'state', 'nominated',
+    'audioLevel', 'totalSamplesReceived', 'concealedSamples', 'silentConcealedSamples',
+    'insertedSamplesForDeceleration', 'removedSamplesForAcceleration'
   ];
 
   function crc16(bytes) {
@@ -529,7 +531,10 @@ export function deltaMetrics(previous, current) {
     bridgeObservableMs,
     packetSendDelayMs: ratio('totalPacketSendDelay', 'packetsSent'),
     decodedFps: dt > 0 && delta('framesDecoded') !== null ? delta('framesDecoded') / dt : null,
-    sentMbps: dt > 0 && delta('bytesSent') !== null ? delta('bytesSent') * 8 / dt / 1e6 : null
+    sentMbps: dt > 0 && delta('bytesSent') !== null ? delta('bytesSent') * 8 / dt / 1e6 : null,
+    audioSamplesDelta: delta('totalSamplesReceived'),
+    concealedSamplesDelta: delta('concealedSamples'),
+    audioBytesDelta: delta('bytesReceived')
   };
 }
 

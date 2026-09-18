@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Referência Determinística 60 FPS + Áudio</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0b0f19;
+      color: #fff;
+      font-family: 'Consolas', monospace;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      width: 100vw;
+    }
+    #canvas-60fps {
+      width: 1280px;
+      height: 720px;
+      background: #000;
+      border: 2px solid #00ffcc;
+      box-shadow: 0 0 20px rgba(0, 255, 204, 0.4);
+    }
+    #info-bar {
+      margin-top: 10px;
+      font-size: 16px;
+      color: #00ffcc;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas-60fps" width="1280" height="720"></canvas>
+  <div id="info-bar">FONTE DETERMINÍSTICA: 60.0 FPS | ÁUDIO 48kHz ATIVO</div>
+
+  <script>
+    const canvas = document.getElementById('canvas-60fps');
+    const ctx = canvas.getContext('2d');
+    let frameCount = 0;
+    let startTime = performance.now();
+    let lastTime = startTime;
+    let currentFps = 60.0;
+
+    // WebAudio sintetizador contínuo
+    let audioCtx = null;
+    let osc = null;
+    let gain = null;
+
+    function startAudio() {
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+      osc = audioCtx.createOscillator();
+      gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime); // Volume audível confortável
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+    }
+
+    // Auto-iniciar áudio no primeiro gesto ou imediatamente
+    window.addEventListener('click', startAudio);
+    window.addEventListener('keydown', startAudio);
+    // Tenta iniciar automaticamente
+    startAudio();
+
+    // Loop de renderização 60 FPS
+    function render(now) {
+      frameCount++;
+      const dt = now - lastTime;
+      lastTime = now;
+      if (frameCount % 30 === 0 && dt > 0) {
+        currentFps = 1000 / dt;
+      }
+
+      // Alterna tom a cada 500ms para verificar modulação sonora
+      if (audioCtx && osc) {
+        const tone = (Math.floor(now / 500) % 2 === 0) ? 440 : 880;
+        osc.frequency.setValueAtTime(tone, audioCtx.currentTime);
+      }
+
+      // Fundo limpo
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, 1280, 720);
+
+      // Elemento móvel contínuo (bouncing box / rotating spinner)
+      const angle = (now / 1000) * Math.PI * 2; // 1 rotação por segundo
+      const cx = 640 + Math.sin(angle) * 350;
+      const cy = 360 + Math.cos(angle * 1.5) * 180;
+
+      // Trilhas e gradientes
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle * 2);
+      ctx.fillStyle = `hsl(${(frameCount * 3) % 360}, 90%, 55%)`;
+      ctx.fillRect(-60, -60, 120, 120);
+      ctx.restore();
+
+      // Círculo central pulsante
+      ctx.beginPath();
+      ctx.arc(640, 360, 80 + Math.sin(now / 200) * 20, 0, Math.PI * 2);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 6;
+      ctx.stroke();
+
+      // Marcador óptico no topo para detecção precisa
+      const barX = (frameCount * 10) % 1200;
+      ctx.fillStyle = '#22c55e';
+      ctx.fillRect(barX, 20, 80, 20);
+
+      // Textos de auditoria em alta visibilidade
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 36px monospace';
+      ctx.fillText(`FRAME: ${String(frameCount).padStart(6, '0')}`, 50, 100);
+      ctx.fillText(`TIME: ${(now - startTime).toFixed(1)} ms`, 50, 150);
+      ctx.fillText(`CADÊNCIA: ${currentFps.toFixed(1)} FPS`, 50, 200);
+
+      ctx.font = '22px monospace';
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(`FONTE: REFERÊNCIA DETERMINÍSTICA LOCAL (1080p60)`, 50, 650);
+      ctx.fillText(`ÁUDIO: 48 kHz ESTÉREO (SINE 440Hz / 880Hz MODULADO)`, 50, 680);
+
+      requestAnimationFrame(render);
+    }
+
+    requestAnimationFrame(render);
+
+    // Expõe API para automação Playwright
+    window.__deterministicSource = {
+      isReady: () => frameCount > 30,
+      getFrameCount: () => frameCount,
+      getFps: () => currentFps,
+      isAudioActive: () => audioCtx?.state === 'running',
+      startAudio,
+      setMuted: (muted) => {
+        if (!gain || !audioCtx) return;
+        gain.gain.setValueAtTime(muted ? 0 : 0.15, audioCtx.currentTime);
+      },
+      setVolume: (v) => {
+        if (!gain || !audioCtx) return;
+        gain.gain.setValueAtTime(v * 0.15, audioCtx.currentTime);
+      }
+    };
+  </script>
+</body>
+</html>
