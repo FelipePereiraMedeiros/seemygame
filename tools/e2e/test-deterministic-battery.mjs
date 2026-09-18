@@ -8,7 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { ensureDefaultDesktop } from './desktop-affinity.mjs';
-import { installTelemetry, deltaMetrics } from './telemetry.mjs';
+import { installTelemetry, deltaMetrics, evaluateQualityBudget, computeSteadyQuality } from './telemetry.mjs';
 
 ensureDefaultDesktop();
 
@@ -35,95 +35,6 @@ const hashFile = async filepath => {
   } catch {
     return null;
   }
-};
-
-// Orçamento explícito de qualidade normalizado por duração (Quality Budget)
-const evaluateQualityBudget = ({
-  fpsMean,
-  fpsP10,
-  maxPauseMs,
-  totalGapsCount,
-  durationSec = 25,
-  totalPacketsLost = null,
-  videoJitterMeanMs = null,
-  freezeCount = null,
-  totalFreezesDuration = null
-}) => {
-  const violations = [];
-  const warnings = [];
-
-  // 1. Cadência de FPS recebido (Alvo: 60.0 FPS)
-  if (fpsMean == null || fpsMean < 45.0) {
-    violations.push(`fps_critically_low: mean=${fpsMean ?? 'null'} < 45.0`);
-  } else if (fpsMean < 55.0) {
-    warnings.push(`fps_suboptimal: mean=${fpsMean} < 55.0`);
-  }
-
-  if (fpsP10 != null && fpsP10 < 40.0) {
-    violations.push(`fps_p10_critically_low: p10=${fpsP10} < 40.0`);
-  } else if (fpsP10 != null && fpsP10 < 50.0) {
-    warnings.push(`fps_p10_degraded: p10=${fpsP10} < 50.0`);
-  }
-
-  // 2. Pausas na apresentação (Maior gap RVFC)
-  if (maxPauseMs > 500) {
-    violations.push(`severe_pause: maxPause=${maxPauseMs}ms > 500ms`);
-  } else if (maxPauseMs > 250) {
-    warnings.push(`moderate_pause: maxPause=${maxPauseMs}ms > 250ms`);
-  }
-
-  // 3. Frequência temporal de gaps (>100ms) normalizada por minuto
-  const gapsPerMinute = durationSec > 0 ? Number(((totalGapsCount / durationSec) * 60).toFixed(1)) : 0;
-  if (gapsPerMinute > 24.0) {
-    violations.push(`excessive_gaps_rate: ${gapsPerMinute} gaps/min (count=${totalGapsCount} em ${durationSec}s) > 24.0/min`);
-  } else if (gapsPerMinute > 8.0) {
-    warnings.push(`frequent_gaps_rate: ${gapsPerMinute} gaps/min (count=${totalGapsCount} em ${durationSec}s) > 8.0/min`);
-  }
-
-  // 4. Freezes reportados pelo WebRTC (Inbound RTP)
-  if (freezeCount != null && freezeCount > 0) {
-    if (totalFreezesDuration != null && totalFreezesDuration > 0.5) {
-      violations.push(`webrtc_freezes_detected: count=${freezeCount}, duration=${totalFreezesDuration.toFixed(2)}s > 0.5s`);
-    } else if (freezeCount > 2 || (totalFreezesDuration != null && totalFreezesDuration > 0.2)) {
-      warnings.push(`webrtc_freezes_elevated: count=${freezeCount}, duration=${totalFreezesDuration?.toFixed(2) ?? 'null'}s`);
-    }
-  }
-
-  // 5. Perda de pacotes WebRTC (preserva null se desconhecido)
-  if (totalPacketsLost !== null && totalPacketsLost !== undefined) {
-    if (totalPacketsLost > 0) {
-      violations.push(`packet_loss_detected: lost=${totalPacketsLost}`);
-    }
-  }
-
-  // 6. Jitter buffer de vídeo
-  if (videoJitterMeanMs != null && videoJitterMeanMs > 50) {
-    violations.push(`excessive_jitter_buffer: jitter=${videoJitterMeanMs}ms > 50ms`);
-  } else if (videoJitterMeanMs != null && videoJitterMeanMs > 20) {
-    warnings.push(`elevated_jitter_buffer: jitter=${videoJitterMeanMs}ms > 20ms`);
-  }
-
-  let status = 'PASSED';
-  if (violations.length > 0) {
-    status = 'FAILED';
-  } else if (warnings.length > 0) {
-    status = 'DEGRADED';
-  }
-
-  return {
-    status,
-    violations,
-    warnings,
-    gapsPerMinute,
-    budgetRules: {
-      fpsMean: '>= 55.0 (PASS) / >= 45.0 (DEGRADED)',
-      fpsP10: '>= 50.0 (PASS) / >= 40.0 (DEGRADED)',
-      maxPauseMs: '<= 250ms (PASS) / <= 500ms (DEGRADED)',
-      gapsPerMinute: '<= 8.0/min (PASS) / <= 24.0/min (DEGRADED)',
-      webrtcFreezes: '0 or duration <= 0.2s (PASS) / <= 0.5s (DEGRADED)',
-      packetLoss: '0 (PASS, null=desconhecido)'
-    }
-  };
 };
 
 // Coleta de proveniência expandida com auditoria completa de artefatos
@@ -546,14 +457,57 @@ const runIsolationSuite = async () => {
   let currentTargetViewerPage = viewerPage;
 
   const stopNativeCapture = async () => {
-    console.log('Parando captura nativa...');
-    await hostPage.locator('#dock-stream-btn').click().catch(() => {});
-    await waitApp(hostPage, async () => {
-      const d = await import('/js/desktop.js');
-      return (await d.getNativeCaptureState()).state === 'idle';
-    }, null, 15000).catch(() => {});
-    // Pausa preventiva de 3.5s para drenagem de drivers D3D11 e WASAPI no Windows
-    await sleep(3500);
+    console.log('Parando captura nativa e limpando estado WebRTC...');
+    // 1. Invoca parada via app.js e desktop.js no host
+    await hostPage.evaluate(async () => {
+      const app = await import('/js/app.js').catch(() => null);
+      if (app?.stopLocalStream) {
+        try { app.stopLocalStream(); } catch {}
+      }
+      const picker = document.getElementById('desktop-picker-modal');
+      if (picker) picker.style.display = 'none';
+      const d = await import('/js/desktop.js').catch(() => null);
+      if (d?.stopNativeCapture) {
+        await d.stopNativeCapture().catch(() => {});
+      }
+    }).catch(() => {});
+
+    // 2. Limpa elemento de vídeo no espectador para desvincular MediaStream antigo
+    if (currentTargetViewerPage && !currentTargetViewerPage.isClosed()) {
+      await currentTargetViewerPage.evaluate(({ hId }) => {
+        const card = document.getElementById(`card-${hId}`);
+        const v = card?.querySelector('video');
+        if (v) {
+          v.pause();
+          v.srcObject = null;
+        }
+      }, { hId: hostId }).catch(() => {});
+    }
+
+    // 3. Aguarda confirmação de idle no host (com polling de até 15s)
+    let isIdle = false;
+    const idleDeadline = Date.now() + 15000;
+    while (Date.now() < idleDeadline) {
+      const st = await hostPage.evaluate(async () => {
+        const d = await import('/js/desktop.js').catch(() => null);
+        return d?.getNativeCaptureState ? await d.getNativeCaptureState().catch(() => null) : null;
+      }).catch(() => null);
+      if (!st || st.state === 'idle') {
+        isIdle = true;
+        break;
+      }
+      await sleep(500);
+    }
+    if (!isIdle) {
+      console.warn('[stopNativeCapture] Host não confirmou idle dentro de 15s. Forçando parada direta...');
+      await hostPage.evaluate(async () => {
+        const d = await import('/js/desktop.js').catch(() => null);
+        if (d?.stopNativeCapture) await d.stopNativeCapture().catch(() => {});
+      }).catch(() => {});
+    }
+
+    // 4. Pausa preventiva de 4s para drenagem de drivers D3D11 e WASAPI no Windows
+    await sleep(4000);
   };
 
   const inspectViewerStream = async (targetPage = currentTargetViewerPage) => {
@@ -654,6 +608,16 @@ const runIsolationSuite = async () => {
         currentTargetViewerPage = viewerPage;
       }
 
+      // 0. Teardown preventivo pré-cenário se estado de captura nativa não for idle
+      const preCapState = await hostPage.evaluate(async () => {
+        const d = await import('/js/desktop.js').catch(() => null);
+        return d?.getNativeCaptureState ? await d.getNativeCaptureState().catch(() => null) : null;
+      }).catch(() => null);
+      if (preCapState && preCapState.state !== 'idle') {
+        console.warn(`[Pré-cenário] Detectada captura não-idle no host (${preCapState.state}). Executando teardown preventivo...`);
+        await stopNativeCapture();
+      }
+
       // 1. Reset e fixação determinística de estado inicial da fonte
       await prepareSourceScene();
 
@@ -744,6 +708,18 @@ const runIsolationSuite = async () => {
       if (!activeVideoTrackId) unmetInvariants.push('no_initial_video_track');
       if (expectAudible && !activeAudioTrackId) unmetInvariants.push('no_initial_audio_track');
       if (!expectAudible && audioMode === 'none' && activeAudioTrackId) unmetInvariants.push('unexpected_audio_track_in_pure_video');
+
+      // Captura baseline WebRTC imediatamente no início da janela steady
+      const initialRtpSample = await activeViewerPage.evaluate(() => window.__smgE2E?.sample()).catch(() => null);
+      const baselineVideoRow = initialRtpSample?.rows?.find(r => r.type === 'inbound-rtp' && r.kind === 'video' && r.trackIdentifier === activeVideoTrackId)
+                            || initialRtpSample?.rows?.find(r => r.type === 'inbound-rtp' && r.kind === 'video')
+                            || null;
+      const baselineAudioRow = activeAudioTrackId
+        ? (initialRtpSample?.rows?.find(r => r.type === 'inbound-rtp' && r.kind === 'audio' && r.trackIdentifier === activeAudioTrackId)
+           || initialRtpSample?.rows?.find(r => r.type === 'inbound-rtp' && r.kind === 'audio')
+           || null)
+        : null;
+      console.log(`[Baseline RTP] Startup: freezes=${baselineVideoRow?.freezeCount ?? 0} (${baselineVideoRow?.totalFreezesDuration ?? 0}s) | drops=${baselineVideoRow?.framesDropped ?? 0} | aSamples=${baselineAudioRow?.totalSamplesReceived ?? 0} | aConcealed=${baselineAudioRow?.concealedSamples ?? 0}`);
 
       console.log(`[${name}] Coletando telemetria em regime steady por ${durationSec}s...`);
       const timeline = [];
@@ -906,12 +882,18 @@ const runIsolationSuite = async () => {
             audioTotalSamplesReceived: audioRow?.totalSamplesReceived ?? null,
             audioConcealedSamples: audioRow?.concealedSamples ?? null,
             audioSilentConcealedSamples: audioRow?.silentConcealedSamples ?? null,
+            audioConcealmentEvents: audioRow?.concealmentEvents ?? null,
+            audioPacketsDiscarded: audioRow?.packetsDiscarded ?? null,
+            audioPacketsLost: audioRow?.packetsLost ?? null,
+            audioPacketsReceived: audioRow?.packetsReceived ?? null,
             audioInsertedSamplesForDeceleration: audioRow?.insertedSamplesForDeceleration ?? null,
             audioRemovedSamplesForAcceleration: audioRow?.removedSamplesForAcceleration ?? null,
             audioBytesReceived: audioRow?.bytesReceived ?? null,
             rawDeltaAudioSamples: audioRow?.delta?.audioSamplesDelta ?? null,
             rawDeltaConcealedSamples: audioRow?.delta?.rawDeltaConcealedSamples ?? null,
             rawDeltaSilentConcealedSamples: audioRow?.delta?.rawDeltaSilentConcealedSamples ?? null,
+            rawDeltaConcealmentEvents: audioRow?.delta?.rawDeltaConcealmentEvents ?? null,
+            rawDeltaPacketsDiscarded: audioRow?.delta?.rawDeltaPacketsDiscarded ?? null,
             rawDeltaInsertedSamplesForDeceleration: audioRow?.delta?.rawDeltaInsertedSamplesForDeceleration ?? null,
             rawDeltaRemovedSamplesForAcceleration: audioRow?.delta?.rawDeltaRemovedSamplesForAcceleration ?? null
           }
@@ -955,11 +937,6 @@ const runIsolationSuite = async () => {
       const decodeList = steady.map(t => t.decodeTimeMs).filter(n => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
       const videoJitterList = steady.map(t => t.videoJitterMs).filter(n => typeof n === 'number' && Number.isFinite(n));
       const audioJitterList = steady.map(t => t.audioJitterMs).filter(n => typeof n === 'number' && Number.isFinite(n));
-      const lastLost = steady.length && steady[steady.length - 1].packetsLost !== undefined ? steady[steady.length - 1].packetsLost : null;
-      const lastFreezes = steady.length && steady[steady.length - 1].freezeCount !== undefined ? steady[steady.length - 1].freezeCount : null;
-      const lastFreezesDur = steady.length && steady[steady.length - 1].totalFreezesDuration !== undefined ? steady[steady.length - 1].totalFreezesDuration : null;
-      const lastDropped = steady.length && steady[steady.length - 1].framesDropped !== undefined ? steady[steady.length - 1].framesDropped : null;
-      const lastReceived = steady.length && steady[steady.length - 1].framesReceived !== undefined ? steady[steady.length - 1].framesReceived : null;
       const maxPause = Math.max(0, ...steady.map(t => t.maxPauseMs || 0));
       const totalGaps = steady.length ? steady[steady.length - 1].gapsCount : 0;
 
@@ -978,16 +955,30 @@ const runIsolationSuite = async () => {
       const executionStatus = 'COMPLETED';
       const validityStatus = unmetInvariants.length === 0 ? 'VALID' : 'INCONCLUSIVE';
 
+      const elapsedSteadySec = (Date.now() - startTime) / 1000;
+      const steadyQuality = computeSteadyQuality({
+        baselineVideoRow,
+        latestVideoRow,
+        baselineAudioRow,
+        latestAudioRow,
+        elapsedSteadySec
+      });
+
       const qualityBudget = evaluateQualityBudget({
         fpsMean: avg(fpsList),
         fpsP10: p10(fpsList),
         maxPauseMs: maxPause,
         totalGapsCount: totalGaps,
         durationSec,
-        totalPacketsLost: lastLost,
+        measuredDurationSec: elapsedSteadySec,
+        totalPacketsLost: steadyQuality.steady.packetsLost,
         videoJitterMeanMs: avg(videoJitterList),
-        freezeCount: lastFreezes,
-        totalFreezesDuration: lastFreezesDur
+        freezeCount: steadyQuality.steady.freezeCount,
+        totalFreezesDuration: steadyQuality.steady.totalFreezesDurationSec,
+        audioPacketsLost: steadyQuality.steady.audioPacketsLost,
+        audioPacketsDiscarded: steadyQuality.steady.audioPacketsDiscarded,
+        audioConcealmentRatio: steadyQuality.steady.audioConcealmentRatio,
+        expectAudible
       });
       const qualityStatus = qualityBudget.status;
 
@@ -995,8 +986,6 @@ const runIsolationSuite = async () => {
       const shotPrefix = id;
       await hostPage.screenshot({ path: path.join(outputDir, `${shotPrefix}-host.png`) }).catch(() => {});
       await activeViewerPage.screenshot({ path: path.join(outputDir, `${shotPrefix}-viewer.png`) }).catch(() => {});
-
-      await stopNativeCapture();
 
       return {
         name,
@@ -1034,11 +1023,11 @@ const runIsolationSuite = async () => {
         decodeTimeP95Ms: decodeList.length ? Number(decodeList[Math.floor(decodeList.length * 0.95)].toFixed(1)) : null,
         jitterBufferMeanMs: avg(videoJitterList),
         audioJitterBufferMeanMs: avg(audioJitterList),
-        totalPacketsLost: lastLost,
-        freezeCount: lastFreezes,
-        totalFreezesDurationSec: lastFreezesDur,
-        framesDropped: lastDropped,
-        framesReceived: lastReceived,
+        totalPacketsLost: steadyQuality.steady.packetsLost,
+        freezeCount: steadyQuality.steady.freezeCount,
+        totalFreezesDurationSec: steadyQuality.steady.totalFreezesDurationSec,
+        framesDropped: steadyQuality.steady.framesDropped,
+        framesReceived: steadyQuality.steady.framesReceived,
         maxPauseMs: maxPause,
         totalGapsCount: totalGaps,
         gapsPerMinute: qualityBudget.gapsPerMinute,
@@ -1048,14 +1037,16 @@ const runIsolationSuite = async () => {
           codec: latestVideoCodecRow?.mimeType ?? 'unknown',
           ssrc: latestVideoRow?.ssrc ?? null
         },
+        steadyQuality: steadyQuality.steady,
+        startupDynamics: steadyQuality.startupDynamics,
         rawTotals: {
           totalFramesDecoded: latestVideoRow?.framesDecoded ?? null,
           totalFramesReceived: latestVideoRow?.framesReceived ?? null,
           totalFramesDropped: latestVideoRow?.framesDropped ?? null,
           totalKeyFramesDecoded: latestVideoRow?.keyFramesDecoded ?? null,
           totalDecodeTimeSec: latestVideoRow?.totalDecodeTime ?? null,
-          freezeCount: latestVideoRow?.freezeCount ?? null,
-          totalFreezesDurationSec: latestVideoRow?.totalFreezesDuration ?? null,
+          cumulativeFreezeCount: latestVideoRow?.freezeCount ?? null,
+          cumulativeTotalFreezesDurationSec: latestVideoRow?.totalFreezesDuration ?? null,
           nackCount: latestVideoRow?.nackCount ?? null,
           pliCount: latestVideoRow?.pliCount ?? null,
           packetsReceived: latestVideoRow?.packetsReceived ?? null,
@@ -1063,23 +1054,38 @@ const runIsolationSuite = async () => {
           audioTotalSamplesReceived: latestAudioRow?.totalSamplesReceived ?? null,
           audioConcealedSamples: latestAudioRow?.concealedSamples ?? null,
           audioSilentConcealedSamples: latestAudioRow?.silentConcealedSamples ?? null,
+          audioConcealmentEvents: latestAudioRow?.concealmentEvents ?? null,
+          audioPacketsDiscarded: latestAudioRow?.packetsDiscarded ?? null,
+          audioPacketsLost: latestAudioRow?.packetsLost ?? null,
           audioInsertedSamplesForDeceleration: latestAudioRow?.insertedSamplesForDeceleration ?? null,
           audioRemovedSamplesForAcceleration: latestAudioRow?.removedSamplesForAcceleration ?? null,
           audioBytesReceived: latestAudioRow?.bytesReceived ?? null
         },
         audioValidation: {
           expectAudible,
-          totalAudioSamplesStart,
-          totalAudioSamplesEnd,
-          audioSamplesProgressed: (totalAudioSamplesEnd ?? 0) - (totalAudioSamplesStart ?? 0),
-          audioBytesProgressed: (totalAudioBytesEnd ?? 0) - (totalAudioBytesStart ?? 0),
           audioCodec: latestAudioCodecRow?.mimeType ?? 'unknown',
-          audioSsrc: latestAudioRow?.ssrc ?? null
+          audioSsrc: latestAudioRow?.ssrc ?? null,
+          audioSamplesReceivedSteady: steadyQuality.steady.audioSamplesReceived,
+          audioConcealedSamplesSteady: steadyQuality.steady.audioConcealedSamples,
+          audioSilentConcealedSamplesSteady: steadyQuality.steady.audioSilentConcealedSamples,
+          audioConcealmentEventsSteady: steadyQuality.steady.audioConcealmentEvents,
+          audioConcealmentRatio: steadyQuality.steady.audioConcealmentRatio,
+          audioPacketsLostSteady: steadyQuality.steady.audioPacketsLost,
+          audioPacketsDiscardedSteady: steadyQuality.steady.audioPacketsDiscarded,
+          audioPacketsReceivedSteady: steadyQuality.steady.audioPacketsReceived,
+          audioBytesReceivedSteady: steadyQuality.steady.audioBytesReceived,
+          audioJitterBufferMeanMs: avg(audioJitterList),
+          audioJitterBufferMinMs: audioJitterList.length ? Math.min(...audioJitterList) : null,
+          audioJitterBufferMaxMs: audioJitterList.length ? Math.max(...audioJitterList) : null
         },
         effectiveReceivers,
         timeline
       };
     } finally {
+      console.log(`[Teardown] Garantindo parada de captura nativa para ${name}...`);
+      await stopNativeCapture().catch(err => {
+        console.warn(`[Teardown] Erro durante stopNativeCapture para ${name}:`, err.message);
+      });
       if (dedicatedUnmutedBrowser) {
         console.log('[Áudio por Processo] Fechando instância dedicada de navegador desmutado...');
         await dedicatedUnmutedBrowser.close().catch(() => {});
@@ -1104,10 +1110,65 @@ const runIsolationSuite = async () => {
   const executeScenarioSafely = async (scenarioConfig) => {
     try {
       const res = await runScenarioExecution(scenarioConfig);
-      await saveReportProgressive();
       return res;
     } catch (err) {
       console.error(`\n[${scenarioConfig.name}] Falha na execução:`, err.message);
+
+      // Captura screenshots de erro
+      const errorShotPrefix = `${scenarioConfig.id}-error`;
+      await hostPage.screenshot({ path: path.join(outputDir, `${errorShotPrefix}-host.png`) }).catch(() => {});
+      await currentTargetViewerPage.screenshot({ path: path.join(outputDir, `${errorShotPrefix}-viewer.png`) }).catch(() => {});
+
+      // Diagnósticos de sinalização/ICE/DTLS/worker em erro
+      const hostDiagnostics = await hostPage.evaluate(async () => {
+        const app = await import('/js/app.js').catch(() => null);
+        const desktop = await import('/js/desktop.js').catch(() => null);
+        const captureState = desktop?.getNativeCaptureState ? await desktop.getNativeCaptureState().catch(() => null) : null;
+        const peers = (window.__smgPeers || []).map(p => ({
+          signalingState: p.signalingState,
+          iceConnectionState: p.iceConnectionState,
+          connectionState: p.connectionState,
+          sendersCount: p.getSenders ? p.getSenders().length : 0,
+          receiversCount: p.getReceivers ? p.getReceivers().length : 0
+        }));
+        return {
+          isInRoom: app?.roomManager?.isInRoom,
+          myPeerId: app?.roomManager?.myPeerId,
+          isStartingStream: app?.isStartingStream,
+          hasLocalStream: !!app?.localStream,
+          captureState,
+          peers
+        };
+      }).catch(e => ({ evalError: e.message }));
+
+      const viewerDiagnostics = await currentTargetViewerPage.evaluate(async ({ hId }) => {
+        const app = await import('/js/app.js').catch(() => null);
+        const card = document.getElementById(`card-${hId}`);
+        const video = card?.querySelector('video');
+        const stream = video?.srcObject;
+        const peers = (window.__smgPeers || []).map(p => ({
+          signalingState: p.signalingState,
+          iceConnectionState: p.iceConnectionState,
+          connectionState: p.connectionState,
+          sendersCount: p.getSenders ? p.getSenders().length : 0,
+          receiversCount: p.getReceivers ? p.getReceivers().length : 0
+        }));
+        return {
+          isInRoom: app?.roomManager?.isInRoom,
+          myPeerId: app?.roomManager?.myPeerId,
+          cardFound: !!card,
+          videoFound: !!video,
+          videoWidth: video?.videoWidth,
+          videoHeight: video?.videoHeight,
+          videoReadyState: video?.readyState,
+          videoPaused: video?.paused,
+          hasStream: !!stream,
+          videoTracks: stream?.getVideoTracks ? stream.getVideoTracks().map(t => ({ id: t.id, readyState: t.readyState })) : [],
+          audioTracks: stream?.getAudioTracks ? stream.getAudioTracks().map(t => ({ id: t.id, readyState: t.readyState })) : [],
+          peers
+        };
+      }, { hId: hostId }).catch(e => ({ evalError: e.message }));
+
       const failedRes = {
         id: scenarioConfig.id,
         name: scenarioConfig.name,
@@ -1115,11 +1176,21 @@ const runIsolationSuite = async () => {
         validityStatus: 'INCONCLUSIVE',
         qualityStatus: 'FAILED',
         error: err.message,
+        errorDiagnostics: {
+          host: hostDiagnostics,
+          viewer: viewerDiagnostics
+        },
         unmetInvariants: [`execution_error: ${err.message}`]
       };
-      await saveReportProgressive();
       return failedRes;
     }
+  };
+
+  const runScenarioAndRecord = async (scenarioKey, scenarioConfig) => {
+    const res = await executeScenarioSafely(scenarioConfig);
+    results.scenarios[scenarioKey] = res;
+    await saveReportProgressive();
+    return res;
   };
 
   const durationCoreSec = parseInt(process.env.CORE_DURATION_SEC || '20', 10);
@@ -1132,7 +1203,7 @@ const runIsolationSuite = async () => {
   console.log('BLOCO 1: REPETIÇÃO ALTERNADA 1 (ORDEM DIRETA: C1 -> C2 -> C4)');
   console.log('=============================================================');
 
-  results.scenarios.c1_rep1_controleBase = await executeScenarioSafely({
+  await runScenarioAndRecord('c1_rep1_controleBase', {
     id: 'c1_rep1',
     name: 'Cenário 1 (Rep 1): Controle Base (A/V Completo, Prévia Ativa, Receptor Mute SO)',
     audioMode: 'system',
@@ -1146,7 +1217,7 @@ const runIsolationSuite = async () => {
     durationSec: durationCoreSec
   });
 
-  results.scenarios.c2_rep1_previaSuspensa = await executeScenarioSafely({
+  await runScenarioAndRecord('c2_rep1_previaSuspensa', {
     id: 'c2_rep1',
     name: 'Cenário 2 (Rep 1): Isolamento de Prévia (A/V Completo, Prévia Suspensa, Receptor Mute SO)',
     audioMode: 'system',
@@ -1160,7 +1231,7 @@ const runIsolationSuite = async () => {
     durationSec: durationCoreSec
   });
 
-  results.scenarios.c4_rep1_videoPuro = await executeScenarioSafely({
+  await runScenarioAndRecord('c4_rep1_videoPuro', {
     id: 'c4_rep1',
     name: 'Cenário 4 (Rep 1): Baseline Vídeo Puro (Sem Trilha Áudio, Receptor Mute SO)',
     audioMode: 'none',
@@ -1181,7 +1252,7 @@ const runIsolationSuite = async () => {
   console.log('BLOCO 2: REPETIÇÃO ALTERNADA 2 (ORDEM INVERTIDA: C4 -> C2 -> C1)');
   console.log('=============================================================');
 
-  results.scenarios.c4_rep2_videoPuro = await executeScenarioSafely({
+  await runScenarioAndRecord('c4_rep2_videoPuro', {
     id: 'c4_rep2',
     name: 'Cenário 4 (Rep 2): Baseline Vídeo Puro (Sem Trilha Áudio, Receptor Mute SO)',
     audioMode: 'none',
@@ -1195,7 +1266,7 @@ const runIsolationSuite = async () => {
     durationSec: durationCoreSec
   });
 
-  results.scenarios.c2_rep2_previaSuspensa = await executeScenarioSafely({
+  await runScenarioAndRecord('c2_rep2_previaSuspensa', {
     id: 'c2_rep2',
     name: 'Cenário 2 (Rep 2): Isolamento de Prévia (A/V Completo, Prévia Suspensa, Receptor Mute SO)',
     audioMode: 'system',
@@ -1209,7 +1280,7 @@ const runIsolationSuite = async () => {
     durationSec: durationCoreSec
   });
 
-  results.scenarios.c1_rep2_controleBase = await executeScenarioSafely({
+  await runScenarioAndRecord('c1_rep2_controleBase', {
     id: 'c1_rep2',
     name: 'Cenário 1 (Rep 2): Controle Base (A/V Completo, Prévia Ativa, Receptor Mute SO)',
     audioMode: 'system',
@@ -1230,7 +1301,7 @@ const runIsolationSuite = async () => {
   console.log('BLOCO 3: CENÁRIOS ESPECÍFICOS (PLAYER MUTADO, ÁUDIO POR PROCESSO, JITTER)');
   console.log('=============================================================');
 
-  results.scenarios.c3_audioMutado = await executeScenarioSafely({
+  await runScenarioAndRecord('c3_audioMutado', {
     id: 'c3',
     name: 'Cenário 3: Isolamento de Saída no Player (Áudio Capturado/RTP, Player Mutado no DOM, Receptor Mute SO)',
     audioMode: 'system',
@@ -1246,7 +1317,7 @@ const runIsolationSuite = async () => {
 
   // CENÁRIO 5: ÁUDIO POR PROCESSO (Isolamento WASAPI por PID)
   if (nativeCaps?.supports_process_audio) {
-    results.scenarios.c5_audioProcesso = await executeScenarioSafely({
+    await runScenarioAndRecord('c5_audioProcesso', {
       id: 'c5',
       name: 'Cenário 5: Áudio por Processo (Isolamento WASAPI por PID, Instância de Navegador Desmutada)',
       audioMode: 'process',
@@ -1274,7 +1345,7 @@ const runIsolationSuite = async () => {
   }
 
   // CENÁRIOS 6A, 6B, 6C: POLÍTICAS DE JITTER INDEPENDENTES
-  results.scenarios.c6a_jitter0ms = await executeScenarioSafely({
+  await runScenarioAndRecord('c6a_jitter0ms', {
     id: 'c6a',
     name: 'Cenário 6A: Jitter Buffer Target 0ms (Ultra-Low Playout, Receptor Mute SO)',
     audioMode: 'system',
@@ -1290,7 +1361,7 @@ const runIsolationSuite = async () => {
     durationSec: durationJitterSec
   });
 
-  results.scenarios.c6b_jitter25ms = await executeScenarioSafely({
+  await runScenarioAndRecord('c6b_jitter25ms', {
     id: 'c6b',
     name: 'Cenário 6B: Jitter Buffer Target 25ms (Buffer Estático, Receptor Mute SO)',
     audioMode: 'system',
@@ -1306,7 +1377,7 @@ const runIsolationSuite = async () => {
     durationSec: durationJitterSec
   });
 
-  results.scenarios.c6c_jitterDefault = await executeScenarioSafely({
+  await runScenarioAndRecord('c6c_jitterDefault', {
     id: 'c6c',
     name: 'Cenário 6C: Jitter Buffer Default (Padrão WebRTC, Receptor Mute SO)',
     audioMode: 'system',
@@ -1354,12 +1425,14 @@ const runIsolationSuite = async () => {
       'FPS Médio Recv': sc.fpsMean ?? 'N/A',
       'FPS p10': sc.fpsP10 ?? 'N/A',
       'Decode (ms)': sc.decodeTimeMeanMs ?? 'N/A',
-      'Jitter V/A (ms)': `${sc.jitterBufferMeanMs ?? 'N/A'} / ${sc.audioJitterBufferMeanMs ?? 'N/A'}`,
+      'Jitter V/A (ms)': `${sc.jitterBufferMeanMs ?? 'N/A'} / ${sc.audioValidation?.audioJitterBufferMeanMs ?? 'N/A'}`,
       'Max Pausa (ms)': sc.maxPauseMs ?? 'N/A',
       'Gaps Rate (/min)': sc.gapsPerMinute ?? 'N/A',
       'Gaps >100ms': sc.totalGapsCount ?? 'N/A',
-      'Freezes': sc.freezeCount != null ? `${sc.freezeCount} (${sc.totalFreezesDurationSec ?? 0}s)` : 'N/A',
-      'Perda Pkts': sc.totalPacketsLost ?? 'N/A',
+      'Steady Freezes': sc.steadyQuality ? `${sc.steadyQuality.freezeCount} (${sc.steadyQuality.totalFreezesDurationSec}s)` : 'N/A',
+      'Startup Freezes': sc.startupDynamics ? `${sc.startupDynamics.startupFreezes} (${sc.startupDynamics.startupFreezeDurationSec}s)` : 'N/A',
+      'Perda Pkts V/A': sc.steadyQuality ? `${sc.steadyQuality.packetsLost} / ${sc.steadyQuality.audioPacketsLost}` : 'N/A',
+      'Audio Conceal %': sc.audioValidation?.audioConcealmentRatio != null ? `${sc.audioValidation.audioConcealmentRatio}%` : 'N/A',
       'Decoder': sc.decoderInfo?.implementation ?? 'N/A'
     };
   }

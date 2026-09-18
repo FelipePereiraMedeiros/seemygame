@@ -1,5 +1,5 @@
 import { expect, it, describe } from 'vitest';
-import { deltaMetrics, installTelemetry } from '../tools/e2e/telemetry.mjs';
+import { deltaMetrics, installTelemetry, evaluateQualityBudget, computeSteadyQuality } from '../tools/e2e/telemetry.mjs';
 import {
   MARKER_CONFIG,
   crc16,
@@ -371,6 +371,207 @@ describe('Módulo Óptico E2E Robusto (Protocolo 96 bits e CRC-16)', () => {
     });
 
     document.body.removeChild(video);
+  });
+});
+
+describe('Sexto Parecer: Qualidade Steady, Baseline de Startup e Diagnóstico de Áudio', () => {
+  it('desconta baseline de startup e não reprova janela steady com freeze anterior', () => {
+    // Cenário observado no sexto parecer:
+    // Freeze de 1.76s ocorreu no startup. Durante toda a janela steady, delta freeze foi 0.
+    const baselineVideoRow = {
+      freezeCount: 1,
+      totalFreezesDuration: 1.76,
+      framesDropped: 2,
+      framesReceived: 50,
+      framesDecoded: 48,
+      packetsLost: 0,
+      packetsReceived: 200
+    };
+
+    const latestVideoRow = {
+      freezeCount: 1,
+      totalFreezesDuration: 1.76,
+      framesDropped: 2,
+      framesReceived: 1250,
+      framesDecoded: 1248,
+      packetsLost: 0,
+      packetsReceived: 5000
+    };
+
+    const quality = computeSteadyQuality({
+      baselineVideoRow,
+      latestVideoRow,
+      elapsedSteadySec: 20.0
+    });
+
+    // Diagnósticos de startup separados
+    expect(quality.startupDynamics.startupFreezes).toBe(1);
+    expect(quality.startupDynamics.startupFreezeDurationSec).toBe(1.76);
+    expect(quality.startupDynamics.startupFramesDropped).toBe(2);
+
+    // Contadores steady estritamente zerados para freezes
+    expect(quality.steady.freezeCount).toBe(0);
+    expect(quality.steady.totalFreezesDurationSec).toBe(0);
+    expect(quality.steady.framesDropped).toBe(0);
+    expect(quality.steady.framesReceived).toBe(1200);
+
+    // Avaliação do Quality Budget usando contadores steady
+    const budget = evaluateQualityBudget({
+      fpsMean: 57.2,
+      fpsP10: 55.0,
+      maxPauseMs: 90,
+      totalGapsCount: 0,
+      durationSec: 20,
+      measuredDurationSec: 20.0,
+      totalPacketsLost: quality.steady.packetsLost,
+      videoJitterMeanMs: 5.0,
+      freezeCount: quality.steady.freezeCount,
+      totalFreezesDuration: quality.steady.totalFreezesDurationSec
+    });
+
+    // O freeze do startup NÃO deve reprovar o steady
+    expect(budget.status).toBe('PASSED');
+    expect(budget.violations).toHaveLength(0);
+  });
+
+  it('detecta e reprova quando freeze ocorre DURANTE a janela steady', () => {
+    const baselineVideoRow = {
+      freezeCount: 1,
+      totalFreezesDuration: 0.2
+    };
+
+    const latestVideoRow = {
+      freezeCount: 2,
+      totalFreezesDuration: 0.9 // Novo freeze de 0.7s no steady
+    };
+
+    const quality = computeSteadyQuality({
+      baselineVideoRow,
+      latestVideoRow,
+      elapsedSteadySec: 20.0
+    });
+
+    expect(quality.steady.freezeCount).toBe(1);
+    expect(quality.steady.totalFreezesDurationSec).toBeCloseTo(0.7, 3);
+
+    const budget = evaluateQualityBudget({
+      fpsMean: 55.0,
+      fpsP10: 50.0,
+      maxPauseMs: 80,
+      totalGapsCount: 0,
+      durationSec: 20,
+      measuredDurationSec: 20.0,
+      freezeCount: quality.steady.freezeCount,
+      totalFreezesDuration: quality.steady.totalFreezesDurationSec
+    });
+
+    expect(budget.status).toBe('FAILED');
+    expect(budget.violations.some(v => v.includes('webrtc_freezes_detected'))).toBe(true);
+  });
+
+  it('calcula métricas de áudio, descarte de pacotes e taxa de concealed samples', () => {
+    const baselineAudioRow = {
+      totalSamplesReceived: 48000,
+      concealedSamples: 5000,
+      silentConcealedSamples: 1000,
+      concealmentEvents: 10,
+      packetsLost: 0,
+      packetsDiscarded: 0,
+      packetsReceived: 1000,
+      bytesReceived: 50000
+    };
+
+    // 20s a 48kHz = ~960.000 amostras recebidas no steady
+    // 35% de concealed samples = ~336.000 amostras sintetizadas (padrão visto nos pareceres)
+    const latestAudioRow = {
+      totalSamplesReceived: 48000 + 960000,
+      concealedSamples: 5000 + 336000,
+      silentConcealedSamples: 1000 + 50000,
+      concealmentEvents: 10 + 150,
+      packetsLost: 0,
+      packetsDiscarded: 2,
+      packetsReceived: 1000 + 20000,
+      bytesReceived: 50000 + 1000000
+    };
+
+    const quality = computeSteadyQuality({
+      baselineAudioRow,
+      latestAudioRow,
+      elapsedSteadySec: 20.0
+    });
+
+    expect(quality.steady.audioSamplesReceived).toBe(960000);
+    expect(quality.steady.audioConcealedSamples).toBe(336000);
+    expect(quality.steady.audioConcealmentEvents).toBe(150);
+    expect(quality.steady.audioPacketsDiscarded).toBe(2);
+    // 336000 / 960000 * 100 = 35.00%
+    expect(quality.steady.audioConcealmentRatio).toBe(35.0);
+
+    const budget = evaluateQualityBudget({
+      fpsMean: 56.0,
+      fpsP10: 52.0,
+      maxPauseMs: 90,
+      totalGapsCount: 0,
+      durationSec: 20,
+      measuredDurationSec: 20.0,
+      audioPacketsLost: quality.steady.audioPacketsLost,
+      audioPacketsDiscarded: quality.steady.audioPacketsDiscarded,
+      audioConcealmentRatio: quality.steady.audioConcealmentRatio,
+      expectAudible: true
+    });
+
+    // Concealment elevado (>20%) e pacotes descartados devem gerar warnings (DEGRADED)
+    expect(budget.status).toBe('DEGRADED');
+    expect(budget.warnings.some(w => w.includes('elevated_audio_concealment'))).toBe(true);
+    expect(budget.warnings.some(w => w.includes('audio_packets_discarded'))).toBe(true);
+  });
+
+  it('normaliza gapsPerMinute utilizando a duração efetiva medida', () => {
+    // 3 gaps em 18.0 segundos medidos (configurado como 20s)
+    const budgetConfigured = evaluateQualityBudget({
+      fpsMean: 58.0,
+      totalGapsCount: 3,
+      durationSec: 20,
+      measuredDurationSec: null
+    });
+    // Com duração solicitada (20s): (3 / 20) * 60 = 9.0 gaps/min
+    expect(budgetConfigured.gapsPerMinute).toBe(9.0);
+
+    const budgetMeasured = evaluateQualityBudget({
+      fpsMean: 58.0,
+      totalGapsCount: 3,
+      durationSec: 20,
+      measuredDurationSec: 18.0
+    });
+    // Com duração medida (18s): (3 / 18) * 60 = 10.0 gaps/min
+    expect(budgetMeasured.gapsPerMinute).toBe(10.0);
+    expect(budgetMeasured.effectiveDurationSec).toBe(18.0);
+  });
+
+  it('deltaMetrics extrai campos novos de áudio e calcula concealment ratio por intervalo', () => {
+    const prev = {
+      timestamp: 1000,
+      totalSamplesReceived: 48000,
+      concealedSamples: 1000,
+      concealmentEvents: 5,
+      packetsDiscarded: 0,
+      packetsLost: 0
+    };
+    const curr = {
+      timestamp: 2000,
+      totalSamplesReceived: 96000, // delta = 48000
+      concealedSamples: 13000,     // delta = 12000 (25%)
+      concealmentEvents: 15,       // delta = 10
+      packetsDiscarded: 1,         // delta = 1
+      packetsLost: 0
+    };
+
+    const delta = deltaMetrics(prev, curr);
+    expect(delta.audioSamplesDelta).toBe(48000);
+    expect(delta.concealedSamplesDelta).toBe(12000);
+    expect(delta.concealmentEventsDelta).toBe(10);
+    expect(delta.audioPacketsDiscardedDelta).toBe(1);
+    expect(delta.audioConcealmentRatio).toBe(25.0);
   });
 });
 
