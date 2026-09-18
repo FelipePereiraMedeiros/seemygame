@@ -77,17 +77,49 @@ export class MockRTCRtpSender {
   }
 }
 
-export class MockRTCPeerConnection {
+export class MockRTCPeerConnection extends EventTarget {
   constructor() {
+    super();
     this.connectionState = 'connected';
     this._sdpHooked = false;
     this._senders = [];
     this._transceivers = [];
   }
 
+  addTransceiver(trackOrKind, init = {}) {
+    const transceiver = {
+      direction: init.direction || 'sendrecv',
+      sender: new MockRTCRtpSender(),
+      receiver: { track: new MockMediaStreamTrack(typeof trackOrKind === 'string' ? trackOrKind : 'video') }
+    };
+    this._transceivers.push(transceiver);
+    return transceiver;
+  }
+
+  async createOffer() {
+    return { type: 'offer', sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n' };
+  }
+
+  async createAnswer() {
+    return { type: 'answer', sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n' };
+  }
+
   async setLocalDescription(desc) {
     this.localDescription = desc;
     return Promise.resolve(desc);
+  }
+
+  async setRemoteDescription(desc) {
+    this.remoteDescription = desc;
+    return Promise.resolve(desc);
+  }
+
+  async addIceCandidate(candidate) {
+    return Promise.resolve();
+  }
+
+  close() {
+    this.connectionState = 'closed';
   }
 
   getSenders() {

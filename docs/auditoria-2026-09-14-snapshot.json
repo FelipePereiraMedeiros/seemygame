@@ -1,0 +1,411 @@
+{
+  "head": "6c77eb891ca1efec3f890c38b867cdfe9db435ec",
+  "branch": "mason",
+  "includesUncommittedChanges": true,
+  "date": "2026-09-14",
+  "timezone": "America/Sao_Paulo",
+  "files": [
+    {
+      "file": ".gitignore",
+      "hash": "DB8B217F16B4F2A39A0AF91AB889230134554844A61FE7CC18B5141ACC595CBC"
+    },
+    {
+      "file": "README.md",
+      "hash": "253466AFA041D2F98463A912A55577D47F620A2FE12DAC6D06BC08528B1DF7D6"
+    },
+    {
+      "file": "api/turn.js",
+      "hash": "8E65C4A1B4FCF5C06870535C33488E1DDBCBCDE044DB1616155D7BA02EE3D2EE"
+    },
+    {
+      "file": "css/main.css",
+      "hash": "19316F35EF6563A6E7B21B16543B984115CAB70530A81454CAC9CD1E67F51F92"
+    },
+    {
+      "file": "css/player.css",
+      "hash": "0012F07BCB1675FACFB5BE69E226603DF7887B1C5A70B2F64FE5296A4B3B65D9"
+    },
+    {
+      "file": "index.html",
+      "hash": "6A2C33D5BB45BB670796DCEF51D43960E27FDECDA8BA5C961A4D4479B9C3238D"
+    },
+    {
+      "file": "js/abr.js",
+      "hash": "1818FE891605BC52231A11B1AEF431F0C41D7A8190BFA7CC3447F854AD387499"
+    },
+    {
+      "file": "js/app.js",
+      "hash": "E0190087A3CFEC163B8CA4A069EDDC4CFF772C7F47024F18BF9C2E8120D665FC"
+    },
+    {
+      "file": "js/audio-meme.js",
+      "hash": "7A8E7B3CDF684C355A3CED1903EDEE86B45FA3F915D04416A5A60A95370822D8"
+    },
+    {
+      "file": "js/audio.js",
+      "hash": "10EACAFA807A230F3A0DB61B92ECEABFFED6C954C54244A33AD02ACF2F7E95A6"
+    },
+    {
+      "file": "js/chat.js",
+      "hash": "AC0171A5048977E5F4DE7EA9A78737F88B85CC7E1ECBBD74BC252DF971A29576"
+    },
+    {
+      "file": "js/clipping.js",
+      "hash": "D485CDD310CB42BF43A478F109BEA73B58C4FE0361B472FE38A289780160F0C2"
+    },
+    {
+      "file": "js/config.js",
+      "hash": "78AE72E7865C7F22AD494807F862B4B7D4C28FEBC67F8005C7F0161315690FD3"
+    },
+    {
+      "file": "js/coop.js",
+      "hash": "A261809A77388B0A88FB7F9C6F617837091E23BA47958B22A2BC668968295520"
+    },
+    {
+      "file": "js/desktop.js",
+      "hash": "E4B7DF063B2C630E558FB107C30260F054ACA5531BBB5B6FE6C39E1AB426BCC8"
+    },
+    {
+      "file": "js/discord-ui.js",
+      "hash": "CC41E58194463E6A6101BEB4143E958F194FED0D000D936D51E8526DCCA953AF"
+    },
+    {
+      "file": "js/ping.js",
+      "hash": "E80ABCDDCC8E2C8F6FE4480C31C4F4D5203FE4FAC3472FD9ECC5F2371647A1CB"
+    },
+    {
+      "file": "js/reactions.js",
+      "hash": "1C37DEC5D2E9021F2BDB0197879408169B90A0E953499B57AE18F654807587DF"
+    },
+    {
+      "file": "js/room.js",
+      "hash": "E9F2F37F9BE6D5C9E1B856122C0DF3626D2A21CF81ADBDABDD977E52B5BAC5DD"
+    },
+    {
+      "file": "js/soundboard.js",
+      "hash": "93867E4008E10B983DCF519B94DB4C5FDA6EF263DCA9CB38644CF8C05D710391"
+    },
+    {
+      "file": "js/stats.js",
+      "hash": "55E9C8818B27E3735036CBAF1DF861633FA1EDA1016D65C11A3A78242F7AC80C"
+    },
+    {
+      "file": "js/ui.js",
+      "hash": "82DB673172C78F45C490C3E68BEC8830B6EBE160C20BCEA6C7989A3718338F16"
+    },
+    {
+      "file": "js/voice.js",
+      "hash": "58A6C6801880E3F12AA5A1A1C410F45ED36D12DAC1E36B1031E9DCA1E3043032"
+    },
+    {
+      "file": "js/webrtc.js",
+      "hash": "5B201F3CA9A1EFF22909C232E2EC2F0FBF439B12E62DE1EDB271BAB5458DD172"
+    },
+    {
+      "file": "js/whiteboard.js",
+      "hash": "54A0AD7454D0F09ABCF381F94830347B970EEC2AAD2614574277C5280C085253"
+    },
+    {
+      "file": "package-lock.json",
+      "hash": "E4E0848F61163BE62FB6E5819B3060F237A513B81B20459AD0933A27A22A6C33"
+    },
+    {
+      "file": "package.json",
+      "hash": "AE3F0F7A17777A811C04E6B54934498C5075B01B0DBF2585FEF4600204E9389A"
+    },
+    {
+      "file": "room.html",
+      "hash": "6DD6BDA27F19A00BD4E9727EAB9D451BCAD8488BA7299410611AC3371B0D01E8"
+    },
+    {
+      "file": "src-tauri/.gitignore",
+      "hash": "8A460714D8A02659573400DE0C2F2DCC756E63CA511497C3B8F068B63657BB01"
+    },
+    {
+      "file": "src-tauri/Cargo.lock",
+      "hash": "226F672C40E013D78947DC5A6A721048C4F1F3C3687F36567F24DC544FA93A8C"
+    },
+    {
+      "file": "src-tauri/Cargo.toml",
+      "hash": "846634FB019104CCE061BA7E89D841D0A4234C3D13A934E8725306EAE4E7FAD7"
+    },
+    {
+      "file": "src-tauri/build.rs",
+      "hash": "475E2E09E57F802634B6B3719B5E7A85E10DB76A945E80F4F82B4EF63F28042C"
+    },
+    {
+      "file": "src-tauri/capabilities/default.json",
+      "hash": "0C871234F407661B3CF1D64EA764E05500420C12E703C781F8F059BE492C5630"
+    },
+    {
+      "file": "src-tauri/icons/128x128.png",
+      "hash": "EEEBF55D8FFE07348786B9057AF253E3CA08C56B6A8F8893826381430E3C0B7B"
+    },
+    {
+      "file": "src-tauri/icons/128x128@2x.png",
+      "hash": "2998B41D0C9278B08E8B3874E094920034FE983A46053C9D62764225F58AB7B0"
+    },
+    {
+      "file": "src-tauri/icons/32x32.png",
+      "hash": "AAA96D0C53B756B77C7F46AEB72290F42256C786C69BE68F6BCDEB9C7492A48E"
+    },
+    {
+      "file": "src-tauri/icons/Square107x107Logo.png",
+      "hash": "33446A858D982A529554E562114673F8B15620588137CF0BF6C56A7441C78CD7"
+    },
+    {
+      "file": "src-tauri/icons/Square142x142Logo.png",
+      "hash": "633D6DBA504FAA844B309E01272386E4523CDDD4A3639C77C0EB5D2CE3EAC752"
+    },
+    {
+      "file": "src-tauri/icons/Square150x150Logo.png",
+      "hash": "D90061AD71E6F5882B759D80CF58CC16AA5021FA29BA4B2614ADEA982A4D7EE5"
+    },
+    {
+      "file": "src-tauri/icons/Square284x284Logo.png",
+      "hash": "5FEAA4F18F404843551756DD2791D7654EF471B6B007767AE40F60C7AEBCAD5B"
+    },
+    {
+      "file": "src-tauri/icons/Square30x30Logo.png",
+      "hash": "68BC1B585F5685E0922F14B1CA7EB2D618213C684C89E759C6A5EB8578C3FE8D"
+    },
+    {
+      "file": "src-tauri/icons/Square310x310Logo.png",
+      "hash": "5DF8D779AB57C63EE06ED237B94C3C0954711E88117DCCFA72B2AEC5D83B0D80"
+    },
+    {
+      "file": "src-tauri/icons/Square44x44Logo.png",
+      "hash": "C46208286B1EA1B4841B714972F3CB0A8ABC6D3BFA71A29238F7B4D62F511F89"
+    },
+    {
+      "file": "src-tauri/icons/Square71x71Logo.png",
+      "hash": "CB0EA93CBD13509D32C6BC06DA71687E73D673D166FDE91B23061771ABE16B86"
+    },
+    {
+      "file": "src-tauri/icons/Square89x89Logo.png",
+      "hash": "2208DA1D741A20E902A59D7C39A5E58AF74EC823DB13113BF8AC6F555FA25BCA"
+    },
+    {
+      "file": "src-tauri/icons/StoreLogo.png",
+      "hash": "9F84D0CE09DF51BAC0A4855042B3E49B190CC2B9761CD5EAB61EBEC5CD343820"
+    },
+    {
+      "file": "src-tauri/icons/icon.icns",
+      "hash": "1535D355994F8EE82DA91384D2A29E04D5B4440F3E6051B5C8B06E7A62283693"
+    },
+    {
+      "file": "src-tauri/icons/icon.ico",
+      "hash": "E38CA88E1D5490F3DCBC3C3FA525F7FCB7B80FFF3CB2F3A4EB1B2D018C0915C1"
+    },
+    {
+      "file": "src-tauri/icons/icon.png",
+      "hash": "6413BFE9D546E5225FC9256A0ECEC48DF3A1272EA4BDC91C15B8E000222A95D3"
+    },
+    {
+      "file": "src-tauri/src/lib.rs",
+      "hash": "E049D9379B9A39CCA1C13E071E0B521B8F24C2C3483214A8EE6416CDF8FD1BF0"
+    },
+    {
+      "file": "src-tauri/src/main.rs",
+      "hash": "78A244BDD0351E245F87068DC26B42235A62BF9092FDDBC68E92C7EEC8B0BC54"
+    },
+    {
+      "file": "src-tauri/src/system.rs",
+      "hash": "7621C03BC1F7E83B9361DEFD8733AD53A95B9B36117E0DBB4DAA2FBE0A6BF9DA"
+    },
+    {
+      "file": "src-tauri/src/windows_list.rs",
+      "hash": "3F0F8CF156F2A442792E013C70A94BB707F886D6BFD1D5D6AE9997252CE47FAD"
+    },
+    {
+      "file": "src-tauri/tauri.conf.json",
+      "hash": "E61CD45AF50F5C0776991FDF55A1331C81FDE2042B4A4F87B562AA616ADDBEDB"
+    },
+    {
+      "file": "streamer.html",
+      "hash": "932128013DACB4616C7252B84DFD207C1BE12EC391E3AB1330CAD80E77093C0E"
+    },
+    {
+      "file": "tests/abr.test.js",
+      "hash": "D3B63369F1A457D84E3D2F90DEF4F9C666513C201A2E9C18EA3BC7A452DF91C3"
+    },
+    {
+      "file": "tests/app.test.js",
+      "hash": "733F5E8153EB4106D7FA6F6889C35AA085E045B1E340B96246A09C6897CACDCE"
+    },
+    {
+      "file": "tests/audio-meme.test.js",
+      "hash": "1CD83FE33418121C4506F466F591381E9978D2E35214A52CD7D5332E28F85EE1"
+    },
+    {
+      "file": "tests/audio.test.js",
+      "hash": "9BE9FFCD86FC07FBB9F8FD5BF79819AC60594575618C9C9615A1A190C7D6F8FE"
+    },
+    {
+      "file": "tests/chat.test.js",
+      "hash": "A4DEBCD323499065700AC83E9E7D1DADA4B67AB3453C0BF101CDE94A9D498BF5"
+    },
+    {
+      "file": "tests/clipping.test.js",
+      "hash": "A3BF9E2F1BCCC0864EC06C4AF8969AFAB8EA6DEB797E3EB441FC710D1AB9E900"
+    },
+    {
+      "file": "tests/config.test.js",
+      "hash": "AB734A43CD74581239863F4F4BCE69DD725CC47C5207611D3DD2E99C6F5D2DC1"
+    },
+    {
+      "file": "tests/coop.test.js",
+      "hash": "A80ED7B96EE73B96A965B55EAC7815AD4532898DF7A17EC891F3B1052C44F313"
+    },
+    {
+      "file": "tests/desktop.test.js",
+      "hash": "EE5BFE1FE154105393347502573D8AC631978F037F6CEFA3B6F2B0CCAEB009E7"
+    },
+    {
+      "file": "tests/discord-ui.test.js",
+      "hash": "1E9B65DF1BFCACD4602E9BEC87A9E948C0052461F08C3EE1455676F00734CB0B"
+    },
+    {
+      "file": "tests/gamer-features.test.js",
+      "hash": "C2B39B37EC9A9BFE9A1C28E12BA2352FAE12689EE74AAD887C209BE597BDAF1A"
+    },
+    {
+      "file": "tests/mocks/webaudio.mock.js",
+      "hash": "8EE02E12804955CEE1BCC5D5C66CC1BEBECA369B12734297BC886FD578D5E27F"
+    },
+    {
+      "file": "tests/mocks/webrtc.mock.js",
+      "hash": "8D8D3A134ED926F8E32756AA4CF76C96827E343239E05BCA084E0E8CA5D1F641"
+    },
+    {
+      "file": "tests/p2p-chat-voice.test.js",
+      "hash": "809225738AA78BE66E518AD997D5B7FDD5AFBA16DEF11B36D0FC6437E3A76E8D"
+    },
+    {
+      "file": "tests/pin-auth.test.js",
+      "hash": "2B24EB92AC27F9E48CFA57A3F8523A8A71F45EE4ED1968A1925EBBCFCF31D6FB"
+    },
+    {
+      "file": "tests/ping.test.js",
+      "hash": "162E888F59D544EE357B64FBDFC32C52CF295313E945C6F1AEBA2F7BA5D035DB"
+    },
+    {
+      "file": "tests/reactions.test.js",
+      "hash": "031D98EF89E103930357DDAFEA316C1734B2F4C02E33D84B3683394F6D12A4DE"
+    },
+    {
+      "file": "tests/room-app.test.js",
+      "hash": "678E3B4428183A69DFF504A37EAF51B8E9457DBC1D60EB866921EE835E293C58"
+    },
+    {
+      "file": "tests/room.test.js",
+      "hash": "8F7766C062D46A6EBDAF9CA045487B94C93C787E64CE881BFE84C6F51238C748"
+    },
+    {
+      "file": "tests/setup.js",
+      "hash": "42F9D7FDE7341940ADE3218E6F46EE6A087AB49AF70AA9A76F54CB3907C2C1D9"
+    },
+    {
+      "file": "tests/soundboard.test.js",
+      "hash": "A817F3AFF32C71C7122C5D96C8BBE0791E40BECB1232584B5E4D8645E28E4A08"
+    },
+    {
+      "file": "tests/stats.test.js",
+      "hash": "B051B2E55F333EC543E236253F251E7F48259E22AB4CF8EF8B42C638624699EA"
+    },
+    {
+      "file": "tests/turn.test.js",
+      "hash": "65B9627277BD5B728D0F89317F9F7C0CE62CA02C14FE1A3FD2E17FF0994C7780"
+    },
+    {
+      "file": "tests/ui.test.js",
+      "hash": "DEA76431CD81CBAF243292114BAD949BA67EA3D094DD157ED2AF788C6EB909D6"
+    },
+    {
+      "file": "tests/voice.test.js",
+      "hash": "834AFBDFB3FF2CDE644909E60B493A39EC4E1269BABFAF5CF5BAEE4E1661F7D1"
+    },
+    {
+      "file": "tests/webrtc.test.js",
+      "hash": "2859E04B576437AE547F6B6BDAEA7C1770B6FF560C4CDA706FF9E5125B664381"
+    },
+    {
+      "file": "tests/whiteboard.test.js",
+      "hash": "6F98AE4F10CD73E526945A7BE7FDF7B3B7B251DB8C69048302FC7B291029FF55"
+    },
+    {
+      "file": "tools/build-dist.js",
+      "hash": "5ABD99130B5509C3F1F5F5D9F48011CF9A57372CDAF772A094111918911075B2"
+    },
+    {
+      "file": "tools/coop-agent.py",
+      "hash": "A7AB3A1D15BE7BCEE423E025DA07BCF038B1DAB83D55D86E98484F39F18E8240"
+    },
+    {
+      "file": "viewer.html",
+      "hash": "C9F9CC59E0EBAB2275FC158B6DDC3929116F286987FE2B536114DB7720024033"
+    },
+    {
+      "file": "vitest.config.js",
+      "hash": "F8A907510678E35A3E2124775C8D806322EFC84C4EA44AF5CB2681223000BA5D"
+    }
+  ],
+  "validation": {
+    "tests": 304,
+    "testFiles": 24,
+    "productionCoverage": {
+      "statements": 72.48,
+      "branches": 56.08,
+      "functions": 65.01,
+      "lines": 74.38
+    },
+    "cargoCheck": "passed",
+    "cargoFmt": "failed",
+    "cargoClippy": "failed: double_ended_iterator_last at windows_list.rs:89",
+    "cargoAudit": {
+      "mode": "no-fetch,no-yanked",
+      "dependencies": 439,
+      "vulnerabilityEntries": 0,
+      "unmaintainedWarnings": 6,
+      "unsoundWarnings": 1,
+      "databaseAdvisories": 1243,
+      "databaseFreshness": "not reported",
+      "glibInWindowsTargetTree": false
+    },
+    "companionExecuted": false,
+    "realGameOrAnticheatTested": false,
+    "buildProcessTerminationIntercepted": true
+  },
+  "safeProbes": {
+    "wrongRoomPin": {
+      "rejected": true,
+      "stillMember": true,
+      "receivedScreen": true
+    },
+    "forgedRoomSync": {
+      "connectedToInjectedPeer": true,
+      "sentSimulatedMicrophone": true
+    },
+    "roomBroadcast": {
+      "sameConnectionSendCount": 2,
+      "threePeersInitialQueue": 4,
+      "deliveries": 60,
+      "pending": 64
+    },
+    "xss": {
+      "chatEventExecuted": true,
+      "roomNameEventExecuted": true,
+      "payloadEffect": "local DOM dataset marker only"
+    },
+    "pushToTalk": {
+      "firstTrackEnabled": false,
+      "rejoinedMode": "ptt",
+      "rejoinedPressed": false,
+      "rejoinedTrackEnabled": true
+    },
+    "invite": {
+      "expected": "room.html#room=auditoria",
+      "actual": "viewer.html#watch=smg_room_auditoria_host"
+    }
+  }
+}

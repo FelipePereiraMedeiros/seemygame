@@ -55,12 +55,21 @@ if (!navigator.clipboard) {
   navigator.clipboard.writeText = vi.fn(async () => Promise.resolve());
 }
 
-// Setup HTMLMediaElement methods (play, pause, pip, fullscreen)
+// Setup HTMLMediaElement methods (play, pause, pip, fullscreen, load)
 window.HTMLMediaElement.prototype.play = vi.fn(async () => Promise.resolve());
 window.HTMLMediaElement.prototype.pause = vi.fn();
+window.HTMLMediaElement.prototype.load = vi.fn();
 window.HTMLMediaElement.prototype.requestPictureInPicture = vi.fn(async () => Promise.resolve());
 window.HTMLMediaElement.prototype.requestFullscreen = vi.fn(async () => Promise.resolve());
 document.exitPictureInPicture = vi.fn(async () => Promise.resolve());
+
+// Setup URL.createObjectURL / revokeObjectURL
+if (!URL.createObjectURL) {
+  URL.createObjectURL = vi.fn(() => 'blob:http://localhost/fake-uuid');
+}
+if (!URL.revokeObjectURL) {
+  URL.revokeObjectURL = vi.fn();
+}
 
 // Setup requestAnimationFrame / cancelAnimationFrame
 let nextRafId = 1;
