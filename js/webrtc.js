@@ -214,19 +214,10 @@ export function applyTransceiverOptimizations(pc, latencyMode = 'ultra-low', pre
                       (t.mid && t.mid.toLowerCase().includes('audio'));
 
       // Ajuste de Jitter Buffer do receptor:
-      // Quando há áudio presente no stream, áudio e vídeo DEVEM compartilhar o mesmo target (25ms em ultra-low)
-      // para evitar que o A/V sync do Chromium retenha e descarregue frames em rajadas (stutter/FPS oscilante).
-      // Em transmissões exclusivamente de vídeo (sem áudio), o vídeo opera em 0ms para latência pura de vidro a vidro.
+      // Em modo ultra-low latency, áudio e vídeo operam com alvo 0 para minimizar tempo de residência e descarte por A/V sync.
       if (t.receiver) {
-        let targetMs;
-        let targetSec;
-        if (isAudio) {
-          targetMs = latencyMode === 'stable' ? 50 : 25;
-          targetSec = latencyMode === 'stable' ? 0.05 : 0.025;
-        } else {
-          targetMs = latencyMode === 'stable' ? 50 : (hasAudio ? 25 : 0);
-          targetSec = latencyMode === 'stable' ? 0.05 : (hasAudio ? 0.025 : 0);
-        }
+        const targetMs = latencyMode === 'stable' ? 50 : 0;
+        const targetSec = latencyMode === 'stable' ? 0.05 : 0;
         if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = targetMs;
         if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = targetSec;
       }

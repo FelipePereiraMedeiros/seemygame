@@ -1773,8 +1773,8 @@ async function handleStartDirectStream(data, conn) {
   directViewerPeerConnections.set(hostId, pc);
   directPendingCandidates.set(hostId, []);
 
-  const videoTargetMs = data.hasAudio ? 25 : 0;
-  const videoTargetSec = data.hasAudio ? 0.025 : 0;
+  const videoTargetMs = 0;
+  const videoTargetSec = 0;
   const videoTransceiver = pc.addTransceiver('video', { direction: 'recvonly' });
   if (videoTransceiver?.receiver) {
     if ('jitterBufferTarget' in videoTransceiver.receiver) videoTransceiver.receiver.jitterBufferTarget = videoTargetMs;
@@ -1783,8 +1783,8 @@ async function handleStartDirectStream(data, conn) {
   if (data.hasAudio) {
     const audioTransceiver = pc.addTransceiver('audio', { direction: 'recvonly' });
     if (audioTransceiver?.receiver) {
-      if ('jitterBufferTarget' in audioTransceiver.receiver) audioTransceiver.receiver.jitterBufferTarget = 25;
-      if ('playoutDelayHint' in audioTransceiver.receiver) audioTransceiver.receiver.playoutDelayHint = 0.025;
+      if ('jitterBufferTarget' in audioTransceiver.receiver) audioTransceiver.receiver.jitterBufferTarget = 0;
+      if ('playoutDelayHint' in audioTransceiver.receiver) audioTransceiver.receiver.playoutDelayHint = 0;
     }
   }
 
@@ -1941,8 +1941,8 @@ async function handleDirectStreamAnswer(data, conn) {
       for (const t of transceivers) {
         if (t?.receiver) {
           const isAudio = (t.receiver?.track?.kind === 'audio') || (t.sender?.track?.kind === 'audio') || (t.mid && t.mid.toLowerCase().includes('audio'));
-          const targetMs = isAudio ? 25 : (hasAudio ? 25 : 0);
-          const targetSec = isAudio ? 0.025 : (hasAudio ? 0.025 : 0);
+          const targetMs = 0;
+          const targetSec = 0;
           if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = targetMs;
           if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = targetSec;
         }

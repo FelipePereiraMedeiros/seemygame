@@ -251,14 +251,14 @@ export function createNativeWebRtcBridge({ target = globalThis } = {}) {
             const hasNativeAudio = nativeState.audioRtpPort != null || nativeState.audio_rtp_port != null;
             const videoTransceiver = peerConnection.addTransceiver('video', { direction: 'recvonly' });
             if (videoTransceiver?.receiver) {
-                if ('jitterBufferTarget' in videoTransceiver.receiver) videoTransceiver.receiver.jitterBufferTarget = hasNativeAudio ? 25 : 0;
-                if ('playoutDelayHint' in videoTransceiver.receiver) videoTransceiver.receiver.playoutDelayHint = hasNativeAudio ? 0.025 : 0;
+                if ('jitterBufferTarget' in videoTransceiver.receiver) videoTransceiver.receiver.jitterBufferTarget = 0;
+                if ('playoutDelayHint' in videoTransceiver.receiver) videoTransceiver.receiver.playoutDelayHint = 0;
             }
             if (hasNativeAudio) {
                 const audioTransceiver = peerConnection.addTransceiver('audio', { direction: 'recvonly' });
                 if (audioTransceiver?.receiver) {
-                    if ('jitterBufferTarget' in audioTransceiver.receiver) audioTransceiver.receiver.jitterBufferTarget = 25;
-                    if ('playoutDelayHint' in audioTransceiver.receiver) audioTransceiver.receiver.playoutDelayHint = 0.025;
+                    if ('jitterBufferTarget' in audioTransceiver.receiver) audioTransceiver.receiver.jitterBufferTarget = 0;
+                    if ('playoutDelayHint' in audioTransceiver.receiver) audioTransceiver.receiver.playoutDelayHint = 0;
                 }
             }
 
