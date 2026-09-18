@@ -1,5 +1,6 @@
 // Injected only into isolated E2E browser contexts. Never ships with dist.
-export function installTelemetry({ expectedSessionMagic = null } = {}) {
+export function installTelemetry({ expectedSessionMagic = null, enableOptical = null } = {}) {
+  const opticalEnabled = enableOptical ?? (expectedSessionMagic !== null);
   const Base = window.RTCPeerConnection;
   const peers = [];
   window.RTCPeerConnection = class extends Base {
@@ -135,17 +136,22 @@ export function installTelemetry({ expectedSessionMagic = null } = {}) {
     if (video.__smgHooked) return;
     video.__smgHooked = true;
 
-    // Canvas full para detecção inicial / fallback (1920x200)
-    const fullCanvas = document.createElement('canvas');
-    fullCanvas.width = 1920;
-    fullCanvas.height = 200;
-    const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+    // Canvas dedicado apenas se a medição óptica estiver habilitada
+    let fullCanvas = null;
+    let fullCtx = null;
+    let roiCanvas = null;
+    let roiCtx = null;
+    if (opticalEnabled) {
+      fullCanvas = document.createElement('canvas');
+      fullCanvas.width = 1920;
+      fullCanvas.height = 200;
+      fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
 
-    // Canvas dedicado para ROI restrita de ultra-baixo overhead (<1ms)
-    const roiCanvas = document.createElement('canvas');
-    roiCanvas.width = 1200;
-    roiCanvas.height = 64;
-    const roiCtx = roiCanvas.getContext('2d', { willReadFrequently: true });
+      roiCanvas = document.createElement('canvas');
+      roiCanvas.width = 1200;
+      roiCanvas.height = 64;
+      roiCtx = roiCanvas.getContext('2d', { willReadFrequently: true });
+    }
 
     let lastRoi = null; // { startX, y, blockW }
     let lastSeq = -1;
@@ -208,9 +214,8 @@ export function installTelemetry({ expectedSessionMagic = null } = {}) {
         }
       }
 
-      // Amostragem óptica com cadência controlada (8 Hz):
-      // Garante que o receptor não dispute CPU/GPU em cada frame, preservando a fluidez da reprodução
-      const shouldAnalyzeOptical = (callbackNow - lastOpticalAnalysisTime >= opticalIntervalMs);
+      // Amostragem óptica com cadência controlada (8 Hz) - apenas se habilitado
+      const shouldAnalyzeOptical = opticalEnabled && (callbackNow - lastOpticalAnalysisTime >= opticalIntervalMs);
 
       try {
         if (shouldAnalyzeOptical && video.videoWidth > 0 && video.readyState >= 2) {
@@ -336,6 +341,27 @@ export function installTelemetry({ expectedSessionMagic = null } = {}) {
     }
 
     video.__smgPresentation = {
+      resetSession() {
+        latencies.length = 0;
+        recentLatencies.length = 0;
+        gaps.length = 0;
+        recentSeqs.length = 0;
+        phaseLatencies.warmup.length = 0;
+        phaseLatencies.steady.length = 0;
+        phaseLatencies.cooldown.length = 0;
+        analysisDurations.length = 0;
+        presentedFramesCount = 0;
+        duplicateFrames = 0;
+        intervalMaxPauseMs = 0;
+        validSamplesCount = 0;
+        rejectedCandidatesCount = 0;
+        lastValidTimeMs = null;
+        lastSeq = -1;
+        lastRoi = null;
+        firstValidFrameTime = null;
+        startupMaxPauseMs = 0;
+        lastCallbackTime = performance.now();
+      },
       setPhase(phase) {
         if (phase && phaseLatencies[phase] !== undefined) {
           currentPhase = phase;
@@ -412,12 +438,37 @@ export function installTelemetry({ expectedSessionMagic = null } = {}) {
   }
 
   window.__smgE2E = {
+    resetSession() {
+      const videos = document.querySelectorAll('video');
+      for (const v of videos) {
+        hookVideo(v);
+        if (v.__smgPresentation?.resetSession) {
+          v.__smgPresentation.resetSession();
+        }
+      }
+      return true;
+    },
     async sample() {
       const rows = [];
+      const receivers = [];
       for (let pcId = 0; pcId < peers.length; pcId++) {
         const pc = peers[pcId];
         // Ignora conexões fechadas
         if (pc.signalingState === 'closed') continue;
+
+        if (pc.getReceivers) {
+          for (const r of pc.getReceivers()) {
+            receivers.push({
+              pcId,
+              kind: r.track?.kind,
+              trackId: r.track?.id,
+              trackEnabled: r.track?.enabled,
+              trackReadyState: r.track?.readyState,
+              playoutDelayHint: r.playoutDelayHint ?? null,
+              jitterBufferTarget: r.jitterBufferTarget ?? null
+            });
+          }
+        }
 
         const stats = await Promise.race([
           pc.getStats(),
@@ -439,9 +490,14 @@ export function installTelemetry({ expectedSessionMagic = null } = {}) {
       return {
         at: Date.now(),
         rows,
+        receivers,
         videos: [...document.querySelectorAll('video')].map(v => {
           hookVideo(v);
           return {
+            id: v.id || v.closest?.('.video-card')?.id || null,
+            isLocal: v.closest?.('.video-card')?.dataset?.isLocal === 'true',
+            muted: v.muted,
+            volume: v.volume,
             width: v.videoWidth,
             height: v.videoHeight,
             currentTime: v.currentTime,

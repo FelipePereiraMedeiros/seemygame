@@ -1,11 +1,11 @@
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
-import { spawn } from 'node:child_process';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { spawn, execSync } from 'node:child_process';
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes } from 'node:crypto';
 import { ensureDefaultDesktop } from './desktop-affinity.mjs';
 import { installTelemetry, deltaMetrics } from './telemetry.mjs';
 
@@ -26,6 +26,46 @@ const freePort = async () => {
   const port = s.address().port;
   await new Promise(r => s.close(r));
   return port;
+};
+
+// Coleta de proveniência estrita do ambiente e binário
+const getProvenance = async () => {
+  let gitCommit = 'unknown';
+  let gitBranch = 'unknown';
+  let gitDirty = false;
+  try {
+    gitCommit = execSync('git rev-parse HEAD', { cwd: root }).toString().trim();
+    gitBranch = execSync('git branch --show-current', { cwd: root }).toString().trim();
+    const status = execSync('git status --porcelain', { cwd: root }).toString().trim();
+    gitDirty = status.length > 0;
+  } catch {}
+
+  let exeSha256 = null;
+  let exeMtime = null;
+  let exeSizeBytes = null;
+  try {
+    const fileBytes = await readFile(exe);
+    exeSha256 = createHash('sha256').update(fileBytes).digest('hex');
+    const fileStat = await stat(exe);
+    exeMtime = fileStat.mtime.toISOString();
+    exeSizeBytes = fileStat.size;
+  } catch {}
+
+  return {
+    gitCommit,
+    gitBranch,
+    gitDirty,
+    exePath: exe,
+    exeSha256,
+    exeMtime,
+    exeSizeBytes,
+    nodeVersion: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    browserChannel: channel,
+    ytUrl,
+    startedAt: new Date().toISOString()
+  };
 };
 
 // Servidor de arquivos estáticos para o cliente web
@@ -51,8 +91,9 @@ const serve = async () => {
   return `http://127.0.0.1:${server.address().port}`;
 };
 
+// Desabilita medição óptica parasitária na suíte YouTube
 const setupContext = async context => {
-  await context.addInitScript(installTelemetry, { expectedSessionMagic: null });
+  await context.addInitScript(installTelemetry, { expectedSessionMagic: null, enableOptical: false });
   await context.addInitScript(() => {
     localStorage.setItem('seemygame_terms_version', '1.1');
     localStorage.setItem('seemygame_terms_accepted', 'true');
@@ -84,10 +125,15 @@ const joinRoom = async (page, url, name) => {
 
 const runIsolationSuite = async () => {
   console.log('=====================================================');
-  console.log('Iniciando Bateria de Testes de Isolamento (YouTube)');
+  console.log('Iniciando Bateria de Testes de Isolamento Científico (YouTube)');
   console.log('Vídeo:', ytUrl);
   console.log('Diretório de saída:', outputDir);
   console.log('=====================================================\n');
+
+  const provenance = await getProvenance();
+  console.log(`[Proveniência] Git Commit: ${provenance.gitCommit} (dirty: ${provenance.gitDirty})`);
+  console.log(`[Proveniência] Binário Exe SHA256: ${provenance.exeSha256?.slice(0, 16)}...`);
+  console.log(`[Proveniência] Modificado em: ${provenance.exeMtime}`);
 
   const webOrigin = await serve();
   console.log('Servidor web local ativo em:', webOrigin);
@@ -121,16 +167,22 @@ const runIsolationSuite = async () => {
     await sourcePage.locator('.html5-video-player').click().catch(() => {});
   }
   await sleep(1500);
-  await sourcePage.evaluate(() => {
-    const v = document.querySelector('video');
-    if (v) {
-      v.muted = false;
-      v.volume = 1.0;
-      v.currentTime = 25;
-      v.play().catch(() => {});
-    }
-  });
-  await sleep(1000);
+
+  // Função para fixar o vídeo exatamente no mesmo trecho (segundo 25.0) para todos os cenários
+  const resetSourceVideo = async () => {
+    await sourcePage.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) {
+        v.muted = false;
+        v.volume = 1.0;
+        v.currentTime = 25.0;
+        v.play().catch(() => {});
+      }
+    });
+    await sleep(1500);
+  };
+  await resetSourceVideo();
+
   const isPlaying = await sourcePage.evaluate(() => {
     const v = document.querySelector('video');
     return v && !v.paused && v.currentTime > 0;
@@ -158,6 +210,7 @@ const runIsolationSuite = async () => {
     }
   }
   if (!nativeBrowser) throw new Error('Falha ao conectar CDP ao WebView2 do aplicativo desktop');
+
   const desktopContext = nativeBrowser.contexts()[0];
   await setupContext(desktopContext);
   const hostPage = desktopContext.pages()[0] || await desktopContext.newPage();
@@ -204,14 +257,14 @@ const runIsolationSuite = async () => {
   const viewerId = await viewerPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
   console.log(`Membros autenticados: Host=${hostId}, Espectador=${viewerId}`);
 
-  // Função auxiliar para iniciar captura nativa da janela do YouTube
+  let lastSeenVideoTrackId = null;
+  // Iniciar captura nativa da janela do YouTube
   const startNativeYouTubeCapture = async (audioMode = 'none') => {
     console.log(`Configurando captura nativa: audioMode=${audioMode}`);
     await hostPage.locator('#audio-mode-select').selectOption(audioMode, { force: true });
     await hostPage.locator('#dock-stream-btn').click();
     await hostPage.locator('.window-item').first().waitFor({ state: 'visible', timeout: 30000 });
 
-    // Localizar item de janela do YouTube
     let targetWindow = hostPage.locator('.window-item').filter({ hasText: 'HUNTING FOR YOUR DREAM' }).first();
     if ((await targetWindow.count()) === 0) {
       targetWindow = hostPage.locator('.window-item').filter({ hasText: 'GALNERYUS' }).first();
@@ -231,26 +284,33 @@ const runIsolationSuite = async () => {
     await sourcePage.bringToFront().catch(() => {});
     await sourcePage.evaluate(() => window.focus()).catch(() => {});
 
-    // Aguardar receptor começar a reproduzir
-    console.log('Aguardando vídeo chegar ao espectador...');
+    console.log('Aguardando stream nativo chegar ao espectador...');
     const deadline = Date.now() + 45000;
     let ready = false;
     while (Date.now() < deadline) {
-      ready = await viewerPage.evaluate(hId => {
+      ready = await viewerPage.evaluate(({ hId, prevTrackId }) => {
         const unmute = document.querySelector('.audio-unmute-overlay button');
         if (unmute) unmute.click();
-        const v = document.getElementById(`card-${hId}`)?.querySelector('video');
+        const card = document.getElementById(`card-${hId}`);
+        const v = card?.querySelector('video');
         if (v && v.paused) {
-          v.muted = true;
           v.play().catch(() => {});
         }
-        return !!v && v.videoWidth > 0 && v.readyState >= 2 && !v.paused;
-      }, hostId).catch(() => false);
+        const stream = v?.srcObject;
+        const vTrack = stream?.getVideoTracks?.()[0];
+        if (!v || !stream || !vTrack) return false;
+        if (vTrack.readyState !== 'live') return false;
+        if (prevTrackId && vTrack.id === prevTrackId) return false;
+        return v.videoWidth > 0 && v.readyState >= 2 && !v.paused;
+      }, { hId: hostId, prevTrackId: lastSeenVideoTrackId }).catch(() => false);
       if (ready) break;
       await sleep(1000);
     }
     if (!ready) throw new Error('Espectador não reproduziu stream nativo dentro de 45s');
-    console.log('Stream nativo recebido e reproduzindo no espectador!');
+    const streamInfo = await inspectViewerStream();
+    lastSeenVideoTrackId = streamInfo.videoTrackId;
+    console.log(`Stream nativo recebido e reproduzindo no espectador! TrackId: ${lastSeenVideoTrackId}`);
+    await sleep(2000);
   };
 
   const stopNativeCapture = async () => {
@@ -263,17 +323,55 @@ const runIsolationSuite = async () => {
     await sleep(1500);
   };
 
-  // Coleta séries temporais usando a telemetria comprovada
-  const previousMap = new Map();
-  const collectMetrics = async (durationSec, testLabel) => {
-    previousMap.clear();
-    console.log(`[${testLabel}] Coletando telemetria por ${durationSec}s...`);
-    const timeline = [];
+  // Inspeção das trilhas reais associadas ao card do host
+  const inspectViewerStream = async () => {
+    return await viewerPage.evaluate(hId => {
+      const card = document.getElementById(`card-${hId}`);
+      const video = card?.querySelector('video');
+      const stream = video?.srcObject;
+      const vTrack = stream?.getVideoTracks?.()[0];
+      const aTrack = stream?.getAudioTracks?.()[0];
+      return {
+        hasStream: Boolean(stream),
+        videoTrackId: vTrack?.id || null,
+        videoTrackReadyState: vTrack?.readyState || null,
+        audioTrackId: aTrack?.id || null,
+        audioTrackReadyState: aTrack?.readyState || null,
+        audioTracksCount: stream?.getAudioTracks?.().length || 0,
+        videoWidth: video?.videoWidth || 0,
+        videoHeight: video?.videoHeight || 0,
+        videoPaused: Boolean(video?.paused),
+        videoMuted: Boolean(video?.muted),
+        videoVolume: video?.volume ?? null
+      };
+    }, hostId);
+  };
 
-    for (let sec = 1; sec <= durationSec; sec++) {
+  // Coleta estritamente isolada de séries temporais
+  const previousMap = new Map();
+  const collectIsolatedMetrics = async (durationSec, testLabel) => {
+    console.log(`[${testLabel}] Aguardando 3s para warm-up e estabilização da conexão...`);
+    await sleep(3000);
+
+    // Zeramento estrito dos contadores de apresentação antes de cronometrar a fase
+    await viewerPage.evaluate(() => window.__smgE2E?.resetSession());
+    previousMap.clear();
+
+    console.log(`[${testLabel}] Coletando telemetria por ${durationSec}s em estado steady...`);
+    const timeline = [];
+    const startTime = Date.now();
+    const endTime = startTime + (durationSec * 1000);
+
+    let sec = 0;
+    while (Date.now() < endTime) {
       await sleep(1000);
+      sec++;
       const sample = await viewerPage.evaluate(() => window.__smgE2E?.sample()).catch(() => null);
       if (!sample) continue;
+
+      const streamInfo = await inspectViewerStream();
+      const targetVideoTrackId = streamInfo?.videoTrackId;
+      const targetAudioTrackId = streamInfo?.audioTrackId;
 
       for (const row of sample.rows) {
         const id = `${row.pcId}:${row.id}`;
@@ -281,13 +379,29 @@ const runIsolationSuite = async () => {
         previousMap.set(id, row);
       }
 
-      const videoRow = sample.rows.find(r => r.kind === 'video' && r.type === 'inbound-rtp' && (r.framesDecoded > 0 || r.bytesReceived > 0))
-                    || sample.rows.find(r => r.kind === 'video' && r.type === 'inbound-rtp');
+      // Seleção inequívoca de inbound-rtp vinculada à trilha ativa
+      let videoRow = null;
+      if (targetVideoTrackId) {
+        videoRow = sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'video' && r.trackIdentifier === targetVideoTrackId);
+      }
+      if (!videoRow) {
+        videoRow = sample.rows
+          .filter(r => r.type === 'inbound-rtp' && r.kind === 'video')
+          .sort((a, b) => (b.framesDecoded || 0) - (a.framesDecoded || 0))[0] || null;
+      }
 
-      const audioRow = sample.rows.find(r => r.kind === 'audio' && r.type === 'inbound-rtp' && (r.packetsReceived > 0 || r.bytesReceived > 0))
-                    || sample.rows.find(r => r.kind === 'audio' && r.type === 'inbound-rtp');
+      let audioRow = null;
+      if (targetAudioTrackId) {
+        audioRow = sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'audio' && r.trackIdentifier === targetAudioTrackId);
+      }
+      if (!audioRow) {
+        audioRow = sample.rows
+          .filter(r => r.type === 'inbound-rtp' && r.kind === 'audio')
+          .sort((a, b) => (b.packetsReceived || 0) - (a.packetsReceived || 0))[0] || null;
+      }
 
-      const vid = sample.videos?.find(v => v.width > 0 && !v.paused);
+      const vid = sample.videos?.find(v => v.id === `card-${hostId}`)
+               || sample.videos?.find(v => !v.isLocal && v.width > 0);
       const pres = vid?.presentation;
 
       const decodedFps = videoRow?.delta?.decodedFps ?? null;
@@ -300,36 +414,49 @@ const runIsolationSuite = async () => {
 
       timeline.push({
         second: sec,
+        elapsedMs: Date.now() - startTime,
         decodedFps,
         decodeTimeMs,
         videoJitterMs,
         packetsLost,
         audioJitterMs,
         maxPauseMs,
-        gapsCount
+        gapsCount,
+        streamInfo
       });
 
-      if (sec % 5 === 0 || sec === durationSec) {
+      if (sec % 5 === 0 || Date.now() >= endTime - 500) {
         console.log(`  [s=${sec}] FPS=${decodedFps?.toFixed(1) ?? 'N/A'} | decodeTime=${decodeTimeMs?.toFixed(1) ?? 'N/A'}ms | jitter=${videoJitterMs?.toFixed(1) ?? 'N/A'}ms | lost=${packetsLost} | maxPause=${maxPauseMs}ms | gaps=${gapsCount}`);
       }
     }
-    return timeline;
+
+    return {
+      timeline,
+      totalDurationMs: Date.now() - startTime
+    };
   };
 
-  const summarizeTimeline = (timeline) => {
-    const steady = timeline.slice(4); // descarta primeiros 4s de aquecimento
+  const summarizeTimeline = ({ timeline, totalDurationMs }, validationMetadata = {}) => {
+    // Descarta o primeiro segundo de amostragem local
+    const steady = timeline.slice(1);
     const fpsList = steady.map(t => t.decodedFps).filter(n => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
     const decodeList = steady.map(t => t.decodeTimeMs).filter(n => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
     const jitterList = steady.map(t => t.videoJitterMs).filter(n => typeof n === 'number' && Number.isFinite(n));
     const lastLost = steady.length ? steady[steady.length - 1].packetsLost : 0;
-    const maxPause = Math.max(0, ...timeline.map(t => t.maxPauseMs || 0));
-    const totalGaps = timeline.length ? timeline[timeline.length - 1].gapsCount : 0;
+    const maxPause = Math.max(0, ...steady.map(t => t.maxPauseMs || 0));
+    const totalGaps = steady.length ? steady[steady.length - 1].gapsCount : 0;
 
     const avg = arr => arr.length ? Number((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1)) : null;
     const p10 = arr => arr.length ? Number(arr[Math.floor(arr.length * 0.1)].toFixed(1)) : null;
     const median = arr => arr.length ? Number(arr[Math.floor(arr.length * 0.5)].toFixed(1)) : null;
 
+    const validFpsSamples = fpsList.length;
+    const status = validFpsSamples >= 5 ? 'COMPLETED' : 'INCONCLUSIVE';
+
     return {
+      status,
+      validFpsSamples,
+      totalDurationMs,
       fpsMean: avg(fpsList),
       fpsMedian: median(fpsList),
       fpsP10: p10(fpsList),
@@ -341,26 +468,32 @@ const runIsolationSuite = async () => {
       totalPacketsLost: lastLost,
       maxPauseMs: maxPause,
       totalGapsCount: totalGaps,
+      validation: validationMetadata,
       timeline
     };
   };
 
-  const results = {};
+  const results = {
+    provenance,
+    scenarios: {}
+  };
 
   // ==========================================
   // TESTE 1: Apenas vídeo nativo (audioMode: 'none')
   // ==========================================
   console.log('\n-----------------------------------------------------');
   console.log('EXECUTANDO TESTE 1: Apenas Vídeo Nativo (audioMode=none)');
-  console.log('Objetivo: Medir se o pipeline de vídeo puro sustenta 60 FPS sem áudio.');
+  console.log('Objetivo: Medir baseline de 60 FPS com áudio 100% ausente.');
   console.log('-----------------------------------------------------');
-  await sourcePage.evaluate(() => {
-    const v = document.querySelector('video');
-    if (v) { v.currentTime = 25; v.play().catch(() => {}); }
-  });
+  await resetSourceVideo();
   await startNativeYouTubeCapture('none');
-  const t1Timeline = await collectMetrics(30, 'TESTE 1');
-  results.teste1_videoOnly = summarizeTimeline(t1Timeline);
+  const t1Data = await collectIsolatedMetrics(30, 'TESTE 1');
+  const t1Validation = await inspectViewerStream();
+  results.scenarios.teste1_videoOnly = summarizeTimeline(t1Data, {
+    audioModeRequested: 'none',
+    hasAudioTrack: t1Validation.audioTracksCount > 0,
+    audioTracksCount: t1Validation.audioTracksCount
+  });
   await hostPage.screenshot({ path: path.join(outputDir, 't1-host.png') });
   await viewerPage.screenshot({ path: path.join(outputDir, 't1-viewer.png') });
   await stopNativeCapture();
@@ -369,103 +502,127 @@ const runIsolationSuite = async () => {
   // TESTE 2: Vídeo nativo + áudio capturado, mas espectador mutado
   // ==========================================
   console.log('\n-----------------------------------------------------');
-  console.log('EXECUTANDO TESTE 2: Vídeo Nativo + Áudio Capturado (Espectador Mutado)');
-  console.log('Objetivo: Verificar se a captura WASAPI e empacotamento de áudio causam queda de FPS.');
+  console.log('EXECUTANDO TESTE 2: Vídeo Nativo + Áudio Capturado (Saída Mutada)');
+  console.log('Objetivo: Isolar impacto do envio de RTP de áudio e NetEQ com saída do player mutada.');
   console.log('-----------------------------------------------------');
-  await sourcePage.evaluate(() => {
-    const v = document.querySelector('video');
-    if (v) { v.currentTime = 65; v.play().catch(() => {}); }
-  });
+  await resetSourceVideo();
+  await startNativeYouTubeCapture('system');
+
+  // Muta explicitamente a saída de áudio no elemento <video>
   await viewerPage.evaluate(hId => {
     const v = document.getElementById(`card-${hId}`)?.querySelector('video');
-    if (v) { v.muted = true; v.volume = 0; }
+    if (v) {
+      v.muted = true;
+      v.volume = 0;
+    }
   }, hostId);
-  await startNativeYouTubeCapture('system');
-  const t2Timeline = await collectMetrics(30, 'TESTE 2');
-  results.teste2_audioCapturedViewerMuted = summarizeTimeline(t2Timeline);
+
+  const t2Data = await collectIsolatedMetrics(30, 'TESTE 2');
+  const t2Validation = await inspectViewerStream();
+  results.scenarios.teste2_audioCapturedViewerMuted = summarizeTimeline(t2Data, {
+    audioModeRequested: 'system',
+    hasAudioTrack: t2Validation.audioTracksCount > 0,
+    audioTracksCount: t2Validation.audioTracksCount,
+    elementMuted: t2Validation.videoMuted,
+    elementVolume: t2Validation.videoVolume,
+    note: 'Saída mutada no DOM; decodificador NetEQ e sincronização WebRTC continuam ativos'
+  });
   await hostPage.screenshot({ path: path.join(outputDir, 't2-host.png') });
   await viewerPage.screenshot({ path: path.join(outputDir, 't2-viewer.png') });
   await stopNativeCapture();
 
   // ==========================================
-  // TESTE 3: Vídeo + áudio nativos, sem prévia local (ou prévia pausada)
+  // TESTE 3: Vídeo + áudio nativos com prévia local suspensa
   // ==========================================
   console.log('\n-----------------------------------------------------');
-  console.log('EXECUTANDO TESTE 3: Vídeo + Áudio Nativo com Prévia Local Pausada/Ocultada');
-  console.log('Objetivo: Verificar se a carga de decode da prévia concorre com encode/compositor.');
+  console.log('EXECUTANDO TESTE 3: Vídeo + Áudio Nativo com Prévia Local Suspensa');
+  console.log('Objetivo: Avaliar ganho de performance ao desvincular decodificador de prévia no host.');
   console.log('-----------------------------------------------------');
-  await sourcePage.evaluate(() => {
-    const v = document.querySelector('video');
-    if (v) { v.currentTime = 105; v.play().catch(() => {}); }
-  });
+  await resetSourceVideo();
   await startNativeYouTubeCapture('system');
-  await hostPage.evaluate(() => {
-    const v = document.querySelector('#card-local-me video');
-    if (v) {
-      v.pause();
-      v.style.opacity = '0.2';
-    }
+
+  // Ocultar e suspender prévia local no host usando o botão dedicado que remove srcObject
+  await hostPage.locator('#toggle-local-preview-btn').waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+  await hostPage.locator('#toggle-local-preview-btn').click().catch(() => {});
+  const hostPreviewSuspended = await hostPage.evaluate(() => {
+    const v = document.querySelector('.video-card[data-is-local="true"] video')
+           || document.querySelector('#card-local-me video');
+    return v ? v.srcObject === null : false;
   });
-  const t3Timeline = await collectMetrics(30, 'TESTE 3');
-  results.teste3_previewDisabled = summarizeTimeline(t3Timeline);
+  console.log(`[Host] Prévia local suspensa: ${hostPreviewSuspended}`);
+
+  const t3Data = await collectIsolatedMetrics(30, 'TESTE 3');
+  const t3Validation = await inspectViewerStream();
+  results.scenarios.teste3_previewDisabled = summarizeTimeline(t3Data, {
+    audioModeRequested: 'system',
+    hostPreviewSuspended,
+    hasAudioTrack: t3Validation.audioTracksCount > 0,
+    audioTracksCount: t3Validation.audioTracksCount
+  });
   await hostPage.screenshot({ path: path.join(outputDir, 't3-host.png') });
   await viewerPage.screenshot({ path: path.join(outputDir, 't3-viewer.png') });
   await stopNativeCapture();
 
   // ==========================================
-  // TESTE 4: Variação do Jitter Buffer Target (0ms vs 25ms vs default)
+  // TESTE 4: Variação de Jitter Buffer Target (0ms vs 25ms vs default)
   // ==========================================
   console.log('\n-----------------------------------------------------');
   console.log('EXECUTANDO TESTE 4: Variação de Jitter Buffer Target no Espectador');
-  console.log('Objetivo: Comparar 0ms vs 25ms vs default no comportamento de engasgos.');
+  console.log('Objetivo: Comparar 0ms vs 25ms vs default com alvos e leitura efetiva.');
   console.log('-----------------------------------------------------');
-  await sourcePage.evaluate(() => {
-    const v = document.querySelector('video');
-    if (v) { v.currentTime = 145; v.play().catch(() => {}); }
-  });
+  await resetSourceVideo();
   await startNativeYouTubeCapture('system');
+
+  const configureAndInspectJitter = async (playoutDelaySec, jitterTargetMs) => {
+    return await viewerPage.evaluate(async ({ pDelay, jTarget }) => {
+      const receivers = [];
+      if (window.RTCPeerConnection && window.__smgPeers) {
+        for (const pc of window.__smgPeers) {
+          if (pc.signalingState === 'closed') continue;
+          for (const r of pc.getReceivers()) {
+            if ('playoutDelayHint' in r) r.playoutDelayHint = pDelay;
+            if ('jitterBufferTarget' in r) r.jitterBufferTarget = jTarget;
+            receivers.push({
+              kind: r.track?.kind,
+              effectivePlayoutDelayHint: r.playoutDelayHint ?? null,
+              effectiveJitterBufferTarget: r.jitterBufferTarget ?? null
+            });
+          }
+        }
+      }
+      return receivers;
+    }, { pDelay: playoutDelaySec, jTarget: jitterTargetMs });
+  };
 
   // 4A: 0ms
   console.log('\nSub-teste 4A: Jitter Buffer Target = 0ms');
-  await viewerPage.evaluate(async () => {
-    if (window.RTCPeerConnection && window.__smgPeers) {
-      for (const pc of window.__smgPeers) {
-        for (const receiver of pc.getReceivers()) {
-          if ('playoutDelayHint' in receiver) receiver.playoutDelayHint = 0;
-        }
-      }
-    }
+  const receivers4a = await configureAndInspectJitter(0, 0);
+  const t4aData = await collectIsolatedMetrics(20, 'TESTE 4A (0ms)');
+  results.scenarios.teste4a_jitter0ms = summarizeTimeline(t4aData, {
+    targetPlayoutDelayHint: 0,
+    targetJitterBufferTarget: 0,
+    effectiveReceivers: receivers4a
   });
-  const t4aTimeline = await collectMetrics(15, 'TESTE 4A (0ms)');
-  results.teste4a_jitter0ms = summarizeTimeline(t4aTimeline);
 
   // 4B: 25ms
   console.log('\nSub-teste 4B: Jitter Buffer Target = 25ms (0.025s)');
-  await viewerPage.evaluate(async () => {
-    if (window.RTCPeerConnection && window.__smgPeers) {
-      for (const pc of window.__smgPeers) {
-        for (const receiver of pc.getReceivers()) {
-          if ('playoutDelayHint' in receiver) receiver.playoutDelayHint = 0.025;
-        }
-      }
-    }
+  const receivers4b = await configureAndInspectJitter(0.025, 25);
+  const t4bData = await collectIsolatedMetrics(20, 'TESTE 4B (25ms)');
+  results.scenarios.teste4b_jitter25ms = summarizeTimeline(t4bData, {
+    targetPlayoutDelayHint: 0.025,
+    targetJitterBufferTarget: 25,
+    effectiveReceivers: receivers4b
   });
-  const t4bTimeline = await collectMetrics(15, 'TESTE 4B (25ms)');
-  results.teste4b_jitter25ms = summarizeTimeline(t4bTimeline);
 
   // 4C: Default (browser managed)
   console.log('\nSub-teste 4C: Jitter Buffer Target = Default (null)');
-  await viewerPage.evaluate(async () => {
-    if (window.RTCPeerConnection && window.__smgPeers) {
-      for (const pc of window.__smgPeers) {
-        for (const receiver of pc.getReceivers()) {
-          if ('playoutDelayHint' in receiver) receiver.playoutDelayHint = null;
-        }
-      }
-    }
+  const receivers4c = await configureAndInspectJitter(null, null);
+  const t4cData = await collectIsolatedMetrics(20, 'TESTE 4C (default)');
+  results.scenarios.teste4c_jitterDefault = summarizeTimeline(t4cData, {
+    targetPlayoutDelayHint: null,
+    targetJitterBufferTarget: null,
+    effectiveReceivers: receivers4c
   });
-  const t4cTimeline = await collectMetrics(15, 'TESTE 4C (default)');
-  results.teste4c_jitterDefault = summarizeTimeline(t4cTimeline);
 
   await hostPage.screenshot({ path: path.join(outputDir, 't4-host.png') });
   await viewerPage.screenshot({ path: path.join(outputDir, 't4-viewer.png') });
@@ -475,9 +632,11 @@ const runIsolationSuite = async () => {
   console.log('\nEncerrando navegadores e processos...');
   try { await sourceBrowser.close(); } catch {}
   try { await viewerBrowser.close(); } catch {}
-  try { await nativeBrowser.close(); } catch {}
+  try { nativeBrowser.close(); } catch {}
   try { desktopProcess.kill(); } catch {}
   try { server.close(); } catch {}
+
+  results.provenance.completedAt = new Date().toISOString();
 
   // Gravar relatório completo
   const reportJsonPath = path.join(outputDir, 'isolation-report.json');
@@ -486,67 +645,26 @@ const runIsolationSuite = async () => {
 
   // Exibir resumo executivo no console
   console.log('\n=====================================================');
-  console.log('RESUMO COMPARATIVO DOS 4 TESTES DE ISOLAMENTO');
+  console.log('RESUMO COMPARATIVO DOS TESTES DE ISOLAMENTO (CIENTÍFICO)');
   console.log('=====================================================');
-  console.table({
-    'Teste 1 (Vídeo Only)': {
-      'FPS Médio': results.teste1_videoOnly.fpsMean,
-      'FPS p10': results.teste1_videoOnly.fpsP10,
-      'Decode (ms)': results.teste1_videoOnly.decodeTimeMeanMs,
-      'Jitter (ms)': results.teste1_videoOnly.jitterBufferMeanMs,
-      'Max Pausa (ms)': results.teste1_videoOnly.maxPauseMs,
-      'Gaps': results.teste1_videoOnly.totalGapsCount,
-      'Perda Pkts': results.teste1_videoOnly.totalPacketsLost
-    },
-    'Teste 2 (Áudio Mutado)': {
-      'FPS Médio': results.teste2_audioCapturedViewerMuted.fpsMean,
-      'FPS p10': results.teste2_audioCapturedViewerMuted.fpsP10,
-      'Decode (ms)': results.teste2_audioCapturedViewerMuted.decodeTimeMeanMs,
-      'Jitter (ms)': results.teste2_audioCapturedViewerMuted.jitterBufferMeanMs,
-      'Max Pausa (ms)': results.teste2_audioCapturedViewerMuted.maxPauseMs,
-      'Gaps': results.teste2_audioCapturedViewerMuted.totalGapsCount,
-      'Perda Pkts': results.teste2_audioCapturedViewerMuted.totalPacketsLost
-    },
-    'Teste 3 (Sem Prévia)': {
-      'FPS Médio': results.teste3_previewDisabled.fpsMean,
-      'FPS p10': results.teste3_previewDisabled.fpsP10,
-      'Decode (ms)': results.teste3_previewDisabled.decodeTimeMeanMs,
-      'Jitter (ms)': results.teste3_previewDisabled.jitterBufferMeanMs,
-      'Max Pausa (ms)': results.teste3_previewDisabled.maxPauseMs,
-      'Gaps': results.teste3_previewDisabled.totalGapsCount,
-      'Perda Pkts': results.teste3_previewDisabled.totalPacketsLost
-    },
-    'Teste 4A (0ms Jitter)': {
-      'FPS Médio': results.teste4a_jitter0ms.fpsMean,
-      'FPS p10': results.teste4a_jitter0ms.fpsP10,
-      'Decode (ms)': results.teste4a_jitter0ms.decodeTimeMeanMs,
-      'Jitter (ms)': results.teste4a_jitter0ms.jitterBufferMeanMs,
-      'Max Pausa (ms)': results.teste4a_jitter0ms.maxPauseMs,
-      'Gaps': results.teste4a_jitter0ms.totalGapsCount,
-      'Perda Pkts': results.teste4a_jitter0ms.totalPacketsLost
-    },
-    'Teste 4B (25ms Jitter)': {
-      'FPS Médio': results.teste4b_jitter25ms.fpsMean,
-      'FPS p10': results.teste4b_jitter25ms.fpsP10,
-      'Decode (ms)': results.teste4b_jitter25ms.decodeTimeMeanMs,
-      'Jitter (ms)': results.teste4b_jitter25ms.jitterBufferMeanMs,
-      'Max Pausa (ms)': results.teste4b_jitter25ms.maxPauseMs,
-      'Gaps': results.teste4b_jitter25ms.totalGapsCount,
-      'Perda Pkts': results.teste4b_jitter25ms.totalPacketsLost
-    },
-    'Teste 4C (Def Jitter)': {
-      'FPS Médio': results.teste4c_jitterDefault.fpsMean,
-      'FPS p10': results.teste4c_jitterDefault.fpsP10,
-      'Decode (ms)': results.teste4c_jitterDefault.decodeTimeMeanMs,
-      'Jitter (ms)': results.teste4c_jitterDefault.jitterBufferMeanMs,
-      'Max Pausa (ms)': results.teste4c_jitterDefault.maxPauseMs,
-      'Gaps': results.teste4c_jitterDefault.totalGapsCount,
-      'Perda Pkts': results.teste4c_jitterDefault.totalPacketsLost
-    }
-  });
+  const summaryTable = {};
+  for (const [key, sc] of Object.entries(results.scenarios)) {
+    summaryTable[key] = {
+      'Status': sc.status,
+      'FPS Médio': sc.fpsMean,
+      'FPS p10': sc.fpsP10,
+      'Decode (ms)': sc.decodeTimeMeanMs,
+      'Jitter (ms)': sc.jitterBufferMeanMs,
+      'Max Pausa (ms)': sc.maxPauseMs,
+      'Gaps': sc.totalGapsCount,
+      'Perda Pkts': sc.totalPacketsLost,
+      'Amostras Válidas': sc.validFpsSamples
+    };
+  }
+  console.table(summaryTable);
 };
 
 runIsolationSuite().catch(err => {
-  console.error('\n[ERRO CRÍTICO NA EXECUÇÃO]:', err);
+  console.error('\nErro fatal na suíte de isolamento:', err);
   process.exit(1);
 });
