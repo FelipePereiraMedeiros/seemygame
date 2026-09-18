@@ -30,7 +30,7 @@ if (fs.existsSync(dist)) {
 }
 fs.mkdirSync(dist, { recursive: true });
 
-const itemsToCopy = ['index.html', 'room.html', 'streamer.html', 'viewer.html', 'css', 'js'];
+const itemsToCopy = ['index.html', 'lobby.html', 'room.html', 'streamer.html', 'viewer.html', 'css', 'js'];
 
 for (const item of itemsToCopy) {
   const src = path.join(root, item);
