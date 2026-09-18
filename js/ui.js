@@ -424,6 +424,13 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
     previewBtn.onclick = () => {
       isHidden = !isHidden;
       video.style.opacity = isHidden ? '0' : '1';
+      if (isHidden) {
+        video._savedSrcObject = video.srcObject;
+        video.srcObject = null;
+      } else if (video._savedSrcObject) {
+        video.srcObject = video._savedSrcObject;
+        video.play().catch(() => {});
+      }
       previewBtn.innerHTML = isHidden ? '👁️ Mostrar Prévia' : '👁️ Ocultar Prévia';
       previewBtn.classList.toggle('card-btn-active', isHidden);
       const mirrorOverlay = card.querySelector('.local-mirror-overlay');
