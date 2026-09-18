@@ -8,6 +8,7 @@ export function installTelemetry({ expectedSessionMagic = null } = {}) {
       peers.push(this);
     }
   };
+  window.__smgPeers = peers;
 
   const fields = [
     'type', 'id', 'kind', 'codecId', 'mimeType', 'ssrc', 'trackIdentifier',
