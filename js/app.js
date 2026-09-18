@@ -2549,6 +2549,7 @@ export async function startLocalStream(options = {}) {
             channelCount: 2
           } : false,
           systemAudio: wantSystemAudio ? 'include' : 'exclude',
+          windowAudio: wantSystemAudio ? 'include' : 'exclude',
           selfBrowserSurface: 'exclude',
           surfaceSwitching: 'include',
           ...(options.monitorTypeSurfaces ? { monitorTypeSurfaces: options.monitorTypeSurfaces } : {})
@@ -2591,8 +2592,12 @@ export async function startLocalStream(options = {}) {
     if (options.replayEnabled !== false) {
       clipRecorder.start(localStream, 'local');
     }
-    if (wantSystemAudio && localStream.getAudioTracks().length > 0) {
-      capturedSystemAudioTrack = localStream.getAudioTracks()[0];
+    if (wantSystemAudio) {
+      if (localStream.getAudioTracks().length > 0) {
+        capturedSystemAudioTrack = localStream.getAudioTracks()[0];
+      } else if (!isDesktopApp()) {
+        showToast('Aviso: Nenhuma trilha de áudio capturada. Se estiver compartilhando janela/tela, marque "Compartilhar áudio" no seletor do navegador.', 'info', 6000);
+      }
     }
 
     // Se selecionou Microfone, captura e anexa a trilha de voz

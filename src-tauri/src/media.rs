@@ -873,8 +873,8 @@ fn build_pipeline(
         ),
         "!".to_string(),
         "queue".to_string(),
-        "max-size-buffers=1".to_string(),
-        "max-size-time=0".to_string(),
+        "max-size-buffers=2".to_string(),
+        "max-size-time=50000000".to_string(),
         "max-size-bytes=0".to_string(),
         "leaky=downstream".to_string(),
         "!".to_string(),
@@ -886,7 +886,7 @@ fn build_pipeline(
                 args.extend([
                     "nvd3d11h264enc".to_string(),
                     format!("bitrate={}", config.bitrate_kbps),
-                    format!("gop-size={}", (config.fps / 2).clamp(15, 30)),
+                    format!("gop-size={}", (config.fps * 2).clamp(30, 240)),
                     "rc-mode=cbr".to_string(),
                     "tune=ultra-low-latency".to_string(),
                     "zerolatency=true".to_string(),
@@ -905,7 +905,7 @@ fn build_pipeline(
                 args.extend([
                     "mfh264enc".to_string(),
                     format!("bitrate={}", config.bitrate_kbps),
-                    format!("gop-size={}", (config.fps / 2).clamp(15, 30)),
+                    format!("gop-size={}", (config.fps * 2).clamp(30, 240)),
                     "low-latency=true".to_string(),
                     "rc-mode=cbr".to_string(),
                     "quality-vs-speed=0".to_string(),
@@ -928,7 +928,7 @@ fn build_pipeline(
         VideoCodec::Hevc => args.extend([
             "mfh265enc".to_string(),
             format!("bitrate={}", config.bitrate_kbps),
-            format!("gop-size={}", (config.fps / 2).clamp(15, 30)),
+            format!("gop-size={}", (config.fps * 2).clamp(30, 240)),
             "low-latency=true".to_string(),
             "rc-mode=cbr".to_string(),
             "quality-vs-speed=0".to_string(),
