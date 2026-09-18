@@ -3,10 +3,17 @@ import {
   PEER_CONFIG,
   QUALITY_PROFILES,
   DEFAULT_PROFILE,
-  DEFAULT_BITRATE_BPS
+  DEFAULT_BITRATE_BPS,
+  PUBLIC_WEB_ORIGIN,
+  getPublicOrigin
 } from '../js/config.js';
 
 describe('Módulo: config.js', () => {
+  it('deve usar o domínio Vercel como origem pública canônica', () => {
+    expect(PUBLIC_WEB_ORIGIN).toBe('https://seemygame.vercel.app');
+    expect(getPublicOrigin()).toBe('https://seemygame.vercel.app');
+  });
+
   describe('PEER_CONFIG', () => {
     it('deve possuir a estrutura de configuração correta do PeerJS / WebRTC', () => {
       expect(PEER_CONFIG).toBeDefined();
@@ -74,6 +81,22 @@ describe('Módulo: config.js', () => {
     it('DEFAULT_BITRATE_BPS deve ser igual ao bitrate do DEFAULT_PROFILE', () => {
       expect(DEFAULT_BITRATE_BPS).toBe(QUALITY_PROFILES.balanced.bitrate);
       expect(DEFAULT_BITRATE_BPS).toBe(7500000);
+    });
+  });
+
+  describe('fetchIceServersFromApi', () => {
+    it('deve usar fallback para DEFAULT_ICE_SERVERS quando API falhar ou der timeout', async () => {
+      const { fetchIceServersFromApi, DEFAULT_ICE_SERVERS, _resetDynamicIceCache } = await import('../js/config.js');
+      _resetDynamicIceCache();
+
+      const originalFetch = global.fetch;
+      global.fetch = () => Promise.reject(new Error('Network error or timeout'));
+
+      const servers = await fetchIceServersFromApi(100);
+      expect(servers).toEqual(DEFAULT_ICE_SERVERS);
+
+      global.fetch = originalFetch;
+      _resetDynamicIceCache();
     });
   });
 });

@@ -26,6 +26,30 @@ export const WHITEBOARD_COLORS = [
   '#1e1e2e', // Grafite
 ];
 
+export const MAX_WHITEBOARD_ELEMENTS = 1000;
+export const MAX_WHITEBOARD_POINTS = 2000;
+export const MAX_WHITEBOARD_TEXT_LENGTH = 500;
+
+const WHITEBOARD_ELEMENT_TYPES = new Set(WHITEBOARD_TOOLS.map((tool) => tool.id).filter((id) => id !== 'eraser'));
+
+function isFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isSafeWhiteboardElement(element) {
+  if (!element || typeof element !== 'object' || typeof element.id !== 'string' || element.id.length > 64) return false;
+  if (!WHITEBOARD_ELEMENT_TYPES.has(element.type)) return false;
+  if (element.type === 'pencil') {
+    return Array.isArray(element.points) && element.points.length > 0 && element.points.length <= MAX_WHITEBOARD_POINTS &&
+      element.points.every((point) => isFiniteNumber(point?.x) && isFiniteNumber(point?.y));
+  }
+  if (element.type === 'text') {
+    return isFiniteNumber(element.x) && isFiniteNumber(element.y) &&
+      typeof element.text === 'string' && element.text.length <= MAX_WHITEBOARD_TEXT_LENGTH;
+  }
+  return ['startX', 'startY', 'endX', 'endY'].every((key) => isFiniteNumber(element[key]));
+}
+
 export class WhiteboardManager {
   constructor(options = {}) {
     this.canvas = options.canvas || null;
@@ -97,7 +121,7 @@ export class WhiteboardManager {
    * @param {boolean} [broadcast=true] 
    */
   addElement(element, broadcast = true) {
-    if (!element) return;
+    if (!isSafeWhiteboardElement(element) || this.elements.length >= MAX_WHITEBOARD_ELEMENTS) return;
     this.undoStack.push([...this.elements]);
     this.redoStack = [];
     this.elements.push(element);
@@ -156,7 +180,9 @@ export class WhiteboardManager {
   }
 
   setElements(elements) {
-    this.elements = Array.isArray(elements) ? [...elements] : [];
+    this.elements = Array.isArray(elements)
+      ? elements.filter(isSafeWhiteboardElement).slice(0, MAX_WHITEBOARD_ELEMENTS)
+      : [];
     this.render();
   }
 
@@ -164,11 +190,13 @@ export class WhiteboardManager {
    * Atualiza a posição de um cursor remoto na lousa
    */
   updateRemoteCursor(peerId, { x, y, userName = 'Amigo', color = '#06b6d4' }) {
+    if (typeof peerId !== 'string' || peerId.length > 64) return;
+    if (!this.remoteCursors.has(peerId) && this.remoteCursors.size >= 64) return;
     this.remoteCursors.set(peerId, {
-      x: Number(x) || 0,
-      y: Number(y) || 0,
-      userName,
-      color,
+      x: Math.max(0, Math.min(1, Number(x) || 0)),
+      y: Math.max(0, Math.min(1, Number(y) || 0)),
+      userName: typeof userName === 'string' ? userName.slice(0, 64) : 'Amigo',
+      color: typeof color === 'string' && /^#[0-9a-f]{3,8}$/i.test(color) ? color : '#06b6d4',
       time: Date.now()
     });
     this.render();

@@ -414,20 +414,43 @@ export class DiscordUIController {
       item.className = 'chat-message-item';
 
       const initial = (msg.senderName || 'U').charAt(0).toUpperCase();
-      const roleBadge = `<span class="chat-role-badge ${msg.role || 'viewer'}">${(msg.role || 'espectador').toUpperCase()}</span>`;
 
-      item.innerHTML = `
-        <div class="chat-message-avatar">${initial}</div>
-        <div class="chat-message-body">
-          <div class="chat-message-meta">
-            <span class="chat-author">${msg.senderName}</span>
-            ${roleBadge}
-            <span class="chat-timestamp">${msg.formattedTime || ''}</span>
-          </div>
-          <div class="chat-content">${msg.text}</div>
-        </div>
-      `;
+      const avatar = document.createElement('div');
+      avatar.className = 'chat-message-avatar';
+      avatar.textContent = initial;
 
+      const body = document.createElement('div');
+      body.className = 'chat-message-body';
+
+      const meta = document.createElement('div');
+      meta.className = 'chat-message-meta';
+
+      const author = document.createElement('span');
+      author.className = 'chat-author';
+      author.textContent = msg.senderName || 'Amigo';
+
+      const roleBadge = document.createElement('span');
+      const safeRole = ['host', 'player2', 'viewer', 'system'].includes(msg.role) ? msg.role : 'viewer';
+      roleBadge.className = `chat-role-badge ${safeRole}`;
+      roleBadge.textContent = (msg.role || 'espectador').toUpperCase();
+
+      const time = document.createElement('span');
+      time.className = 'chat-timestamp';
+      time.textContent = msg.formattedTime || '';
+
+      meta.appendChild(author);
+      meta.appendChild(roleBadge);
+      meta.appendChild(time);
+
+      const content = document.createElement('div');
+      content.className = 'chat-content';
+      content.textContent = msg.text || '';
+
+      body.appendChild(meta);
+      body.appendChild(content);
+
+      item.appendChild(avatar);
+      item.appendChild(body);
       container.appendChild(item);
     }
 
@@ -504,24 +527,45 @@ export class DiscordUIController {
       const initial = (p.name || 'U').charAt(0).toUpperCase();
       const muteIcon = p.isMuted ? '🔇' : '🎙️';
       const deafIcon = p.isDeafened ? '🎧❌' : '';
-      const isSpeakingClass = p.isSpeaking ? 'speaking' : '';
 
-      card.innerHTML = `
-        <div class="voice-user-info">
-          <div id="voice-avatar-${p.peerId}" class="avatar-circle ${isSpeakingClass}">
-            ${initial}
-          </div>
-          <div class="voice-user-name">
-            ${p.name}
-            <span class="chat-role-badge ${p.role}">${p.role.toUpperCase()}</span>
-          </div>
-        </div>
-        <div class="voice-user-icons">
-          <span title="${p.isMuted ? 'Microfone Mutado' : 'Microfone Ativo'}">${muteIcon}</span>
-          ${deafIcon ? `<span title="Ensurdecido">${deafIcon}</span>` : ''}
-        </div>
-      `;
+      const info = document.createElement('div');
+      info.className = 'voice-user-info';
 
+      const avatar = document.createElement('div');
+      if (p.peerId) avatar.id = `voice-avatar-${p.peerId}`;
+      avatar.className = `avatar-circle ${p.isSpeaking ? 'speaking' : ''}`;
+      avatar.textContent = initial;
+
+      const userName = document.createElement('div');
+      userName.className = 'voice-user-name';
+      userName.textContent = (p.name || 'Amigo') + ' ';
+
+      const roleBadge = document.createElement('span');
+      const safeRole = ['host', 'player2', 'viewer', 'member', 'system'].includes(p.role) ? p.role : 'viewer';
+      roleBadge.className = `chat-role-badge ${safeRole}`;
+      roleBadge.textContent = (p.role || 'membro').toUpperCase();
+      userName.appendChild(roleBadge);
+
+      info.appendChild(avatar);
+      info.appendChild(userName);
+
+      const icons = document.createElement('div');
+      icons.className = 'voice-user-icons';
+
+      const muteSpan = document.createElement('span');
+      muteSpan.title = p.isMuted ? 'Microfone Mutado' : 'Microfone Ativo';
+      muteSpan.textContent = muteIcon;
+      icons.appendChild(muteSpan);
+
+      if (deafIcon) {
+        const deafSpan = document.createElement('span');
+        deafSpan.title = 'Ensurdecido';
+        deafSpan.textContent = deafIcon;
+        icons.appendChild(deafSpan);
+      }
+
+      card.appendChild(info);
+      card.appendChild(icons);
       list.appendChild(card);
     });
   }
@@ -681,32 +725,64 @@ export class DiscordUIController {
         const initial = (m.name || 'A').charAt(0).toUpperCase();
         const item = document.createElement('div');
         item.className = 'participant-item';
-        item.id = `participant-item-${m.peerId}`;
+        if (m.peerId) item.id = `participant-item-${m.peerId}`;
 
         const isSpeaking = m.isSpeaking ? 'speaking' : '';
         const muteIcon = m.isMuted ? '🔇' : '';
         const deafIcon = m.isDeafened ? '🎧❌' : '';
 
-        item.innerHTML = `
-          <div class="participant-avatar-wrapper">
-            <div class="participant-avatar ${isSpeaking}" id="sidebar-avatar-${m.peerId}">
-              ${initial}
-            </div>
-          </div>
-          <div class="participant-info">
-            <div class="participant-name-row">
-              <span class="participant-name">${m.name}</span>
-            </div>
-            <div class="participant-badges">
-              ${m.isMaster ? '<span class="badge-host-tag">HOST</span>' : ''}
-              ${m.isStreaming ? '<span class="badge-live-tag">AO VIVO</span>' : ''}
-            </div>
-          </div>
-          <div class="participant-icons">
-            ${muteIcon ? `<span>${muteIcon}</span>` : ''}
-            ${deafIcon ? `<span>${deafIcon}</span>` : ''}
-          </div>
-        `;
+        const avatarWrapper = document.createElement('div');
+        avatarWrapper.className = 'participant-avatar-wrapper';
+        const avatar = document.createElement('div');
+        avatar.className = `participant-avatar ${isSpeaking}`;
+        if (m.peerId) avatar.id = `sidebar-avatar-${m.peerId}`;
+        avatar.textContent = initial;
+        avatarWrapper.appendChild(avatar);
+
+        const info = document.createElement('div');
+        info.className = 'participant-info';
+
+        const nameRow = document.createElement('div');
+        nameRow.className = 'participant-name-row';
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'participant-name';
+        nameSpan.textContent = m.name || 'Amigo';
+        nameRow.appendChild(nameSpan);
+
+        const badges = document.createElement('div');
+        badges.className = 'participant-badges';
+        if (m.isMaster) {
+          const hostBadge = document.createElement('span');
+          hostBadge.className = 'badge-host-tag';
+          hostBadge.textContent = 'HOST';
+          badges.appendChild(hostBadge);
+        }
+        if (m.isStreaming) {
+          const liveBadge = document.createElement('span');
+          liveBadge.className = 'badge-live-tag';
+          liveBadge.textContent = 'AO VIVO';
+          badges.appendChild(liveBadge);
+        }
+
+        info.appendChild(nameRow);
+        info.appendChild(badges);
+
+        const icons = document.createElement('div');
+        icons.className = 'participant-icons';
+        if (muteIcon) {
+          const mSpan = document.createElement('span');
+          mSpan.textContent = muteIcon;
+          icons.appendChild(mSpan);
+        }
+        if (deafIcon) {
+          const dSpan = document.createElement('span');
+          dSpan.textContent = deafIcon;
+          icons.appendChild(dSpan);
+        }
+
+        item.appendChild(avatarWrapper);
+        item.appendChild(info);
+        item.appendChild(icons);
         roomParticipantsList.appendChild(item);
       });
     }
@@ -717,13 +793,27 @@ export class DiscordUIController {
         const initial = (m.name || 'A').charAt(0).toUpperCase();
         const tile = document.createElement('div');
         tile.className = `voice-tile ${m.isSpeaking ? 'speaking' : ''}`;
-        tile.id = `stage-tile-${m.peerId}`;
+        if (m.peerId) tile.id = `stage-tile-${m.peerId}`;
 
-        tile.innerHTML = `
-          <div class="voice-tile-avatar">${initial}</div>
-          <div class="voice-tile-name">${m.name}</div>
-          ${m.isStreaming ? '<div class="badge-live-tag" style="margin-top: 6px;">AO VIVO</div>' : ''}
-        `;
+        const avatar = document.createElement('div');
+        avatar.className = 'voice-tile-avatar';
+        avatar.textContent = initial;
+
+        const name = document.createElement('div');
+        name.className = 'voice-tile-name';
+        name.textContent = m.name || 'Amigo';
+
+        tile.appendChild(avatar);
+        tile.appendChild(name);
+
+        if (m.isStreaming) {
+          const live = document.createElement('div');
+          live.className = 'badge-live-tag';
+          live.style.marginTop = '6px';
+          live.textContent = 'AO VIVO';
+          tile.appendChild(live);
+        }
+
         voiceStageGrid.appendChild(tile);
       });
     }

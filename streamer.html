@@ -45,6 +45,53 @@
       </div>
     </div>
   </div>
+  <script>
+    (function() {
+      try {
+        var v = localStorage.getItem('seemygame_terms_version');
+        var l = localStorage.getItem('seemygame_terms_accepted') === 'true';
+        var m = document.getElementById('terms-modal');
+        if ((v === '1.1' || v === '1.0.0' || (l && !v)) && m) {
+          m.style.display = 'none';
+        }
+        var ca = document.getElementById('check-age');
+        var ct = document.getElementById('check-terms');
+        var ab = document.getElementById('accept-btn');
+        function sync() {
+          if (ab && ca && ct) {
+            var ok = Boolean(ca.checked && ct.checked);
+            ab.disabled = !ok;
+            ab.setAttribute('aria-disabled', String(!ok));
+            if (ok) {
+              ab.removeAttribute('disabled');
+              ab.classList.remove('disabled');
+            } else {
+              ab.setAttribute('disabled', 'true');
+              ab.classList.add('disabled');
+            }
+          }
+        }
+        if (ca && ct) {
+          ['change', 'input', 'click'].forEach(function(e) {
+            ca.addEventListener(e, sync);
+            ct.addEventListener(e, sync);
+          });
+          sync();
+        }
+        if (ab) {
+          ab.addEventListener('click', function() {
+            if (ca && ct && ca.checked && ct.checked) {
+              try {
+                localStorage.setItem('seemygame_terms_version', '1.1');
+                localStorage.setItem('seemygame_terms_accepted', 'true');
+              } catch (err) {}
+              if (m) m.style.display = 'none';
+            }
+          });
+        }
+      } catch (e) {}
+    })();
+  </script>
 
   <!-- Modal de Autorização Co-op (Player 2) -->
   <div id="coop-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="coop-modal-title">
@@ -131,23 +178,32 @@
     <div class="modal-content clip-post-modal-content">
       <div class="clip-post-header">
         <div class="clip-post-badge">
-          <span>🎬</span> Clip Gravado!
+          <span>🎬</span> <span id="clip-post-title">Clip Gravado! (30s)</span>
         </div>
-        <button id="clip-post-close-btn" class="drawer-close-btn" title="Fechar modal" aria-label="Fechar modal">✕</button>
+        <div class="clip-header-right">
+          <span class="clip-format-badge">WebM HD</span>
+          <button id="clip-post-close-btn" class="drawer-close-btn" title="Fechar modal" aria-label="Fechar modal">✕</button>
+        </div>
       </div>
 
-      <!-- Seção 1: Vídeo Completo -->
+      <!-- Seção 1: Vídeo Preview e Download -->
       <div class="clip-video-box">
+        <div class="clip-video-player-container">
+          <video id="clip-preview-video" controls playsinline preload="auto" class="clip-preview-player" title="Prévia do vídeo gravado"></video>
+        </div>
         <div class="clip-video-info">
-          <span>📹 <strong>Vídeo Original (WebM):</strong> Salve os últimos 30 segundos da transmissão</span>
-          <button id="clip-download-video-btn" class="btn-primary" title="Baixar arquivo de vídeo completo">
+          <div class="clip-video-meta">
+            <span class="clip-meta-title">📹 <strong>Vídeo Original Completo</strong></span>
+            <span class="clip-meta-sub">Últimos 30 segundos da transmissão capturados em alta fluidez</span>
+          </div>
+          <button id="clip-download-video-btn" class="btn-primary clip-download-main-btn" title="Baixar arquivo de vídeo completo (.webm)">
             <span>📥</span> Baixar Vídeo (.webm)
           </button>
         </div>
       </div>
 
       <div class="clip-divider">
-        <span>OU TRANSFORME EM ÁUDIO MEME</span>
+        <span>✂️ RECORTAR OU TRANSFORMAR EM ÁUDIO MEME</span>
       </div>
 
       <!-- Seção 2: Editor de Áudio Meme & Trimmer -->
@@ -161,15 +217,21 @@
         <div class="clip-trimmer-box">
           <div class="trimmer-labels">
             <span>Início: <strong id="clip-trim-start-val">0.0s</strong></span>
-            <span class="trim-duration-badge">Duração do Trecho: <strong id="clip-trim-duration-val">3.0s</strong></span>
+            <span class="trim-duration-badge">Duração: <strong id="clip-trim-duration-val">3.0s</strong></span>
             <span>Fim: <strong id="clip-trim-end-val">3.0s</strong></span>
           </div>
           <div class="trimmer-sliders">
-            <input type="range" id="clip-trim-start-slider" min="0" max="30" step="0.1" value="0" aria-label="Tempo de início do trecho">
-            <input type="range" id="clip-trim-end-slider" min="0" max="30" step="0.1" value="3" aria-label="Tempo de fim do trecho">
+            <div class="slider-row">
+              <label for="clip-trim-start-slider" class="slider-sublabel">Início:</label>
+              <input type="range" id="clip-trim-start-slider" min="0" max="30" step="0.1" value="0" aria-label="Tempo de início do trecho">
+            </div>
+            <div class="slider-row">
+              <label for="clip-trim-end-slider" class="slider-sublabel">Fim:</label>
+              <input type="range" id="clip-trim-end-slider" min="0" max="30" step="0.1" value="3" aria-label="Tempo de fim do trecho">
+            </div>
           </div>
           <div class="trimmer-quick-presets">
-            <span style="font-size: 11px; color: var(--text-muted);">Atalhos:</span>
+            <span class="presets-label">Atalhos rápidos:</span>
             <button type="button" class="btn-preset-quick" data-preset-range="first3">Primeiros 3s</button>
             <button type="button" class="btn-preset-quick" data-preset-range="last3">Últimos 3s</button>
             <button type="button" class="btn-preset-quick" data-preset-range="last5">Últimos 5s</button>

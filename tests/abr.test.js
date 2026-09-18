@@ -34,6 +34,30 @@ describe('Módulo: abr.js (AdaptiveBitrateController)', () => {
     expect(controller.currentBitrateBps).toBe(6000000);
   });
 
+  it('deve reduzir bitrate quando qualityLimitationReason for cpu', () => {
+    controller.processSample({ packetLossRate: 0.0, rttMs: 40, qualityLimitationReason: 'cpu' });
+
+    expect(controller.currentBitrateBps).toBe(6000000);
+    expect(bitrateChangeSpy).toHaveBeenCalledWith(6000000);
+  });
+
+  it('deve reduzir bitrate quando encodeTimeMs for excessivo (> 20ms)', () => {
+    controller.processSample({ packetLossRate: 0.0, rttMs: 35, encodeTimeMs: 25.5 });
+
+    expect(controller.currentBitrateBps).toBe(6000000);
+    expect(bitrateChangeSpy).toHaveBeenCalledWith(6000000);
+  });
+
+  it('não deve recuperar bitrate se encodeTimeMs permanecer elevado (> 15ms)', () => {
+    controller.currentBitrateBps = 4000000;
+
+    for (let i = 0; i < 5; i++) {
+      controller.processSample({ packetLossRate: 0.0, rttMs: 30, encodeTimeMs: 18.0 });
+    }
+
+    expect(controller.currentBitrateBps).toBe(4000000);
+  });
+
   it('não deve reduzir abaixo do bitrate mínimo', () => {
     controller.currentBitrateBps = 2200000;
     controller.processSample({ packetLossRate: 0.1, rttMs: 500 });

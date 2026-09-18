@@ -13,6 +13,9 @@ export class TacticalPingManager {
     this.currentLaserTrail = null;
     this.audioContext = null;
     this.animFrameId = null;
+    this.maxPings = options.maxPings || 100;
+    this.maxLaserTrails = options.maxLaserTrails || 24;
+    this.maxLaserPoints = options.maxLaserPoints || 600;
   }
 
   setCanvas(canvas) {
@@ -67,24 +70,29 @@ export class TacticalPingManager {
    * @param {Object} param
    */
   addPing({ x, y, type = 'ping', color = null, senderName = 'Amigo', duration = 2000 }) {
+    const safeType = type === 'danger' ? 'danger' : 'ping';
+    const safeColor = typeof color === 'string' && /^#[0-9a-f]{3,8}$/i.test(color) ? color : null;
+    const safeSenderName = typeof senderName === 'string' ? senderName.slice(0, 64) : 'Amigo';
+    const safeDuration = Math.max(500, Math.min(10000, Number(duration) || 2000));
     // Clampa coordenadas normalizadas entre 0.0 e 1.0
     const clampedX = Math.max(0, Math.min(1, Number(x) || 0));
     const clampedY = Math.max(0, Math.min(1, Number(y) || 0));
 
-    const defaultColor = type === 'danger' ? '#ef4444' : '#06b6d4';
+    const defaultColor = safeType === 'danger' ? '#ef4444' : '#06b6d4';
     const pingObj = {
       id: Math.random().toString(36).substring(2, 9),
       x: clampedX,
       y: clampedY,
-      type,
-      color: color || defaultColor,
-      senderName,
+      type: safeType,
+      color: safeColor || defaultColor,
+      senderName: safeSenderName,
       startTime: Date.now(),
-      duration: duration || 2000
+      duration: safeDuration
     };
 
     this.pings.push(pingObj);
-    this.playPingSound(type);
+    if (this.pings.length > this.maxPings) this.pings.splice(0, this.pings.length - this.maxPings);
+    this.playPingSound(safeType);
     return pingObj;
   }
 
@@ -92,10 +100,12 @@ export class TacticalPingManager {
    * Inicia um traçado de laser pointer
    */
   startLaserTrail({ color = '#10b981' } = {}) {
+    const safeColor = typeof color === 'string' && /^#[0-9a-f]{3,8}$/i.test(color) ? color : '#10b981';
+    if (this.laserTrails.length >= this.maxLaserTrails) this.laserTrails.shift();
     this.isDrawingLaser = true;
     this.currentLaserTrail = {
       points: [],
-      color,
+      color: safeColor,
       maxAge: 2200
     };
     this.laserTrails.push(this.currentLaserTrail);
@@ -107,10 +117,13 @@ export class TacticalPingManager {
   addLaserPoint({ x, y, color = '#10b981' }) {
     const clampedX = Math.max(0, Math.min(1, Number(x) || 0));
     const clampedY = Math.max(0, Math.min(1, Number(y) || 0));
+    const safeColor = typeof color === 'string' && /^#[0-9a-f]{3,8}$/i.test(color) ? color : '#10b981';
 
     if (!this.currentLaserTrail) {
-      this.startLaserTrail({ color });
+      this.startLaserTrail({ color: safeColor });
     }
+
+    if (this.currentLaserTrail.points.length >= this.maxLaserPoints) return;
 
     this.currentLaserTrail.points.push({
       x: clampedX,

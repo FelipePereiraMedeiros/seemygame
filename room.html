@@ -45,6 +45,57 @@
       </div>
     </div>
   </div>
+  <script>
+    (function() {
+      try {
+        var v = localStorage.getItem('seemygame_terms_version');
+        var l = localStorage.getItem('seemygame_terms_accepted') === 'true';
+        var m = document.getElementById('terms-modal');
+        if ((v === '1.1' || v === '1.0.0' || (l && !v)) && m) {
+          m.style.display = 'none';
+          var greenModal = document.getElementById('green-room-modal');
+          if (greenModal) greenModal.style.display = 'flex';
+        }
+        var ca = document.getElementById('check-age');
+        var ct = document.getElementById('check-terms');
+        var ab = document.getElementById('accept-btn');
+        function sync() {
+          if (ab && ca && ct) {
+            var ok = Boolean(ca.checked && ct.checked);
+            ab.disabled = !ok;
+            ab.setAttribute('aria-disabled', String(!ok));
+            if (ok) {
+              ab.removeAttribute('disabled');
+              ab.classList.remove('disabled');
+            } else {
+              ab.setAttribute('disabled', 'true');
+              ab.classList.add('disabled');
+            }
+          }
+        }
+        if (ca && ct) {
+          ['change', 'input', 'click'].forEach(function(e) {
+            ca.addEventListener(e, sync);
+            ct.addEventListener(e, sync);
+          });
+          sync();
+        }
+        if (ab) {
+          ab.addEventListener('click', function() {
+            if (ca && ct && ca.checked && ct.checked) {
+              try {
+                localStorage.setItem('seemygame_terms_version', '1.1');
+                localStorage.setItem('seemygame_terms_accepted', 'true');
+              } catch (err) {}
+              if (m) m.style.display = 'none';
+              var greenModal = document.getElementById('green-room-modal');
+              if (greenModal) greenModal.style.display = 'flex';
+            }
+          });
+        }
+      } catch (e) {}
+    })();
+  </script>
 
   <!-- Modal de Autorização Co-op (Player 2) -->
   <div id="coop-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="coop-modal-title">
@@ -77,6 +128,7 @@
       <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 16px 0;">
         Janelas detectadas pelo Rust no seu computador. Escolha o jogo para transmitir com alta prioridade de GPU:
       </p>
+      <p id="picker-native-status" style="font-size: 12px; margin: -8px 0 12px 0;"></p>
 
       <div id="desktop-windows-list" style="overflow-y: auto; max-height: 340px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; padding-right: 4px;"></div>
 
@@ -162,6 +214,140 @@
     </div>
   </div>
 
+  <!-- Modal do Lobby Pré-Entrada (Green Room Estilo Google Meet) -->
+  <div id="green-room-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="green-room-title">
+    <div class="modal-content green-room-modal-content">
+      <div class="green-room-badge">
+        <span>🎮</span> Sala Pronta
+      </div>
+      <h3 id="green-room-title" class="green-room-title">Pronto para entrar?</h3>
+      <p class="green-room-subtitle">
+        Você está entrando na sala <strong id="green-room-id-label" style="color: var(--accent-cyan);">#geral</strong>
+      </p>
+
+      <div class="green-room-audio-preview">
+        <div class="green-room-mic-header">
+          <span class="green-room-mic-label">
+            <span>🎙️</span> Teste de Microfone
+          </span>
+          <button id="green-room-toggle-mic-btn" class="green-room-toggle-mic-btn" type="button">
+            <span id="green-room-mic-icon">🔊</span> <span id="green-room-mic-btn-text">Microfone Ativo</span>
+          </button>
+        </div>
+
+        <div class="vu-meter-bar-container">
+          <div id="green-room-vu-bar" class="vu-meter-bar-fill"></div>
+        </div>
+
+        <div id="green-room-mic-status" style="font-size: 11.5px; color: var(--text-muted);">
+          Fale algo para verificar se o seu microfone está captando som...
+        </div>
+
+        <!-- Seleção de Dispositivos de Áudio -->
+        <div class="green-room-device-group" style="margin-top: 6px; display: flex; flex-direction: column; gap: 10px;">
+          <div class="green-room-device-field">
+            <label for="green-room-mic-select" class="green-room-device-label">
+              <span>🎙️</span> Microfone (Entrada):
+            </label>
+            <select id="green-room-mic-select" class="custom-id-field green-room-select" style="width: 100%;"></select>
+          </div>
+
+          <div class="green-room-device-field">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+              <label for="green-room-speaker-select" class="green-room-device-label" style="margin: 0;">
+                <span>🎧</span> Saída de Som (Alto-falante / Fone):
+              </label>
+              <button id="green-room-test-speaker-btn" class="green-room-test-btn" type="button" title="Ouvir som de teste">
+                <span>🔊</span> Testar Som
+              </button>
+            </div>
+            <select id="green-room-speaker-select" class="custom-id-field green-room-select" style="width: 100%;"></select>
+            <div id="green-room-speaker-note" class="green-room-device-hint"></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 20px; text-align: left;">
+        <label for="green-room-user-name" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Seu Apelido na Sala:</label>
+        <input 
+          type="text" 
+          id="green-room-user-name" 
+          class="custom-id-field"
+          placeholder="Ex: Diogo, Shadow, Gamer123" 
+          maxlength="24"
+          style="width: 100%;">
+      </div>
+
+      <button id="green-room-join-btn" class="green-room-join-btn" type="button">
+        <span>🚀</span> Entrar na Sala
+      </button>
+    </div>
+  </div>
+
+  <!-- Modal de Convite & Compartilhamento com QR Code -->
+  <div id="share-room-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="share-room-title">
+    <div class="modal-content share-room-modal-content">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 id="share-room-title" style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px;">
+          <span>🔗</span> Convidar para a Sala
+        </h3>
+        <button id="close-share-modal-btn" class="drawer-close-btn" title="Fechar">✕</button>
+      </div>
+
+      <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">
+        Envie o link, código ou mostre o QR Code para seus amigos entrarem instantaneamente:
+      </p>
+
+      <div class="qr-code-wrapper">
+        <canvas id="share-qr-canvas" width="180" height="180"></canvas>
+      </div>
+      <div style="font-size: 11px; color: var(--text-muted); margin-top: -8px; margin-bottom: 14px;">
+        📱 Aponte a câmera do celular ou Steam Deck para entrar
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px; text-align: left;">
+        <div>
+          <label style="display: block; font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">Código da Sala:</label>
+          <div style="display: flex; gap: 8px;">
+            <input 
+              type="text" 
+              id="share-room-code-display" 
+              class="custom-id-field" 
+              readonly 
+              style="font-family: monospace; font-weight: 700; color: var(--accent-cyan); letter-spacing: 0.5px;">
+            <button id="share-copy-code-btn" class="btn-secondary" style="padding: 0 16px; white-space: nowrap;">
+              Copiar Código
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">Link Direto de Convite:</label>
+          <div style="display: flex; gap: 8px;">
+            <input 
+              type="text" 
+              id="share-room-link-display" 
+              class="custom-id-field" 
+              readonly 
+              style="font-size: 12px;">
+            <button id="share-copy-link-btn" class="btn-primary" style="padding: 0 16px; white-space: nowrap;">
+              Copiar Link
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="share-action-grid">
+        <button id="share-whatsapp-btn" class="share-action-btn whatsapp" type="button">
+          <span>💬</span> WhatsApp
+        </button>
+        <button id="share-native-btn" class="share-action-btn" type="button">
+          <span>📲</span> Outros Apps
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal de Tuning de Fluidez & Bitrate -->
   <div id="tuning-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="tuning-title">
     <div class="modal-content" style="max-width: 520px;">
@@ -176,17 +362,18 @@
         <div>
           <label for="quality-preset" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Preset de Fluidez:</label>
           <select id="quality-preset" class="custom-id-field">
-            <option value="ultra">Modo Competitivo (720p - 60 FPS Máxima Fluidez)</option>
-            <option value="high">Qualidade Balanceada (1080p - 60 FPS Alta Fidelidade)</option>
+            <option value="ultra">⚡ Modo Competitivo (720p - Fluidez Máxima)</option>
+            <option value="balanced" selected>🎮 Modo Dinâmico (1080p - Equilibrado & Fluido)</option>
+            <option value="high">💎 Alta Fidelidade (1080p - Alta Nitidez)</option>
           </select>
         </div>
 
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
             <label for="bitrate-slider" style="font-size: 12.5px; color: var(--text-muted);">Taxa de Bits (Bitrate):</label>
-            <span id="bitrate-display" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan);">9.0 Mbps</span>
+            <span id="bitrate-display" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan);">7.5 Mbps</span>
           </div>
-          <input type="range" id="bitrate-slider" min="2500000" max="16000000" step="500000" value="9000000" style="width: 100%;">
+          <input type="range" id="bitrate-slider" min="2500" max="16000" step="500" value="7500" style="width: 100%;">
         </div>
 
         <div>
@@ -199,11 +386,47 @@
         </div>
 
         <div>
-          <label for="coop-mode-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Modo Co-op Player 2:</label>
+          <label for="tuning-mic-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">🎙️ Microfone de Voz:</label>
+          <select id="tuning-mic-select" class="custom-id-field"></select>
+        </div>
+
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label for="tuning-speaker-select" style="font-size: 12.5px; color: var(--text-muted); margin: 0;">🎧 Saída de Som (Alto-falante / Fone):</label>
+            <button id="tuning-test-speaker-btn" class="btn-secondary" type="button" style="padding: 4px 10px; font-size: 11.5px; white-space: nowrap;">🔊 Testar</button>
+          </div>
+          <select id="tuning-speaker-select" class="custom-id-field"></select>
+          <div id="tuning-speaker-note" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;"></div>
+        </div>
+
+        <div>
+          <label for="video-codec-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Codec de Vídeo:</label>
+          <select id="video-codec-select" class="custom-id-field">
+            <option value="h264" selected>H.264 / AVC (Padrão e Máxima Compatibilidade)</option>
+            <option value="av1">AV1 (Próxima Geração - 30% menos banda com alta nitidez)</option>
+            <option value="hevc">HEVC / H.265 (Alta Eficiência)</option>
+          </select>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
+          <input type="checkbox" id="capture-cursor-toggle" checked style="accent-color: var(--accent-purple); width: 16px; height: 16px; cursor: pointer;">
+          <label for="capture-cursor-toggle" style="font-size: 12.5px; color: var(--text-color); cursor: pointer;">Capturar cursor do mouse na transmissão</label>
+        </div>
+
+        <div>
+          <label for="coop-mode-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Modo Co-op na Sala:</label>
           <select id="coop-mode-select" class="custom-id-field">
-            <option value="enabled">Permitir pedidos de Player 2 (com aprovação)</option>
+            <option value="enabled_4p" selected>Ativado: 4 Players (Host P1 + até 3 amigos nos controles P2, P3, P4)</option>
+            <option value="party_4p">Modo Party / Torneio (Host transmite e 4 amigos jogam nos slots P1 a P4)</option>
+            <option value="enabled_2p">Modo Clássico 2 Players (Apenas Player 2)</option>
             <option value="disabled">Desativar Co-op</option>
           </select>
+        </div>
+
+        <div style="margin-top: 10px;">
+          <button id="open-gamepad-tester-btn" class="btn-secondary" style="width: 100%; font-size: 12.5px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <span>🎮</span> Testar & Calibrar Controle Físico (Gamepad)
+          </button>
         </div>
       </div>
 
@@ -213,59 +436,155 @@
     </div>
   </div>
 
-  <!-- Modal Pós-Clipping -->
+  <!-- Modal de Calibração & Teste de Gamepad -->
+  <div id="gamepad-tester-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="gamepad-tester-title">
+    <div class="modal-content" style="max-width: 520px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h3 id="gamepad-tester-title" style="margin: 0; display: flex; align-items: center; gap: 8px;">
+          <span>🎮</span> Teste & Calibração de Gamepad
+        </h3>
+        <button id="close-gamepad-tester-btn" class="drawer-close-btn" title="Fechar" aria-label="Fechar modal">✕</button>
+      </div>
+
+      <div id="gamepad-driver-status-box" style="margin-bottom: 16px; padding: 10px 14px; border-radius: 8px; font-size: 12.5px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981;">
+        <span id="gamepad-driver-status-text">🟢 Driver ViGEmBus: Ativo e pronto</span>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <label for="gamepad-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Controle Físico Detectado:</label>
+        <select id="gamepad-select" class="custom-id-field">
+          <option value="">Nenhum controle detectado (pressione qualquer botão)</option>
+        </select>
+      </div>
+
+      <div class="gamepad-hud-display" style="background: rgba(0,0,0,0.3); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+          <div><strong>Analógicos (Deadzone Radial):</strong></div>
+          <div id="gamepad-sticks-label" style="color: var(--accent-green); font-family: monospace;">L: (0, 0) | R: (0, 0)</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+          <div><strong>Gatilhos (LT / RT):</strong></div>
+          <div id="gamepad-triggers-label" style="color: var(--accent-purple); font-family: monospace;">LT: 0% | RT: 0%</div>
+        </div>
+        <div style="font-size: 13px;">
+          <div><strong>Botões Pressionados:</strong></div>
+          <div id="gamepad-buttons-label" style="color: #fff; font-family: monospace; min-height: 20px; margin-top: 4px;">Nenhum</div>
+        </div>
+      </div>
+
+      <!-- Remapeamento e Presets de Botões (Xbox / Nintendo Switch / Custom) -->
+      <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <label for="gamepad-mapping-preset" style="font-size: 12.5px; font-weight: 600; color: var(--text-color);">Layout de Botões:</label>
+          <select id="gamepad-mapping-preset" class="custom-id-field" style="width: auto; padding: 4px 8px; font-size: 12px;">
+            <option value="xbox">Padrão Xbox / PC</option>
+            <option value="nintendo">Nintendo Switch (Inverte A ↔ B e X ↔ Y)</option>
+            <option value="custom">Personalizado</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <button type="button" id="swap-ab-btn" class="btn-secondary" style="flex: 1; font-size: 11.5px; padding: 6px 8px;">🔄 Inverter A ↔ B</button>
+          <button type="button" id="swap-xy-btn" class="btn-secondary" style="flex: 1; font-size: 11.5px; padding: 6px 8px;">🔄 Inverter X ↔ Y</button>
+          <button type="button" id="reset-mapping-btn" class="btn-secondary" style="font-size: 11.5px; padding: 6px 8px;">Restaurar</button>
+        </div>
+        <div id="gamepad-mapping-status" style="font-size: 11px; color: var(--text-muted); margin-top: 6px; text-align: right;">Layout ativo: Padrão Xbox</div>
+      </div>
+
+      <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+        <button id="test-rumble-btn" class="btn-secondary" style="font-size: 12.5px;">
+          📳 Testar Vibração
+        </button>
+        <button id="done-gamepad-tester-btn" style="background: var(--accent-purple); font-size: 12.5px;">
+          Concluído
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Pós-Clipping: Download de Vídeo & Gerador de Áudio Meme -->
   <div id="clip-post-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="clip-post-title">
     <div class="modal-content clip-post-modal-content">
       <div class="clip-post-header">
         <div class="clip-post-badge">
-          <span>🎬</span> Clip Gravado!
+          <span>🎬</span> <span id="clip-post-title">Clip Gravado! (30s)</span>
         </div>
-        <button id="clip-post-close-btn" class="drawer-close-btn" title="Fechar modal" aria-label="Fechar modal">✕</button>
+        <div class="clip-header-right">
+          <span class="clip-format-badge">WebM HD</span>
+          <button id="clip-post-close-btn" class="drawer-close-btn" title="Fechar modal" aria-label="Fechar modal">✕</button>
+        </div>
       </div>
 
+      <!-- Seção 1: Vídeo Preview e Download -->
       <div class="clip-video-box">
+        <div class="clip-video-player-container">
+          <video id="clip-preview-video" controls playsinline preload="auto" class="clip-preview-player" title="Prévia do vídeo gravado"></video>
+        </div>
         <div class="clip-video-info">
-          <span>📹 <strong>Vídeo Original (WebM):</strong> Salve os últimos 30 segundos da transmissão</span>
-          <button id="clip-download-video-btn" class="btn-primary" title="Baixar arquivo de vídeo completo">
+          <div class="clip-video-meta">
+            <span class="clip-meta-title">📹 <strong>Vídeo Original Completo</strong></span>
+            <span class="clip-meta-sub">Últimos 30 segundos da transmissão capturados em alta fluidez</span>
+          </div>
+          <button id="clip-download-video-btn" class="btn-primary clip-download-main-btn" title="Baixar arquivo de vídeo completo (.webm)">
             <span>📥</span> Baixar Vídeo (.webm)
           </button>
         </div>
       </div>
 
       <div class="clip-divider">
-        <span>OU TRANSFORME EM ÁUDIO MEME</span>
+        <span>✂️ RECORTAR OU TRANSFORMAR EM ÁUDIO MEME</span>
       </div>
 
-      <div class="audio-meme-editor">
-        <div class="audio-waveform-container" id="audio-waveform-container">
-          <canvas id="waveform-canvas" width="460" height="70"></canvas>
-          <div class="trimmer-handles">
-            <div id="trimmer-handle-start" class="trimmer-handle" style="left: 0%;">
-              <div class="handle-line"></div>
-              <span class="handle-tag" id="tag-start">0.0s</span>
+      <!-- Seção 2: Editor de Áudio Meme & Trimmer -->
+      <div class="clip-meme-editor">
+        <div class="clip-meme-title">
+          <span>🎙️ <strong>Criador de Áudio Meme</strong></span>
+          <span id="clip-audio-status" class="clip-status-pill">Pronto para recortar</span>
+        </div>
+
+        <!-- Trimmer de Trecho (Início e Fim) -->
+        <div class="clip-trimmer-box">
+          <div class="trimmer-labels">
+            <span>Início: <strong id="clip-trim-start-val">0.0s</strong></span>
+            <span class="trim-duration-badge">Duração: <strong id="clip-trim-duration-val">3.0s</strong></span>
+            <span>Fim: <strong id="clip-trim-end-val">3.0s</strong></span>
+          </div>
+          <div class="trimmer-sliders">
+            <div class="slider-row">
+              <label for="clip-trim-start-slider" class="slider-sublabel">Início:</label>
+              <input type="range" id="clip-trim-start-slider" min="0" max="30" step="0.1" value="0" aria-label="Tempo de início do trecho">
             </div>
-            <div id="trimmer-handle-end" class="trimmer-handle" style="left: 100%;">
-              <div class="handle-line"></div>
-              <span class="handle-tag" id="tag-end">5.0s</span>
+            <div class="slider-row">
+              <label for="clip-trim-end-slider" class="slider-sublabel">Fim:</label>
+              <input type="range" id="clip-trim-end-slider" min="0" max="30" step="0.1" value="3" aria-label="Tempo de fim do trecho">
             </div>
+          </div>
+          <div class="trimmer-quick-presets">
+            <span class="presets-label">Atalhos rápidos:</span>
+            <button type="button" class="btn-preset-quick" data-preset-range="first3">Primeiros 3s</button>
+            <button type="button" class="btn-preset-quick" data-preset-range="last3">Últimos 3s</button>
+            <button type="button" class="btn-preset-quick" data-preset-range="last5">Últimos 5s</button>
+            <button type="button" class="btn-preset-quick" data-preset-range="all">Áudio Todo</button>
           </div>
         </div>
 
-        <div class="meme-effects-bar">
-          <button class="meme-effect-btn active" data-effect="none">Normal</button>
-          <button class="meme-effect-btn" data-effect="chipmunk">Esquilo</button>
-          <button class="meme-effect-btn" data-effect="monster">Monstro</button>
-          <button class="meme-effect-btn" data-effect="radio">Rádio Walkie</button>
-          <button class="meme-effect-btn" data-effect="robot">Robô</button>
-          <button class="meme-effect-btn" data-effect="bassboost">Grave Estourado</button>
+        <!-- Moduladores / Efeitos de Voz Engraçados -->
+        <div class="clip-effects-label">
+          🎭 Escolha o Efeito de Voz Engraçado:
+        </div>
+        <div class="clip-effects-grid" id="clip-effects-grid">
+          <!-- Chips gerados dinamicamente via JS com AUDIO_MEME_EFFECTS -->
         </div>
 
-        <div class="audio-meme-actions">
-          <button id="meme-play-preview-btn" class="btn-secondary" title="Ouvir áudio recortado com efeito">
-            <span>▶️</span> Ouvir Prévia
+        <!-- Ações do Áudio Meme -->
+        <div class="clip-meme-actions">
+          <button id="clip-preview-audio-btn" class="btn-secondary" title="Ouvir como ficou o áudio com o efeito selecionado">
+            <span>🎧</span> Ouvir Prévia
           </button>
-          <button id="meme-add-soundboard-btn" class="btn-primary" title="Adicionar som ao Soundboard da sala">
-            <span>📻</span> Salvar no Soundboard
+          <button id="clip-download-wav-btn" class="btn-primary" title="Baixar arquivo de áudio WAV para WhatsApp, Discord ou Soundboard">
+            <span>💾</span> Baixar Áudio (.wav)
+          </button>
+          <button id="clip-broadcast-voice-btn" class="btn-accent" title="Transmitir áudio meme instantaneamente para a sala de voz dos amigos">
+            <span>🔊</span> Tocar na Sala de Voz
           </button>
         </div>
       </div>
@@ -438,6 +757,13 @@
       <!-- Visualizador de Voz Estilo Discord (Quando nenhuma tela está ativa) -->
       <div class="voice-stage-grid" id="voice-stage-grid">
         <!-- Avatares com ondas de voz preenchidos dinamicamente -->
+      </div>
+
+      <!-- Dock de Lobby Co-op 4 Players -->
+      <div class="coop-lobby-dock" id="coop-lobby-dock" style="display: none;">
+        <span class="coop-lobby-title">🎮 Co-op (4 Players):</span>
+        <div id="coop-slots-container" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;"></div>
+        <button id="coop-panic-all-btn" class="card-btn-panic" style="display: none; padding: 4px 10px; font-size: 11px; margin-left: auto; border-radius: 6px;" title="Revogar todos os controles remotos">🛑 Pânico Geral</button>
       </div>
 
       <!-- Grade Fluida de Cartões de Vídeo (Quando há transmissões ativas) -->

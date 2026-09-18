@@ -4,6 +4,8 @@ import {
   hookPeerConnectionSdp,
   applyTransceiverOptimizations,
   applySenderOptimizations,
+  applySenderOptimizationsWhenReady,
+  updateSenderBitrate,
   swapStreamAudioTrack
 } from '../js/webrtc.js';
 import {
@@ -154,10 +156,23 @@ describe('Módulo: webrtc.js', () => {
         getTransceivers: () => [transceiver]
       };
 
-      applyTransceiverOptimizations(pc);
+      applyTransceiverOptimizations(pc, 'ultra-low');
 
       expect(receiver.jitterBufferTarget).toBe(0);
       expect(receiver.playoutDelayHint).toBe(0);
+    });
+
+    it('deve configurar jitterBufferTarget = 50ms e playoutDelayHint = 0.05s no modo stable', () => {
+      const receiver = { jitterBufferTarget: 0, playoutDelayHint: 0 };
+      const transceiver = { receiver };
+      const pc = {
+        getTransceivers: () => [transceiver]
+      };
+
+      applyTransceiverOptimizations(pc, 'stable');
+
+      expect(receiver.jitterBufferTarget).toBe(50);
+      expect(receiver.playoutDelayHint).toBe(0.05);
     });
 
     it('deve priorizar codecs H.264 em setCodecPreferences no transceiver de envio', () => {
@@ -236,6 +251,21 @@ describe('Módulo: webrtc.js', () => {
       expect(audioTrack.contentHint).toBe('');
     });
 
+    it('deve retornar false e não chamar setParameters se os encodings ainda não tiverem sido negociados', async () => {
+      const videoTrack = new MockMediaStreamTrack('video');
+      const sender = new MockRTCRtpSender(videoTrack);
+      sender._params = { encodings: [] }; // Encodings vazios antes do negotiation
+      const setParamsSpy = vi.spyOn(sender, 'setParameters');
+
+      const pc = {
+        getSenders: () => [sender]
+      };
+
+      const result = await applySenderOptimizations(pc, 7500000, 60);
+      expect(result).toBe(false);
+      expect(setParamsSpy).not.toHaveBeenCalled();
+    });
+
     it('deve configurar scaleResolutionDownBy quando fornecido fator de escala maior que 1', async () => {
       const videoTrack = new MockMediaStreamTrack('video');
       const sender = new MockRTCRtpSender(videoTrack);
@@ -250,6 +280,38 @@ describe('Módulo: webrtc.js', () => {
       expect(setParamsSpy).toHaveBeenCalled();
       const passedParams = setParamsSpy.mock.calls[0][0];
       expect(passedParams.encodings[0].scaleResolutionDownBy).toBe(1.5);
+    });
+
+    it('applySenderOptimizationsWhenReady deve aplicar assim que signalingstatechange mudar para stable', async () => {
+      const videoTrack = new MockMediaStreamTrack('video');
+      const sender = new MockRTCRtpSender(videoTrack);
+      sender._params = { encodings: [] }; // Inicialmente não negociado
+      const setParamsSpy = vi.spyOn(sender, 'setParameters');
+
+      class MockPCWithEvents extends EventTarget {
+        constructor() {
+          super();
+          this.signalingState = 'have-local-offer';
+          this.connectionState = 'connecting';
+        }
+        getSenders() { return [sender]; }
+      }
+
+      const pc = new MockPCWithEvents();
+      const cleanup = applySenderOptimizationsWhenReady(pc, 7500000, 60);
+
+      expect(setParamsSpy).not.toHaveBeenCalled();
+
+      // Simula a chegada do answer e estabilização
+      sender._params = { encodings: [{}] };
+      pc.signalingState = 'stable';
+      pc.dispatchEvent(new Event('signalingstatechange'));
+
+      // Aguarda tick de microtask
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(setParamsSpy).toHaveBeenCalled();
+      cleanup();
     });
   });
 
@@ -304,6 +366,29 @@ describe('Módulo: webrtc.js', () => {
       const result = await swapStreamAudioTrack(pc, newAudioTrack);
       expect(result).toBe(true);
       expect(replaceSpy).toHaveBeenCalledWith(newAudioTrack);
+    });
+  });
+
+  describe('updateSenderBitrate', () => {
+    it('deve atualizar maxBitrate no sender de vídeo sem lançar erro', async () => {
+      const videoTrack = new MockMediaStreamTrack('video', 'test-screen');
+      const sender = new MockRTCRtpSender(videoTrack);
+      sender.parameters = { encodings: [{ maxBitrate: 2000000 }] };
+      const setParamsSpy = vi.spyOn(sender, 'setParameters');
+
+      const pc = {
+        getSenders: () => [sender]
+      };
+
+      const ok = await updateSenderBitrate(pc, 5000000);
+      expect(ok).toBe(true);
+      expect(setParamsSpy).toHaveBeenCalled();
+      expect(sender.getParameters().encodings[0].maxBitrate).toBe(5000000);
+    });
+
+    it('deve retornar false caso pc seja nulo ou não haja sender de vídeo', async () => {
+      expect(await updateSenderBitrate(null, 5000000)).toBe(false);
+      expect(await updateSenderBitrate({ getSenders: () => [] }, 5000000)).toBe(false);
     });
   });
 });

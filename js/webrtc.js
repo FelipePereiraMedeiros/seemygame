@@ -95,14 +95,28 @@ export function tuneSdpForGaming(sdp, bitrateBps) {
       // Remove quaisquer b=AS ou b=TIAS existentes neste bloco de vídeo
       const filtered = section.filter((l) => !l.startsWith('b=AS:') && !l.startsWith('b=TIAS:'));
 
-      // Ajusta parâmetros fmtp de vídeo H.264
+      const minK = 1000;
+      const startK = Math.max(2500, Math.round(kbps * 0.7));
+      const maxK = Math.round(kbps * 1.3);
+
+      // Identifica payload types de H.264 presentes no SDP
+      const h264Pts = new Set();
+      for (const line of filtered) {
+        if (line.startsWith('a=rtpmap:') && line.toLowerCase().includes('h264')) {
+          const match = line.match(/^a=rtpmap:(\d+)\s+h264/i);
+          if (match) h264Pts.add(match[1]);
+        }
+      }
+
+      // Ajusta parâmetros fmtp de todos os codecs de vídeo no bloco
       const modifiedLines = filtered.map((line) => {
-        if (line.startsWith('a=fmtp:') && (line.includes('42e01f') || line.includes('packetization-mode=1') || line.includes('H264'))) {
-          const prefixMatch = line.match(/^(a=fmtp:\d+\s+)(.*)$/);
+        if (line.startsWith('a=fmtp:')) {
+          const prefixMatch = line.match(/^(a=fmtp:(\d+)\s+)(.*)$/);
           if (!prefixMatch) return line;
 
           const prefix = prefixMatch[1];
-          const rawParams = prefixMatch[2];
+          const pt = prefixMatch[2];
+          const rawParams = prefixMatch[3];
           const paramMap = new Map();
 
           rawParams.split(';').forEach((pair) => {
@@ -116,9 +130,11 @@ export function tuneSdpForGaming(sdp, bitrateBps) {
             }
           });
 
-          const minK = 1000;
-          const startK = Math.max(2500, Math.round(kbps * 0.7));
-          const maxK = Math.round(kbps * 1.3);
+          // Se for H.264 ou contiver parâmetros H.264 conhecidos
+          if (h264Pts.has(pt) || line.includes('42e01f') || line.includes('packetization-mode=1') || line.includes('profile-level-id')) {
+            paramMap.set('level-asymmetry-allowed', '1');
+            paramMap.set('packetization-mode', '1');
+          }
 
           paramMap.set('x-google-min-bitrate', String(minK));
           paramMap.set('x-google-start-bitrate', String(startK));
@@ -180,32 +196,40 @@ export function hookPeerConnectionSdp(pc, getBitrateBps) {
  * @param {RTCPeerConnection} pc
  * @param {'ultra-low'|'stable'} [latencyMode='ultra-low']
  */
-export function applyTransceiverOptimizations(pc, latencyMode = 'ultra-low') {
+export function applyTransceiverOptimizations(pc, latencyMode = 'ultra-low', preferredCodec = 'h264') {
   if (!pc || !pc.getTransceivers) return;
 
   try {
     const transceivers = pc.getTransceivers();
     transceivers.forEach((t) => {
-      // Ajuste de Jitter Buffer do receptor
-      if (t.receiver) {
-        const target = latencyMode === 'stable' ? 0.05 : 0;
-        if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = target;
-        if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = target;
-      }
-
       // IMPORTANTE: Só aplica preferências de codecs de VÍDEO se o transceiver NÃO for explicitamente de áudio
       const isAudio = (t.sender && t.sender.track && t.sender.track.kind === 'audio') ||
                       (t.receiver && t.receiver.track && t.receiver.track.kind === 'audio') ||
                       (t.mid && t.mid.toLowerCase().includes('audio'));
 
+      // Ajuste de Jitter Buffer do receptor (vídeo pode operar em 0ms; áudio exige margem mínima de 25ms para evitar estalidos/underrun)
+      if (t.receiver) {
+        const targetMs = isAudio ? (latencyMode === 'stable' ? 50 : 25) : (latencyMode === 'stable' ? 50 : 0);
+        const targetSec = isAudio ? (latencyMode === 'stable' ? 0.05 : 0.025) : (latencyMode === 'stable' ? 0.05 : 0);
+        if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = targetMs;
+        if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = targetSec;
+      }
+
       if (!isAudio && t.sender && RTCRtpSender.getCapabilities) {
         const capabilities = RTCRtpSender.getCapabilities('video');
         if (capabilities && capabilities.codecs) {
-          const h264Codecs = capabilities.codecs.filter(c => c.mimeType.toLowerCase() === 'video/h264');
-          const otherCodecs = capabilities.codecs.filter(c => c.mimeType.toLowerCase() !== 'video/h264');
-          if (h264Codecs.length > 0 && 'setCodecPreferences' in t) {
+          const codecMime = preferredCodec === 'av1' ? 'video/av1'
+            : (preferredCodec === 'hevc' || preferredCodec === 'h265') ? 'video/h265'
+            : 'video/h264';
+          let prioritized = capabilities.codecs.filter(c => c.mimeType.toLowerCase() === codecMime);
+          // Fallback para H264 se o codec desejado não estiver presente na engine
+          if (prioritized.length === 0 && codecMime !== 'video/h264') {
+            prioritized = capabilities.codecs.filter(c => c.mimeType.toLowerCase() === 'video/h264');
+          }
+          const others = capabilities.codecs.filter(c => !prioritized.includes(c));
+          if (prioritized.length > 0 && 'setCodecPreferences' in t) {
             try {
-              t.setCodecPreferences([...h264Codecs, ...otherCodecs]);
+              t.setCodecPreferences([...prioritized, ...others]);
             } catch (e) {
               // Silencia erros caso a engine rejeite lista específica
             }
@@ -224,10 +248,12 @@ export function applyTransceiverOptimizations(pc, latencyMode = 'ultra-low') {
  * @param {number} bitrateBps
  * @param {number} [fps=60]
  * @param {number} [scaleResolutionDownBy=1]
+ * @returns {Promise<boolean>} Retorna true se os parâmetros foram aplicados com sucesso
  */
 export async function applySenderOptimizations(pc, bitrateBps, fps = 60, scaleResolutionDownBy = 1) {
-  if (!pc) return;
+  if (!pc) return false;
 
+  let applied = false;
   try {
     const senders = pc.getSenders ? pc.getSenders() : [];
     for (const sender of senders) {
@@ -236,7 +262,8 @@ export async function applySenderOptimizations(pc, bitrateBps, fps = 60, scaleRe
 
         const params = sender.getParameters ? sender.getParameters() : {};
         if (!params.encodings || params.encodings.length === 0) {
-          params.encodings = [{}];
+          // Os encodings ainda não foram negociados pelo navegador.
+          continue;
         }
 
         // Prioriza taxa de quadros (maintain-framerate)
@@ -255,12 +282,120 @@ export async function applySenderOptimizations(pc, bitrateBps, fps = 60, scaleRe
 
         if (sender.setParameters) {
           await sender.setParameters(params);
+          applied = true;
         }
         console.log(`[FPS Target] Alvo: ${fps} FPS | Bitrate: ${(bitrateBps / 1000000).toFixed(1)} Mbps | Escala: ${scaleResolutionDownBy || 1}x`);
       }
     }
+    return applied;
   } catch (err) {
     console.warn('Erro ao aplicar parâmetros no sender:', err);
+    return false;
+  }
+}
+
+/**
+ * Aplica parâmetros de alta fluidez no RTCRtpSender assim que a conexão WebRTC estiver negociada e estável
+ * @param {RTCPeerConnection} pc
+ * @param {Function|number} getBitrateBps
+ * @param {Function|number} [getFps=60]
+ * @param {Function|number} [getScaleFactor=1]
+ * @returns {Function} Função de cancelamento / cleanup
+ */
+export function applySenderOptimizationsWhenReady(pc, getBitrateBps, getFps = 60, getScaleFactor = 1) {
+  if (!pc) return () => {};
+
+  let cancelled = false;
+  let retryTimer = null;
+
+  const tryApply = async () => {
+    if (cancelled || !pc || pc.connectionState === 'closed') {
+      cleanup();
+      return;
+    }
+    const bitrate = typeof getBitrateBps === 'function' ? getBitrateBps() : getBitrateBps;
+    const fps = typeof getFps === 'function' ? getFps() : getFps;
+    const scale = typeof getScaleFactor === 'function' ? getScaleFactor() : getScaleFactor;
+
+    try {
+      const ok = await applySenderOptimizations(pc, bitrate, fps, scale);
+      if (ok) {
+        cleanup();
+      }
+    } catch (_) {}
+  };
+
+  const cleanup = () => {
+    cancelled = true;
+    if (retryTimer) {
+      clearInterval(retryTimer);
+      retryTimer = null;
+    }
+    if (typeof pc.removeEventListener === 'function') {
+      pc.removeEventListener('signalingstatechange', onSignaling);
+      pc.removeEventListener('connectionstatechange', onConnection);
+    }
+  };
+
+  const onSignaling = () => {
+    if (pc.signalingState === 'stable') {
+      tryApply();
+    }
+  };
+
+  const onConnection = () => {
+    if (pc.connectionState === 'connected') {
+      tryApply();
+    } else if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+      cleanup();
+    }
+  };
+
+  if (typeof pc.addEventListener === 'function') {
+    pc.addEventListener('signalingstatechange', onSignaling);
+    pc.addEventListener('connectionstatechange', onConnection);
+  }
+
+  let attempts = 0;
+  retryTimer = setInterval(() => {
+    attempts++;
+    if (attempts > 30 || cancelled) {
+      cleanup();
+      return;
+    }
+    tryApply();
+  }, 400);
+
+  tryApply();
+
+  return cleanup;
+}
+
+/**
+ * Atualiza o bitrate máximo do sender de vídeo dinamicamente sem interromper a transmissão
+ * @param {RTCPeerConnection} pc
+ * @param {number} bitrateBps
+ * @returns {Promise<boolean>}
+ */
+export async function updateSenderBitrate(pc, bitrateBps) {
+  if (!pc || typeof pc.getSenders !== 'function') return false;
+  try {
+    const senders = pc.getSenders();
+    for (const sender of senders) {
+      if (sender.track && sender.track.kind === 'video' && sender.setParameters) {
+        const params = sender.getParameters ? sender.getParameters() : {};
+        if (!params.encodings || params.encodings.length === 0) {
+          params.encodings = [{}];
+        }
+        params.encodings[0].maxBitrate = bitrateBps;
+        await sender.setParameters(params);
+        return true;
+      }
+    }
+    return false;
+  } catch (err) {
+    console.warn('[ABR] Falha ao atualizar bitrate no sender:', err);
+    return false;
   }
 }
 

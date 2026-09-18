@@ -201,8 +201,8 @@ describe('Módulo: app.js', () => {
   });
 
   describe('initPeer e Ciclo de Vida P2P', () => {
-    it('deve inicializar PeerJS e atualizar UI no evento open', () => {
-      app.initPeer();
+    it('deve inicializar PeerJS e atualizar UI no evento open', async () => {
+      await app.initPeer();
 
       const peerInstance = MockPeer.lastInstance;
       expect(peerInstance).not.toBeNull();
@@ -233,7 +233,9 @@ describe('Módulo: app.js', () => {
 
       shareLinkBtn.click();
 
-      expect(writeTextSpy).toHaveBeenCalledWith(expect.stringContaining('viewer.html#watch=my-test-id-123'));
+      expect(writeTextSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/\/viewer\.html#watch=my-test-id-123$/)
+      );
     });
 
     it('deve gerenciar conexões de dados recebidas (connection) e atualizar o contador de espectadores', () => {

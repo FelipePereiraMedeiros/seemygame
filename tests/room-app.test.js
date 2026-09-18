@@ -144,7 +144,7 @@ describe('Integração Room-First no app.js (Paradigma Discord)', () => {
         <button id="close-tuning-modal-btn">✕</button>
         <button id="save-tuning-btn">Salvar</button>
         <select id="quality-preset"><option value="ultra">Ultra</option></select>
-        <input type="range" id="bitrate-slider" value="9000000">
+        <input type="range" id="bitrate-slider" min="2500" max="16000" step="500" value="7500">
         <select id="audio-mode-select"><option value="system">Sistema</option></select>
         <select id="coop-mode-select"><option value="disabled">Desativado</option></select>
       </div>
@@ -215,5 +215,80 @@ describe('Integração Room-First no app.js (Paradigma Discord)', () => {
     if (dockBtn) {
       expect(dockBtn.classList.contains('is-streaming')).toBe(false);
     }
+  });
+
+  it('initGreenRoomLobby deve configurar seletores de microfone e saída e iniciar preview', async () => {
+    const greenRoomModal = document.createElement('div');
+    greenRoomModal.id = 'green-room-modal';
+    greenRoomModal.style.display = 'none';
+    greenRoomModal.innerHTML = `
+      <span id="green-room-id-label">#geral</span>
+      <input id="green-room-user-name" value="GamerTest">
+      <button id="green-room-join-btn">Entrar</button>
+      <button id="green-room-toggle-mic-btn">Mic</button>
+      <span id="green-room-mic-icon">🔊</span>
+      <span id="green-room-mic-btn-text">Ativo</span>
+      <div id="green-room-vu-bar"></div>
+      <div id="green-room-mic-status"></div>
+      <select id="green-room-mic-select"></select>
+      <select id="green-room-speaker-select"></select>
+      <button id="green-room-test-speaker-btn">Testar</button>
+      <div id="green-room-speaker-note"></div>
+    `;
+    document.body.appendChild(greenRoomModal);
+
+    const fakeDevices = [
+      { kind: 'audioinput', deviceId: 'mic-room-1', label: 'Microfone Gamer' },
+      { kind: 'audiooutput', deviceId: 'speaker-room-1', label: 'Headset Gamer' },
+    ];
+    navigator.mediaDevices = {
+      enumerateDevices: vi.fn().mockResolvedValue(fakeDevices),
+      getUserMedia: vi.fn().mockResolvedValue(new MockMediaStream([new MockMediaStreamTrack('audio')])),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+
+    app.initGreenRoomLobby();
+
+    expect(greenRoomModal.style.display).toBe('flex');
+    expect(document.getElementById('green-room-id-label').textContent).toBe('#clube');
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    const micSelect = document.getElementById('green-room-mic-select');
+    const speakerSelect = document.getElementById('green-room-speaker-select');
+    expect(micSelect.options.length).toBeGreaterThan(1);
+    expect(speakerSelect.options.length).toBeGreaterThan(1);
+  });
+
+  it('bootstrapApp deve inicializar os termos e liberar o botão de aceitar ao marcar ambos os checkboxes', () => {
+    localStorage.removeItem('seemygame_terms_version');
+    localStorage.removeItem('seemygame_terms_accepted');
+
+    const termsModal = document.getElementById('terms-modal');
+    const checkAge = document.getElementById('check-age');
+    const checkTerms = document.getElementById('check-terms');
+    const acceptBtn = document.getElementById('accept-btn');
+
+    termsModal.style.display = 'flex';
+    checkAge.checked = false;
+    checkTerms.checked = false;
+    acceptBtn.disabled = true;
+
+    app.bootstrapApp();
+
+    expect(acceptBtn.disabled).toBe(true);
+
+    checkAge.checked = true;
+    checkAge.dispatchEvent(new Event('change'));
+    expect(acceptBtn.disabled).toBe(true);
+
+    checkTerms.checked = true;
+    checkTerms.dispatchEvent(new Event('change'));
+    expect(acceptBtn.disabled).toBe(false);
+
+    acceptBtn.click();
+    expect(localStorage.getItem('seemygame_terms_accepted')).toBe('true');
+    expect(termsModal.style.display).toBe('none');
   });
 });

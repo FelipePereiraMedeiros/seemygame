@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "build:dist": "node tools/build-dist.js",
+    "serve": "node tools/serve.mjs",
+    "web": "node tools/serve.mjs",
     "desktop": "node tools/build-dist.js && cargo run --manifest-path src-tauri/Cargo.toml --release",
     "tauri": "cargo tauri",
     "tauri:dev": "cargo tauri dev",

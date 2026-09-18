@@ -7,23 +7,38 @@ export class ClipRecorder {
   constructor(options = {}) {
     this.maxDurationSeconds = options.maxDurationSeconds || 30;
     this.chunks = []; // Array de { blob, timestamp }
+    this.initializationChunk = null;
     this.mediaRecorder = null;
     this.stream = null;
+    this.recordingStream = null;
+    this.recordingTracks = [];
     this.isRecording = false;
+    this.lastError = null;
+    this._recordingGeneration = 0;
+    this._nextChunkSequence = 0;
     this.mimeType = this._resolveSupportedMimeType();
   }
 
-  _resolveSupportedMimeType() {
+  _resolveSupportedMimeType(hasAudio = true) {
     if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
       return 'video/webm';
     }
 
-    const candidates = [
+    const candidatesWithAudio = [
       'video/webm;codecs=vp9,opus',
       'video/webm;codecs=vp8,opus',
       'video/webm',
       'video/mp4'
     ];
+
+    const candidatesVideoOnly = [
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+      'video/mp4'
+    ];
+
+    const candidates = hasAudio ? candidatesWithAudio : candidatesVideoOnly;
 
     for (const type of candidates) {
       if (MediaRecorder.isTypeSupported(type)) {
@@ -43,50 +58,233 @@ export class ClipRecorder {
     this.stop();
     this.stream = stream;
     this.chunks = [];
+    this.initializationChunk = null;
+    this.lastError = null;
+    this.lastClipBlob = null;
+    this.lastClipFileName = null;
+    this._nextChunkSequence = 0;
+    const generation = ++this._recordingGeneration;
 
     try {
-      const options = this.mimeType ? { mimeType: this.mimeType } : {};
-      this.mediaRecorder = new MediaRecorder(stream, options);
+      // Isola o stream encapsulador sem clonar as trilhas físicas.
+      // Clonar trilhas de captura (getDisplayMedia) ou WebRTC no Chromium/WebView2
+      // impede a entrega de frames ao MediaRecorder e zera os chunks gravados.
+      this.recordingStream = stream;
+      this.recordingTracks = [];
+      if (typeof MediaStream !== 'undefined' && typeof stream.getTracks === 'function') {
+        const isolatedStream = new MediaStream();
+        stream.getTracks().forEach((track) => {
+          if (track && track.readyState !== 'ended') {
+            isolatedStream.addTrack(track);
+            this.recordingTracks.push({ track, owned: false });
+          }
+        });
+        this.recordingStream = isolatedStream;
+      }
 
-      this.mediaRecorder.ondataavailable = (e) => {
+      const hasAudio = typeof this.recordingStream.getAudioTracks === 'function' &&
+        this.recordingStream.getAudioTracks().length > 0;
+      this.mimeType = this._resolveSupportedMimeType(hasAudio);
+      const options = this.mimeType ? { mimeType: this.mimeType } : {};
+
+      let recorder;
+      try {
+        recorder = new MediaRecorder(this.recordingStream, options);
+      } catch (recorderErr) {
+        console.warn('[ClipRecorder] Falha ao criar MediaRecorder com mimeType:', this.mimeType, recorderErr);
+        recorder = new MediaRecorder(this.recordingStream);
+      }
+      this.mediaRecorder = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (this.mediaRecorder !== recorder || generation !== this._recordingGeneration) return;
         if (e.data && e.data.size > 0) {
           const now = Date.now();
-          this.chunks.push({ blob: e.data, timestamp: now });
+          const chunk = { blob: e.data, timestamp: now, sequence: this._nextChunkSequence++ };
+          if (!this.initializationChunk) this.initializationChunk = chunk;
+          this.chunks.push(chunk);
+
+          // MediaRecorder normally delivers chunks in order, but an encoder
+          // flush can arrive after a timer callback. Keep export deterministic.
+          this.chunks.sort((a, b) => a.timestamp - b.timestamp || a.sequence - b.sequence);
 
           // Descarte circular: mantém apenas os últimos maxDurationSeconds
           const cutoff = now - (this.maxDurationSeconds * 1000);
-          while (this.chunks.length > 0 && this.chunks[0].timestamp < cutoff) {
-            this.chunks.shift();
-          }
+          this.chunks = this.chunks.filter((item) => item === this.initializationChunk || item.timestamp >= cutoff);
         }
       };
 
+      recorder.onerror = (event) => {
+        if (this.mediaRecorder !== recorder || generation !== this._recordingGeneration) return;
+        this.lastError = event?.error || new Error('Falha desconhecida do MediaRecorder');
+        this.isRecording = false;
+        console.warn('[ClipRecorder] Erro no MediaRecorder:', this.lastError);
+      };
+
       // Fatias de 1 segundo (1000ms)
-      this.mediaRecorder.start(1000);
+      recorder.start(1000);
       this.isRecording = true;
       return true;
     } catch (err) {
       console.warn('[ClipRecorder] Falha ao iniciar gravação em buffer circular:', err);
+      this.lastError = err;
       this.isRecording = false;
+      this.mediaRecorder = null;
+      this._releaseRecordingTracks();
       return false;
     }
+  }
+
+  _releaseRecordingTracks() {
+    this.recordingTracks.forEach(({ track, owned }) => {
+      if (owned && typeof track.stop === 'function') {
+        try { track.stop(); } catch (e) {}
+      }
+    });
+    this.recordingTracks = [];
+    this.recordingStream = null;
+  }
+
+  /**
+   * Força o descarregamento imediato de dados em buffer no MediaRecorder ativo
+   * @param {number} [timeoutMs=1000]
+   * @returns {Promise<void>}
+   */
+  async flushPendingData(timeoutMs = 1000) {
+    if (!this.mediaRecorder || this.mediaRecorder.state !== 'recording') return;
+    if (typeof this.mediaRecorder.requestData !== 'function') return;
+
+    return new Promise((resolve, reject) => {
+      let timer = null;
+      let done = false;
+      const media = this.mediaRecorder;
+
+      const origOnData = media.ondataavailable;
+      const wrappedOnData = (e) => {
+        if (typeof origOnData === 'function') {
+          try { origOnData(e); } catch (_) {}
+        }
+        onData();
+      };
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        if (typeof media.removeEventListener === 'function') {
+          media.removeEventListener('dataavailable', onData);
+        }
+        if (media.ondataavailable === wrappedOnData) {
+          media.ondataavailable = origOnData;
+        }
+      };
+
+      const onData = () => {
+        if (done) return;
+        done = true;
+        cleanup();
+        resolve();
+      };
+
+      const onTimeout = () => {
+        if (done) return;
+        done = true;
+        cleanup();
+        reject(new Error('Tempo limite aguardando flush do MediaRecorder'));
+      };
+
+      if (typeof media.addEventListener === 'function') {
+        media.addEventListener('dataavailable', onData);
+      } else {
+        media.ondataavailable = wrappedOnData;
+      }
+
+      try {
+        media.requestData();
+      } catch (err) {
+        cleanup();
+        reject(err);
+        return;
+      }
+
+      timer = setTimeout(onTimeout, timeoutMs);
+    });
   }
 
   /**
    * Exporta o clipe gravado dos últimos segundos em arquivo para download
    * @param {string} [customFilename]
-   * @returns {Blob|null}
+   * @returns {Blob|Promise<Blob>|null}
    */
   exportClip(customFilename = null) {
     if (!this.chunks || this.chunks.length === 0) {
       return null;
     }
 
-    const rawBlobs = this.chunks.map(item => item.blob);
-    const clipBlob = new Blob(rawBlobs, { type: this.mimeType || 'video/webm' });
+    const orderedChunks = [...this.chunks].sort((a, b) => a.timestamp - b.timestamp || (a.sequence || 0) - (b.sequence || 0));
+    const actualMimeType = this.mediaRecorder?.mimeType || this.mimeType || 'video/webm';
+    const cutoff = Date.now() - (this.maxDurationSeconds * 1000);
+
+    // MediaRecorder's first WebM chunk contains both the EBML/track header
+    // and the first Cluster. Keeping that whole chunk forever resurrects old
+    // frames in a long-running replay. Removing the obsolete Cluster must be
+    // asynchronous because Blob bytes are only available through
+    // arrayBuffer() in the browser.
+    const staleInitializationChunk = this.initializationChunk &&
+      this.initializationChunk.timestamp < cutoff && actualMimeType.includes('webm');
+    if (staleInitializationChunk) {
+      return this._exportWithoutStaleInitializationCluster(
+        orderedChunks,
+        cutoff,
+        actualMimeType,
+        customFilename
+      );
+    }
+
+    return this._finalizeExport(orderedChunks.map(item => item.blob), actualMimeType, customFilename);
+  }
+
+  async _exportWithoutStaleInitializationCluster(orderedChunks, cutoff, actualMimeType, customFilename) {
+    const initialization = this.initializationChunk;
+    const initializationBytes = new Uint8Array(await initialization.blob.arrayBuffer());
+    const clusterMarker = new Uint8Array([0x1f, 0x43, 0xb6, 0x75]);
+    let clusterOffset = -1;
+    for (let index = 0; index <= initializationBytes.length - clusterMarker.length; index += 1) {
+      let matches = true;
+      for (let markerIndex = 0; markerIndex < clusterMarker.length; markerIndex += 1) {
+        if (initializationBytes[index + markerIndex] !== clusterMarker[markerIndex]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        clusterOffset = index;
+        break;
+      }
+    }
+
+    if (clusterOffset < 0) {
+      // A pure initialization chunk has no media payload to remove.
+      return this._finalizeExport(
+        [initialization.blob, ...orderedChunks
+          .filter(item => item !== initialization && item.timestamp >= cutoff)
+          .map(item => item.blob)],
+        actualMimeType,
+        customFilename
+      );
+    }
+
+    const header = initializationBytes.slice(0, clusterOffset);
+    const recentBlobs = orderedChunks
+      .filter(item => item !== initialization && item.timestamp >= cutoff)
+      .map(item => item.blob);
+    return this._finalizeExport([header, ...recentBlobs], actualMimeType, customFilename);
+  }
+
+  _finalizeExport(rawBlobs, actualMimeType, customFilename) {
+    const clipBlob = new Blob(rawBlobs, { type: actualMimeType });
 
     const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const filename = customFilename || `SeeMyGame-Clip-${dateStr}.webm`;
+    const extension = actualMimeType.includes('mp4') ? 'mp4' : 'webm';
+    const filename = customFilename || `SeeMyGame-Clip-${dateStr}.${extension}`;
 
     clipBlob.fileName = filename;
     clipBlob.blob = clipBlob;
@@ -134,23 +332,150 @@ export class ClipRecorder {
    * Encerra a gravação e limpa o buffer
    */
   stop() {
-    if (this.mediaRecorder) {
+    const recorder = this.mediaRecorder;
+    this._recordingGeneration++;
+    this.mediaRecorder = null;
+    if (recorder) {
       try {
-        if (this.mediaRecorder.state !== 'inactive') {
-          this.mediaRecorder.stop();
+        if (recorder.state !== 'inactive') {
+          recorder.stop();
         }
       } catch (e) {}
-      this.mediaRecorder = null;
     }
     this.isRecording = false;
     this.stream = null;
+    this._releaseRecordingTracks();
   }
 
   clear() {
     this.chunks = [];
+    this.initializationChunk = null;
     this.lastClipBlob = null;
     this.lastClipFileName = null;
   }
 }
 
-export const clipRecorder = new ClipRecorder();
+/**
+ * Mantém um buffer independente por cartão de vídeo. Um singleton único não
+ * é suficiente quando o espectador acompanha dois hosts (ou a própria
+ * transmissão e um host) ao mesmo tempo: cada MediaRecorder precisa manter
+ * seus próprios cabeçalhos, timestamps e janela circular.
+ */
+export class ClipRecorderRegistry {
+  constructor(options = {}) {
+    this.options = options;
+    this.recorders = new Map();
+    this.activeSourceId = null;
+    this._compatRecordingOverride = null;
+  }
+
+  _normalizeSourceId(sourceId = 'default') {
+    return sourceId === null || sourceId === undefined || sourceId === ''
+      ? 'default'
+      : String(sourceId);
+  }
+
+  getRecorder(sourceId = null) {
+    if (sourceId !== null && sourceId !== undefined && sourceId !== '') {
+      const normalized = String(sourceId);
+      const found = this.recorders.get(normalized);
+      if (found) return found;
+    }
+
+    if (this.activeSourceId && this.recorders.has(this.activeSourceId)) {
+      return this.recorders.get(this.activeSourceId);
+    }
+
+    for (const recorder of this.recorders.values()) {
+      if (recorder && recorder.isRecording) return recorder;
+    }
+
+    return this.recorders.values().next().value || null;
+  }
+
+  get isRecording() {
+    if (this._compatRecordingOverride !== null) return this._compatRecordingOverride;
+    return Array.from(this.recorders.values()).some((recorder) => recorder.isRecording);
+  }
+
+  // Kept for compatibility with integrations that used the original
+  // singleton in tests or UI adapters.
+  set isRecording(value) {
+    this._compatRecordingOverride = Boolean(value);
+    const active = this.getRecorder();
+    if (active) active.isRecording = Boolean(value);
+  }
+
+  get chunks() {
+    return this.getRecorder()?.chunks || [];
+  }
+
+  get mediaRecorder() {
+    return this.getRecorder()?.mediaRecorder || null;
+  }
+
+  start(stream, sourceId = 'default') {
+    const id = this._normalizeSourceId(sourceId);
+    const previous = this.recorders.get(id);
+    previous?.stop();
+
+    const recorder = new ClipRecorder(this.options);
+    if (!recorder.start(stream)) return false;
+
+    this.recorders.set(id, recorder);
+    this.activeSourceId = id;
+    this._compatRecordingOverride = null;
+    return true;
+  }
+
+  isRecordingFor(sourceId) {
+    return Boolean(this.recorders.get(this._normalizeSourceId(sourceId))?.isRecording);
+  }
+
+  stop(sourceId = null) {
+    if (sourceId === null || sourceId === undefined) {
+      this.recorders.forEach((recorder) => recorder.stop());
+      this.recorders.clear();
+      this.activeSourceId = null;
+      this._compatRecordingOverride = false;
+      return;
+    }
+
+    const id = this._normalizeSourceId(sourceId);
+    const recorder = this.recorders.get(id);
+    recorder?.stop();
+    this.recorders.delete(id);
+    if (this.activeSourceId === id) {
+      this.activeSourceId = this.recorders.keys().next().value || null;
+    }
+  }
+
+  async exportClip(customFilename = null, sourceId = null) {
+    const recorder = this.getRecorder(sourceId);
+    if (!recorder) return null;
+    await recorder.flushPendingData();
+    return recorder.exportClip(customFilename);
+  }
+
+  async exportClipFor(sourceId, customFilename = null) {
+    return this.exportClip(customFilename, sourceId);
+  }
+
+  getRecentClipBlob(sourceId = null) {
+    return this.getRecorder(sourceId)?.getRecentClipBlob() || null;
+  }
+
+  hasRecentClip(sourceId = null) {
+    return Boolean(this.getRecorder(sourceId)?.hasRecentClip());
+  }
+
+  clear(sourceId = null) {
+    if (sourceId === null || sourceId === undefined) {
+      this.recorders.forEach((recorder) => recorder.clear());
+      return;
+    }
+    this.getRecorder(sourceId)?.clear();
+  }
+}
+
+export const clipRecorder = new ClipRecorderRegistry();

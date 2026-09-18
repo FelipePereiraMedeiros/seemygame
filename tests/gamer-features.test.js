@@ -51,6 +51,7 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
 
       <div id="clip-post-modal" style="display: none;">
         <button id="clip-post-close-btn">✕</button>
+        <video id="clip-preview-video"></video>
         <button id="clip-download-video-btn">Baixar Vídeo</button>
         <span id="clip-audio-status"></span>
         <input type="range" id="clip-trim-start-slider" value="0">
@@ -424,6 +425,17 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
       clipRecorder.isRecording = false;
     });
 
+    it('pressionar a tecla C deve acionar #clip-btn quando a gravação estiver ativa', async () => {
+      initGamerFeatures();
+      const clipBtn = document.getElementById('clip-btn');
+      clipBtn.style.display = 'inline-flex';
+      const clickSpy = vi.spyOn(clipBtn, 'click');
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true }));
+
+      expect(clickSpy).toHaveBeenCalled();
+    });
+
     it('clique em #pip-btn deve invocar requestPictureInPicture no vídeo', async () => {
       initGamerFeatures();
       const pipBtn = document.getElementById('pip-btn');
@@ -512,6 +524,18 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
       expect(modal.style.display).toBe('flex');
       closeClipPostModal();
       expect(modal.style.display).toBe('none');
+    });
+
+    it('openClipPostModal deve carregar preview no elemento <video> e closeClipPostModal deve pausar e limpar', async () => {
+      const fakeBlob = new Blob(['clip-video-content'], { type: 'video/webm' });
+      const previewVideo = document.getElementById('clip-preview-video');
+      await openClipPostModal(fakeBlob);
+      expect(previewVideo.src).toBeTruthy();
+      expect(previewVideo._blobUrl).toBeTruthy();
+
+      closeClipPostModal();
+      expect(previewVideo.pause).toHaveBeenCalled();
+      expect(previewVideo._blobUrl).toBeNull();
     });
   });
 

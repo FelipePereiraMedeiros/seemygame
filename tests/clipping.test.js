@@ -123,4 +123,29 @@ describe('Módulo: clipping.js (ClipRecorder)', () => {
     expect(recorder.isRecording).toBe(false);
     expect(recorder.stream).toBeNull();
   });
+
+  it('deve selecionar MIME type sem áudio se o stream não tiver trilhas de áudio', () => {
+    const recorder = new ClipRecorder();
+    const mimeWithAudio = recorder._resolveSupportedMimeType(true);
+    const mimeVideoOnly = recorder._resolveSupportedMimeType(false);
+
+    expect(mimeWithAudio).toContain('opus');
+    expect(mimeVideoOnly).not.toContain('opus');
+  });
+
+  it('flushPendingData deve chamar requestData no MediaRecorder ativo', async () => {
+    const recorder = new ClipRecorder();
+    const mockStream = { id: 'test', getTracks: () => [], getAudioTracks: () => [] };
+    recorder.start(mockStream);
+
+    const instance = MockMediaRecorder.lastInstance;
+    instance.requestData = vi.fn(() => {
+      instance.emitData(new Blob(['flushed-data']));
+    });
+
+    await recorder.flushPendingData();
+    expect(instance.requestData).toHaveBeenCalled();
+    expect(recorder.chunks.length).toBe(1);
+  });
 });
+

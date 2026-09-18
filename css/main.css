@@ -704,3 +704,98 @@ footer a:hover {
   min-width: 0;
 }
 
+/*
+   Landing page desktop viewport fit
+   The native window opens maximized/fullscreen, so the lobby should use the
+   available viewport instead of making the whole WebView scroll. Small
+   screens retain normal document scrolling below.
+*/
+.landing-page {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px 16px 6px;
+}
+
+.landing-page .portal-container {
+  flex: 1;
+  min-height: 0;
+  margin: 14px auto 8px;
+  gap: 18px;
+}
+
+.landing-page .portal-hero h1 {
+  font-size: 2rem;
+  margin-bottom: 6px;
+}
+
+.landing-page .portal-hero p {
+  font-size: 0.98rem;
+  line-height: 1.4;
+}
+
+.landing-page .portal-lobby {
+  margin: 0 auto !important;
+  padding: 18px !important;
+}
+
+.landing-page .portal-lobby > p {
+  margin-bottom: 10px !important;
+}
+
+.landing-page .portal-lobby > div {
+  gap: 10px !important;
+}
+
+.landing-page .portal-lobby > div > div[style*="margin: 8px 0"] {
+  margin: 4px 0 !important;
+}
+
+.landing-page .mode-cards-container {
+  gap: 16px;
+}
+
+.landing-page .mode-card {
+  padding: 20px 22px;
+}
+
+.landing-page .mode-card-icon {
+  width: 48px;
+  height: 48px;
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+
+.landing-page .mode-card h2 {
+  font-size: 1.25rem;
+  margin-bottom: 7px;
+}
+
+.landing-page .mode-card p {
+  margin-bottom: 12px;
+}
+
+.landing-page .mode-features {
+  gap: 6px;
+  margin-bottom: 0;
+}
+
+.landing-page footer {
+  padding: 2px 0 0;
+}
+
+/* The configured minimum native window is intentionally allowed to scroll. */
+@media (max-width: 768px), (max-height: 760px) {
+  .landing-page {
+    height: auto;
+    min-height: 100dvh;
+    overflow-y: auto;
+  }
+
+  .landing-page .portal-container {
+    flex: none;
+    margin: 24px auto 20px;
+    gap: 24px;
+  }
+}
+

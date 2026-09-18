@@ -4,6 +4,30 @@
 
 export const TERMS_VERSION = '1.1';
 export const MAX_VIEWERS_DEFAULT = 4;
+export const PUBLIC_WEB_ORIGIN = 'https://seemygame.vercel.app';
+
+/**
+ * Returns the canonical origin that another person can actually open. Tauri
+ * serves the UI from a localhost/asset origin, which must never leak into an
+ * invitation. A deployment can override the public origin explicitly without
+ * changing the bundle.
+ */
+export function getPublicOrigin() {
+  const configured = typeof window !== 'undefined' && typeof localStorage !== 'undefined'
+    ? localStorage.getItem('seemygame_public_origin')
+    : null;
+  const candidate = configured || (typeof window !== 'undefined' ? window.__SEEMYGAME_PUBLIC_ORIGIN__ : null);
+  if (candidate) {
+    try {
+      const url = new URL(candidate);
+      if (url.protocol === 'https:' && url.hostname && !url.username && !url.password && !url.search && !url.hash) {
+        return url.origin;
+      }
+    } catch (e) {}
+  }
+
+  return PUBLIC_WEB_ORIGIN;
+}
 
 export const ROOM_MODES = {
   PUBLIC: 'public',
@@ -41,6 +65,45 @@ export const DEFAULT_ICE_SERVERS = [
   }
 ];
 
+const PUBLIC_STUN_ICE_SERVERS = DEFAULT_ICE_SERVERS.filter((server) =>
+  (Array.isArray(server.urls) ? server.urls : [server.urls])
+    .every((url) => /^stun:/i.test(url))
+);
+
+function isProductionWebOrigin() {
+  if (typeof window === 'undefined' || !window.location) return false;
+  const { protocol, hostname } = window.location;
+  return protocol === 'https:' && !/^(localhost|127\.0\.0\.1|::1)$/i.test(hostname || '');
+}
+
+function getStaticFallbackIceServers() {
+  return isProductionWebOrigin() ? PUBLIC_STUN_ICE_SERVERS : DEFAULT_ICE_SERVERS;
+}
+
+function getRuntimeTurnAccessToken() {
+  if (typeof window === 'undefined') return '';
+  const configured = window.__SEEMYGAME_TURN_ACCESS_TOKEN__;
+  if (typeof configured === 'string' && configured.length <= 512) return configured;
+  try {
+    const stored = localStorage.getItem('seemygame_turn_access_token');
+    return typeof stored === 'string' && stored.length <= 512 ? stored : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function getTurnEndpoint() {
+  if (typeof window !== 'undefined' && window.location) {
+    const { hostname } = window.location;
+    // The Tauri WebView is served from tauri.localhost. Its relative /api
+    // route is not a Vercel function, so point it at the public deployment.
+    if (/^tauri\.localhost$/i.test(hostname || '')) {
+      return `${getPublicOrigin()}/api/turn`;
+    }
+  }
+  return '/api/turn';
+}
+
 // Configurações de STUN/ICE para PeerJS
 export const PEER_CONFIG = {
   config: {
@@ -51,29 +114,100 @@ export const PEER_CONFIG = {
 };
 
 let dynamicIceServers = null;
+let dynamicIceServersExpiresAt = 0;
+let dynamicIceFetchPromise = null;
+const DYNAMIC_ICE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutos de TTL
+
+function isValidIceUrl(url) {
+  if (typeof url !== 'string' || url.length > 2048) return false;
+  return /^(stun|turn|turns):[^\s]+$/i.test(url.trim());
+}
+
+function normalizeIceServers(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value.reduce((servers, item) => {
+    if (!item || typeof item !== 'object') return servers;
+    const urls = Array.isArray(item.urls)
+      ? item.urls.filter(isValidIceUrl).map((url) => url.trim())
+      : (isValidIceUrl(item.urls) ? item.urls.trim() : null);
+    if (!urls || (Array.isArray(urls) && urls.length === 0)) return servers;
+
+    const server = { urls };
+    if (typeof item.username === 'string' && item.username.length <= 512) {
+      server.username = item.username;
+    }
+    if (typeof item.credential === 'string' && item.credential.length <= 2048) {
+      server.credential = item.credential;
+    }
+    servers.push(server);
+    return servers;
+  }, []);
+}
 
 /**
- * Consulta a rota serverless /api/turn para obter servidores ICE dinâmicos (STUN/TURN)
+ * Consulta a rota serverless /api/turn para obter servidores ICE dinâmicos (STUN/TURN) com timeout e cache TTL
+ * @param {number} [timeoutMs=3500]
  * @returns {Promise<Array>}
  */
-export async function fetchIceServersFromApi() {
-  if (dynamicIceServers) return dynamicIceServers;
-
-  try {
-    const res = await fetch('/api/turn');
-    if (res.ok) {
-      const data = await res.json();
-      if (data && Array.isArray(data.iceServers) && data.iceServers.length > 0) {
-        dynamicIceServers = data.iceServers;
-        console.log('[ICE/TURN] Servidores STUN/TURN dinâmicos carregados:', dynamicIceServers.length);
-        return dynamicIceServers;
-      }
-    }
-  } catch (err) {
-    console.info('[ICE/TURN] /api/turn não acessível (modo estático), usando servidores ICE padrão.');
+export async function fetchIceServersFromApi(timeoutMs = 3500) {
+  const now = Date.now();
+  if (dynamicIceServers && now < dynamicIceServersExpiresAt) {
+    return dynamicIceServers;
   }
 
-  return DEFAULT_ICE_SERVERS;
+  // Only one request may establish the cache. Peer initialization can be
+  // triggered by both the terms dialog and DOMContentLoaded at the same time.
+  if (dynamicIceFetchPromise) return dynamicIceFetchPromise;
+
+  dynamicIceFetchPromise = (async () => {
+    const requestStartedAt = Date.now();
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+    try {
+      const fetchOptions = controller ? { signal: controller.signal } : {};
+      const accessToken = getRuntimeTurnAccessToken();
+      const headers = accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+      const res = await fetch(getTurnEndpoint(), { ...fetchOptions, headers });
+
+      if (res.ok) {
+        const data = await res.json();
+        const normalized = normalizeIceServers(data?.iceServers);
+        if (normalized.length > 0) {
+          dynamicIceServers = normalized;
+          dynamicIceServersExpiresAt = requestStartedAt + DYNAMIC_ICE_CACHE_TTL_MS;
+          console.log('[ICE/TURN] Servidores STUN/TURN dinâmicos carregados:', dynamicIceServers.length);
+          return dynamicIceServers;
+        }
+      }
+    } catch (err) {
+      console.info('[ICE/TURN] /api/turn não acessível ou timeout (modo estático), usando servidores ICE padrão.');
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+
+    // Cache the fallback too, otherwise every reconnection would start a new
+    // TURN request even though the static configuration is already valid.
+    dynamicIceServers = getStaticFallbackIceServers();
+    dynamicIceServersExpiresAt = requestStartedAt + DYNAMIC_ICE_CACHE_TTL_MS;
+    return dynamicIceServers;
+  })();
+
+  try {
+    return await dynamicIceFetchPromise;
+  } finally {
+    dynamicIceFetchPromise = null;
+  }
+}
+
+export function _resetDynamicIceCache() {
+  dynamicIceServers = null;
+  dynamicIceServersExpiresAt = 0;
+}
+
+export function getPendingIceServersPromise() {
+  return dynamicIceFetchPromise;
 }
 
 /**
@@ -81,7 +215,7 @@ export async function fetchIceServersFromApi() {
  * @returns {Object}
  */
 export function getPeerConfig(customServers = null) {
-  const servers = customServers || dynamicIceServers || DEFAULT_ICE_SERVERS;
+  const servers = customServers || dynamicIceServers || getStaticFallbackIceServers();
   return {
     config: {
       ...PEER_CONFIG.config,

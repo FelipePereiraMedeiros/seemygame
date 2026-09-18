@@ -7,7 +7,8 @@ import {
   DEFAULT_BITRATE_BPS,
   MAX_VIEWERS_DEFAULT,
   ROOM_MODES,
-  TERMS_VERSION
+  TERMS_VERSION,
+  getPendingIceServersPromise
 } from './config.js';
 import { 
   hookPeerConnectionSdp, 
@@ -45,11 +46,27 @@ import {
 import {
   isDesktopApp,
   getCapturableWindows,
-  setHighPriority
+  getCapturableSources,
+  getNativeCaptureCapabilities,
+  setHighPriority,
+  createNativeViewerPeer,
+  addNativeViewerIceCandidate,
+  closeNativeViewerPeer,
+  listenNativeCaptureBridge
 } from './desktop.js';
+import { NativeCaptureProvider } from './capture.js';
 import { chatManager } from './chat.js';
 import { voiceManager } from './voice.js';
 import { DiscordUIController } from './discord-ui.js';
+import {
+  getAudioDevices,
+  populateDeviceSelect,
+  playTestTone,
+  watchDeviceChanges,
+  getSavedAudioPreferences,
+  saveAudioPreference,
+  isAudioOutputSupported
+} from './audio-devices.js';
 import { clipRecorder } from './clipping.js';
 import { tacticalPingManager } from './ping.js';
 import { floatingReactionsManager } from './reactions.js';
@@ -112,6 +129,7 @@ let localStream = null;
 let isStartingStream = false;
 let capturedSystemAudioTrack = null;
 let capturedMicStream = null;
+let activeNativeCaptureProvider = null;
 
 // Conexões ativas
 const connectedViewers = new Map(); // PeerId -> DataConnection
@@ -119,6 +137,13 @@ const activeMediaCalls = new Map(); // PeerId -> MediaConnection
 const activeVoiceCalls = new Map(); // PeerId -> MediaConnection (Voz)
 const watchingHosts = new Map();    // HostId -> { state: 'CONNECTING'|'CONNECTED'|'CANCELLED'|'CLOSED', conn, call, timeoutTimer }
 export let discordUI = null;
+
+// Stream direto GStreamer / webrtcbin (Alternativa 1)
+const directViewerPeerConnections = new Map(); // HostId -> RTCPeerConnection (no espectador)
+const directPendingCandidates = new Map();     // HostId -> Array de candidatos ICE (no espectador)
+const activeNativeViewerPeers = new Set();     // ViewerId -> Set de peers com ponte ativa no Rust (no transmissor)
+const activeDirectSignaling = new Set();       // ViewerId -> Set de peers em negociação (no transmissor)
+let unlistenNativeBridge = null;
 
 // Reconexão exponencial
 let reconnectAttempts = 0;
@@ -211,6 +236,17 @@ export function setStoredRoomPin(newPin) {
   }
 }
 
+export function isPeerAuthorizedForMedia(peerId) {
+  if (!peerId) return false;
+  if (isRoomMode()) {
+    return Boolean(roomManager && roomManager.isPeerAuthorized(peerId));
+  }
+  if (!connectedViewers.has(peerId)) return false;
+  const hostPin = getStoredRoomPin();
+  if (!hostPin) return true;
+  return authenticatedViewers.has(peerId);
+}
+
 export function promptViewerPin(targetId, errorMsg = null) {
   currentPinTargetId = targetId;
   if (pinPromptModal) {
@@ -251,6 +287,39 @@ export function submitViewerPin(pin) {
     }
     return;
   }
+
+  if (isRoomMode() && roomManager && !roomManager.isMaster) {
+    let masterConn = roomManager.pendingConnections.get(roomManager.masterPeerId) ||
+                     roomManager.meshConnections.get(roomManager.masterPeerId) ||
+                     connectedViewers.get(roomManager.masterPeerId);
+    if (!masterConn || !masterConn.open) {
+      if (peer && !peer.destroyed) {
+        masterConn = peer.connect(roomManager.masterPeerId, { reliable: true });
+        setupIncomingDataConnection(masterConn);
+        masterConn.on('open', () => {
+          masterConn.send({
+            type: 'ROOM_JOIN_REQUEST',
+            name: roomManager.userName,
+            pin: trimmed,
+            isMuted: voiceManager?.isMuted || false,
+            isDeafened: voiceManager?.isDeafened || false,
+            isStreaming: false
+          });
+        });
+      }
+      return;
+    }
+    masterConn.send({
+      type: 'ROOM_JOIN_REQUEST',
+      name: roomManager.userName,
+      pin: trimmed,
+      isMuted: voiceManager?.isMuted || false,
+      isDeafened: voiceManager?.isDeafened || false,
+      isStreaming: false
+    });
+    return;
+  }
+
   if (currentPinTargetId) {
     const hostData = watchingHosts.get(currentPinTargetId);
     if (hostData && hostData.conn && hostData.conn.open) {
@@ -545,6 +614,9 @@ export function setupRoomSession(id) {
         }
       }
     });
+    if (typeof window !== 'undefined') {
+      window.roomManager = roomManager;
+    }
 
     roomManager.on('streamPublished', ({ peerId, details, member }) => {
       if (peerId !== myId) {
@@ -559,6 +631,48 @@ export function setupRoomSession(id) {
       if (peerId !== myId) {
         showToast(`Transmissão de ${member?.name || peerId.slice(0, 6)} encerrada.`, 'info');
         disconnectHost(peerId);
+      }
+    });
+
+    roomManager.on('pinRequired', ({ error }) => {
+      promptViewerPin(masterId, error || 'Esta sala requer PIN para entrada.');
+    });
+
+    roomManager.on('pinAccepted', () => {
+      hideViewerPinModal();
+      showToast('Entrada na sala autorizada!', 'success');
+    });
+
+    roomManager.on('joinRejected', ({ error }) => {
+      if (pinPromptModal && pinPromptModal.style.display === 'flex' && viewerPinError) {
+        viewerPinError.textContent = error || 'Acesso recusado pelo coordenador da sala.';
+        viewerPinError.style.display = 'block';
+      } else {
+        showToast(error || 'Não foi possível ingressar na sala.', 'error');
+      }
+    });
+
+    roomManager.on('memberJoined', (member) => {
+      if (member && member.peerId && member.peerId !== myId) {
+        if (localStream && isPeerAuthorizedForMedia(member.peerId)) {
+          authenticatedViewers.add(member.peerId);
+          initiateMediaCallToViewer(member.peerId);
+          const conn = connectedViewers.get(member.peerId) || roomManager.meshConnections.get(member.peerId);
+          conn?.send?.({ type: 'STREAM_STATUS', isStreaming: true });
+        }
+      }
+    });
+
+    roomManager.on('memberLeft', (member) => {
+      if (member && member.peerId) {
+        authenticatedViewers.delete(member.peerId);
+        activeDirectSignaling.delete(member.peerId);
+        activeNativeViewerPeers.delete(member.peerId);
+        const call = activeMediaCalls.get(member.peerId);
+        if (call) {
+          try { call.close(); } catch (_) {}
+          activeMediaCalls.delete(member.peerId);
+        }
       }
     });
   }
@@ -595,7 +709,7 @@ export function setupRoomSession(id) {
   }, 400);
 
   // Se não for master, conecta ao master da sala para solicitar entrada
-  if (!isMaster) {
+  if (!isMaster && peer) {
     const masterConn = peer.connect(masterId, { reliable: true });
     masterConn.on('open', () => {
       masterConn.send({
@@ -629,10 +743,11 @@ export function setupRoomSession(id) {
   if (shareLinkBtn) {
     shareLinkBtn.style.display = 'inline-flex';
     shareLinkBtn.onclick = async () => {
-      const shareUrl = `${window.location.origin}${window.location.pathname}#room=${encodeURIComponent(roomId)}`;
+      const pinParam = (roomManager && roomManager.roomPin) ? `&pin=${encodeURIComponent(roomManager.roomPin)}` : '';
+      const shareUrl = `${window.location.origin}${window.location.pathname}#room=${encodeURIComponent(roomId)}${pinParam}`;
       try {
         await navigator.clipboard.writeText(shareUrl);
-        showToast('Link da sala copiado!', 'success');
+        showToast(pinParam ? 'Link da sala (com PIN) copiado!' : 'Link da sala copiado!', 'success');
       } catch (err) {
         showToast(`Link: ${shareUrl}`, 'info');
       }
@@ -643,11 +758,19 @@ export function setupRoomSession(id) {
 export function initPeer() {
   if (typeof Peer === 'undefined') {
     showToast('Erro: Biblioteca PeerJS não carregada.', 'error');
-    return;
+    return null;
+  }
+
+  const pendingIce = getPendingIceServersPromise();
+  if (pendingIce) {
+    pendingIce.finally(() => {
+      initPeer();
+    });
+    return null;
   }
 
   if (peer && !peer.destroyed && !peer.disconnected) {
-    return;
+    return peer;
   }
 
   const inRoom = isRoomMode();
@@ -730,8 +853,8 @@ export function initPeer() {
       };
     }
 
-    // Copiar Link direto para a página do espectador
-    if (shareLinkBtn) {
+    // Copiar Link direto para a página do espectador (apenas fora do modo sala)
+    if (shareLinkBtn && !inRoom) {
       shareLinkBtn.onclick = async () => {
         let basePath = window.location.pathname;
         if (basePath.endsWith('.html')) {
@@ -878,6 +1001,8 @@ export function initPeer() {
       showToast(`Erro P2P: ${err.type || err.message}`, 'error');
     }
   });
+
+  return peer;
 }
 
 // ==========================================
@@ -885,9 +1010,15 @@ export function initPeer() {
 // ==========================================
 
 export function broadcastDataMessage(payload, excludePeerId = null) {
-  // Transmissor envia para todos os espectadores conectados
+  if (roomManager) {
+    return roomManager.broadcast(payload, excludePeerId);
+  }
+
+  const hostPin = getStoredRoomPin();
+  // Transmissor envia para todos os espectadores conectados e autorizados
   connectedViewers.forEach((conn, peerId) => {
     if (peerId !== excludePeerId && conn && conn.open) {
+      if (hostPin && !authenticatedViewers.has(peerId)) return;
       try {
         conn.send(payload);
       } catch (e) {}
@@ -902,27 +1033,14 @@ export function broadcastDataMessage(payload, excludePeerId = null) {
       } catch (e) {}
     }
   });
-
-  // Se estivermos em sala P2P (RoomManager), faz broadcast para todos na malha
-  if (roomManager) {
-    roomManager.broadcast(payload, excludePeerId);
-  }
 }
 
 export function setupVoiceMediaCall(call, remotePeerId) {
   if (!call) return;
   activeVoiceCalls.set(remotePeerId, call);
 
-  call.on('stream', (remoteVoiceStream) => {
-    const isHost = !window.location.pathname.endsWith('viewer.html');
-    const role = call.metadata?.role || (isHost ? 'viewer' : 'host');
-    const name = call.metadata?.name || (isHost ? `Amigo ${remotePeerId.slice(0, 4)}` : 'Streamer');
-
-    voiceManager.addRemoteParticipant(remotePeerId, {
-      name,
-      role,
-      stream: remoteVoiceStream,
-    });
+  call.on('stream', (remoteAudioStream) => {
+    voiceManager.addRemoteParticipant(remotePeerId, remoteAudioStream);
   });
 
   call.on('close', () => {
@@ -931,7 +1049,7 @@ export function setupVoiceMediaCall(call, remotePeerId) {
   });
 
   call.on('error', (err) => {
-    console.warn(`[Voice Call Error] com ${remotePeerId}:`, err);
+    console.error(`Erro na chamada de voz com ${remotePeerId}:`, err);
     voiceManager.removeRemoteParticipant(remotePeerId);
     activeVoiceCalls.delete(remotePeerId);
   });
@@ -939,7 +1057,7 @@ export function setupVoiceMediaCall(call, remotePeerId) {
 
 export function handleIncomingVoiceCall(call) {
   const remotePeerId = call.peer;
-  const isAuthorized = connectedViewers.has(remotePeerId) || watchingHosts.has(remotePeerId);
+  const isAuthorized = isPeerAuthorizedForMedia(remotePeerId) || watchingHosts.has(remotePeerId);
   if (!isAuthorized) {
     console.warn(`Chamada de voz não autorizada rejeitada de: ${remotePeerId}`);
     try { call.close(); } catch (e) {}
@@ -951,8 +1069,22 @@ export function handleIncomingVoiceCall(call) {
   setupVoiceMediaCall(call, remotePeerId);
 }
 
+export const seenMessageIds = new Set();
+export function isDuplicateMessage(msgId) {
+  if (!msgId) return false;
+  if (seenMessageIds.has(msgId)) return true;
+  if (seenMessageIds.size > 2000) {
+    const first = seenMessageIds.values().next().value;
+    seenMessageIds.delete(first);
+  }
+  seenMessageIds.add(msgId);
+  return false;
+}
+
 export function handleIncomingP2PMessage(data, sourceConn) {
   if (!data || typeof data !== 'object') return;
+  const msgId = data.msgId || data.message?.id;
+  if (msgId && isDuplicateMessage(msgId)) return;
 
   if (data.type === 'CHAT_MESSAGE') {
     if (data.message) {
@@ -985,6 +1117,10 @@ export function handleIncomingP2PMessage(data, sourceConn) {
         activeVoiceCalls.delete(data.peerId);
       }
     } else if (data.action === 'HOST_VOICE_ACTIVE') {
+      if (sourceConn?.peer && data.peerId && data.peerId !== sourceConn.peer) {
+        console.warn(`[VOICE_SIGNAL] Rejeitando peerId forjado: ${data.peerId} vindo de ${sourceConn.peer}`);
+        return;
+      }
       showToast('O Streamer está na sala de voz!', 'info');
       if (voiceManager.isInVoice && peer) {
         const call = peer.call(data.peerId, voiceManager.localStream, {
@@ -1115,6 +1251,98 @@ export function handleIncomingP2PMessage(data, sourceConn) {
   }
 }
 
+export let tuningAudioControls = null;
+
+export async function initTuningAudioDeviceControls() {
+  const micSelect = document.getElementById('tuning-mic-select');
+  const speakerSelect = document.getElementById('tuning-speaker-select');
+  const testSpeakerBtn = document.getElementById('tuning-test-speaker-btn');
+  const speakerNote = document.getElementById('tuning-speaker-note');
+
+  if (!micSelect && !speakerSelect) return null;
+
+  const supportsOutput = isAudioOutputSupported();
+  if (speakerNote) {
+    if (!supportsOutput) {
+      speakerNote.textContent = 'Seleção de saída não suportada neste navegador (usando padrão do sistema).';
+    } else {
+      speakerNote.textContent = '';
+    }
+  }
+  if (speakerSelect && !supportsOutput) {
+    speakerSelect.disabled = true;
+  }
+  if (testSpeakerBtn && !supportsOutput) {
+    testSpeakerBtn.disabled = true;
+  }
+
+  async function refreshDevices(requestPermission = false) {
+    const { microphones, speakers } = await getAudioDevices(requestPermission);
+    const prefs = getSavedAudioPreferences();
+
+    if (micSelect) {
+      const currentMicId = micSelect.value || prefs.inputId || (voiceManager?.selectedMicId) || '';
+      populateDeviceSelect(micSelect, microphones, currentMicId, 'Microfone Padrão do Sistema');
+    }
+
+    if (speakerSelect && supportsOutput) {
+      const currentSpeakerId = speakerSelect.value || prefs.outputId || (voiceManager?.selectedSpeakerId) || '';
+      populateDeviceSelect(speakerSelect, speakers, currentSpeakerId, 'Alto-falante Padrão do Sistema');
+    }
+  }
+
+  // Preenche inicialmente os selects de áudio
+  await refreshDevices(false);
+
+  // Monitora alterações físicas de dispositivos (conectar/desconectar fones)
+  watchDeviceChanges(() => {
+    refreshDevices(false).catch(() => {});
+  });
+
+  if (micSelect) {
+    micSelect.addEventListener('change', async () => {
+      const deviceId = micSelect.value;
+      saveAudioPreference('input', deviceId);
+      if (voiceManager) {
+        await voiceManager.setAudioInputDevice(deviceId).catch((err) => {
+          console.warn('[AudioDevices] Falha ao alternar microfone no voiceManager:', err);
+        });
+      }
+    });
+  }
+
+  if (speakerSelect && supportsOutput) {
+    speakerSelect.addEventListener('change', async () => {
+      const deviceId = speakerSelect.value;
+      saveAudioPreference('output', deviceId);
+      if (voiceManager) {
+        await voiceManager.setAudioOutputDevice(deviceId).catch((err) => {
+          console.warn('[AudioDevices] Falha ao alternar saída no voiceManager:', err);
+        });
+      }
+    });
+  }
+
+  if (testSpeakerBtn) {
+    testSpeakerBtn.addEventListener('click', async () => {
+      const selectedSinkId = speakerSelect ? speakerSelect.value : '';
+      const originalText = testSpeakerBtn.innerHTML;
+      testSpeakerBtn.disabled = true;
+      testSpeakerBtn.innerHTML = '🔊 Testando...';
+      try {
+        await playTestTone(selectedSinkId);
+      } catch (e) {
+        console.warn('[AudioDevices] Erro ao reproduzir tom de teste:', e);
+      } finally {
+        testSpeakerBtn.disabled = false;
+        testSpeakerBtn.innerHTML = originalText;
+      }
+    });
+  }
+
+  return { refreshDevices };
+}
+
 export function initDiscordFeatures() {
   if (typeof document === 'undefined') return;
 
@@ -1221,9 +1449,12 @@ export function initDiscordFeatures() {
     onToggleStream: () => {
       handleStreamBtnClick();
     },
-    onOpenTuning: () => {
+    onOpenTuning: async () => {
       const modal = document.getElementById('tuning-modal');
       if (modal) modal.style.display = 'flex';
+      if (tuningAudioControls) {
+        await tuningAudioControls.refreshDevices(true).catch(() => {});
+      }
     },
     onOpenWhiteboard: () => {
       const wbModal = document.getElementById('whiteboard-modal');
@@ -1235,6 +1466,7 @@ export function initDiscordFeatures() {
     }
   });
 
+
   const closeTuningBtn = document.getElementById('close-tuning-modal-btn');
   const saveTuningBtn = document.getElementById('save-tuning-btn');
   const tuningModal = document.getElementById('tuning-modal');
@@ -1243,11 +1475,25 @@ export function initDiscordFeatures() {
     closeTuningBtn.addEventListener('click', () => { tuningModal.style.display = 'none'; });
   }
   if (saveTuningBtn && tuningModal) {
-    saveTuningBtn.addEventListener('click', () => {
+    saveTuningBtn.addEventListener('click', async () => {
+      const micSelect = document.getElementById('tuning-mic-select');
+      const speakerSelect = document.getElementById('tuning-speaker-select');
+      if (micSelect) {
+        saveAudioPreference('input', micSelect.value);
+        if (voiceManager) await voiceManager.setAudioInputDevice(micSelect.value).catch(() => {});
+      }
+      if (speakerSelect && isAudioOutputSupported()) {
+        saveAudioPreference('output', speakerSelect.value);
+        if (voiceManager) await voiceManager.setAudioOutputDevice(speakerSelect.value).catch(() => {});
+      }
       tuningModal.style.display = 'none';
       showToast('Configurações atualizadas!', 'success');
     });
   }
+
+  initTuningAudioDeviceControls().then((controls) => {
+    tuningAudioControls = controls;
+  }).catch(() => {});
 
   discordUI.init();
 
@@ -1288,19 +1534,35 @@ function setupIncomingDataConnection(conn) {
     }
     updateViewerCountUI();
 
-    const hostPin = getStoredRoomPin();
-
-    if (hostPin) {
-      // Sala protegida: envia desafio de PIN e não inicia chamada de mídia antes da senha
-      conn.send({ type: 'PIN_REQUIRED' });
+    if (isRoomMode()) {
+      // No modo de sala, o controle de acesso e admissão é exclusivo do RoomManager.
+      // A mídia só é transmitida se o participante já estiver explicitamente autorizado na sala.
+      if (roomManager && roomManager.isPeerAuthorized(conn.peer)) {
+        authenticatedViewers.add(conn.peer);
+        if (localStream) {
+          initiateMediaCallToViewer(conn.peer);
+          conn.send({ type: 'STREAM_STATUS', isStreaming: true });
+        } else {
+          conn.send({ type: 'STREAM_STATUS', isStreaming: false });
+        }
+      }
+      // Se não estiver autorizado (pendente/sem PIN), NÃO adiciona a authenticatedViewers
+      // e NÃO dispara chamada de vídeo. O fluxo de admissão da sala ocorrerá via RoomManager.
     } else {
-      // Sala aberta: autoriza imediatamente
-      authenticatedViewers.add(conn.peer);
-      if (localStream) {
-        initiateMediaCallToViewer(conn.peer);
-        conn.send({ type: 'STREAM_STATUS', isStreaming: true });
+      // Modo streamer clássico
+      const hostPin = getStoredRoomPin();
+      if (hostPin) {
+        // Sala protegida: envia desafio de PIN e não inicia chamada de mídia antes da senha
+        conn.send({ type: 'PIN_REQUIRED' });
       } else {
-        conn.send({ type: 'STREAM_STATUS', isStreaming: false });
+        // Sala aberta: autoriza imediatamente
+        authenticatedViewers.add(conn.peer);
+        if (localStream) {
+          initiateMediaCallToViewer(conn.peer);
+          conn.send({ type: 'STREAM_STATUS', isStreaming: true });
+        } else {
+          conn.send({ type: 'STREAM_STATUS', isStreaming: false });
+        }
       }
     }
 
@@ -1323,26 +1585,44 @@ function setupIncomingDataConnection(conn) {
     if (!data || typeof data !== 'object') return;
 
     if (roomManager && roomManager.handleRoomMessage(conn.peer, data, conn)) {
-      if (data.type === 'ROOM_SYNC_ALL' && Array.isArray(data.members)) {
-        data.members.forEach((m) => {
-          if (m && m.peerId && m.peerId !== myId && !connectedViewers.has(m.peerId) && !watchingHosts.has(m.peerId)) {
-            const peerConn = peer.connect(m.peerId, { reliable: true });
-            setupIncomingDataConnection(peerConn);
-            if (voiceManager && voiceManager.isInVoice && voiceManager.localStream && !activeVoiceCalls.has(m.peerId)) {
-              const call = peer.call(m.peerId, voiceManager.localStream, {
-                metadata: { type: 'VOICE_CHAT', name: roomManager.userName, role: 'member' }
-              });
-              setupVoiceMediaCall(call, m.peerId);
+      if (roomManager.isPeerAuthorized(conn.peer) && conn.peer === roomManager.masterPeerId) {
+        if (data.type === 'ROOM_SYNC_ALL' && Array.isArray(data.members)) {
+          data.members.forEach((m) => {
+            if (m && m.peerId && m.peerId !== myId && roomManager.members.has(m.peerId) && !connectedViewers.has(m.peerId) && !watchingHosts.has(m.peerId)) {
+              const peerConn = peer.connect(m.peerId, { reliable: true });
+              setupIncomingDataConnection(peerConn);
+              if (voiceManager && voiceManager.isInVoice && voiceManager.localStream && !activeVoiceCalls.has(m.peerId)) {
+                const call = peer.call(m.peerId, voiceManager.localStream, {
+                  metadata: { type: 'VOICE_CHAT', name: roomManager.userName, role: 'member' }
+                });
+                setupVoiceMediaCall(call, m.peerId);
+              }
             }
-          }
-        });
+          });
+        }
       }
       return;
     }
 
-    const hostPin = getStoredRoomPin();
-
     if (data.type === 'REQUEST_STREAM') {
+      if (isRoomMode()) {
+        if (!roomManager || !roomManager.isPeerAuthorized(conn.peer)) {
+          console.warn(`[Security] REQUEST_STREAM recusado para participante não autorizado: ${conn.peer}`);
+          conn.send({ type: 'ROOM_PIN_REQUIRED', error: 'Autenticação necessária na sala.' });
+          return;
+        }
+        authenticatedViewers.add(conn.peer);
+        if (localStream) {
+          initiateMediaCallToViewer(conn.peer);
+          conn.send({ type: 'STREAM_STATUS', isStreaming: true });
+        } else {
+          conn.send({ type: 'STREAM_STATUS', isStreaming: false });
+        }
+        return;
+      }
+
+      // Modo streamer clássico
+      const hostPin = getStoredRoomPin();
       if (hostPin) {
         const providedPin = data.pin ? String(data.pin).trim() : '';
         if (providedPin !== hostPin) {
@@ -1369,9 +1649,17 @@ function setupIncomingDataConnection(conn) {
       return;
     }
 
-    // Bloqueia chat, voz e co-op se a sala exigir PIN e o espectador ainda não tiver autenticado
-    if (hostPin && !authenticatedViewers.has(conn.peer)) {
-      conn.send({ type: 'PIN_REQUIRED', error: 'Autenticação necessária com PIN.' });
+    // Bloqueia chat, voz, co-op e stream direto se o peer não estiver autorizado
+    if (!isPeerAuthorizedForMedia(conn.peer)) {
+      if (isRoomMode()) {
+        conn.send({ type: 'ROOM_PIN_REQUIRED', error: 'Autenticação necessária na sala.' });
+      } else {
+        conn.send({ type: 'PIN_REQUIRED', error: 'Autenticação necessária com PIN.' });
+      }
+      return;
+    }
+
+    if (handleDirectStreamSignaling(data, conn)) {
       return;
     }
 
@@ -1387,6 +1675,14 @@ function setupIncomingDataConnection(conn) {
   });
 
   conn.on('close', () => {
+    if (activeNativeViewerPeers.has(conn.peer)) {
+      const sessionId = activeNativeCaptureProvider?.session?.sessionId;
+      if (sessionId && isDesktopApp()) {
+        closeNativeViewerPeer(sessionId, conn.peer).catch(() => {});
+      }
+      activeNativeViewerPeers.delete(conn.peer);
+      activeDirectSignaling.delete(conn.peer);
+    }
     if (roomManager) {
       roomManager.removeMember(conn.peer);
     }
@@ -1400,6 +1696,14 @@ function setupIncomingDataConnection(conn) {
 
   conn.on('error', (err) => {
     console.error(`Erro na DataConnection com ${conn.peer}:`, err);
+    if (activeNativeViewerPeers.has(conn.peer)) {
+      const sessionId = activeNativeCaptureProvider?.session?.sessionId;
+      if (sessionId && isDesktopApp()) {
+        closeNativeViewerPeer(sessionId, conn.peer).catch(() => {});
+      }
+      activeNativeViewerPeers.delete(conn.peer);
+      activeDirectSignaling.delete(conn.peer);
+    }
     if (roomManager) {
       roomManager.removeMember(conn.peer);
     }
@@ -1411,9 +1715,350 @@ function setupIncomingDataConnection(conn) {
   });
 }
 
+// ==========================================
+// STREAM DIRETO GSTREAMER (ALTERNATIVA 1)
+// ==========================================
+
+function waitForDirectIceGathering(peerConnection, timeoutMs = 1500) {
+  if (!peerConnection || peerConnection.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      peerConnection.removeEventListener('icegatheringstatechange', onChange);
+      resolve();
+    };
+    const onChange = () => {
+      if (peerConnection.iceGatheringState === 'complete') finish();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    peerConnection.addEventListener('icegatheringstatechange', onChange);
+  });
+}
+
+async function handleStartDirectStream(data, conn) {
+  const hostId = conn.peer;
+  console.log(`[DirectStream] Recebido START_DIRECT_STREAM de ${hostId}`);
+
+  // Limpa chamadas ou conexões anteriores com esse host
+  const prevDirect = directViewerPeerConnections.get(hostId);
+  if (prevDirect) {
+    try { prevDirect.close(); } catch (e) {}
+    directViewerPeerConnections.delete(hostId);
+  }
+  const prevCall = activeMediaCalls.get(hostId);
+  if (prevCall) {
+    try { prevCall.close(); } catch (e) {}
+    activeMediaCalls.delete(hostId);
+  }
+
+  const hostData = watchingHosts.get(hostId);
+  if (hostData) {
+    hostData.state = 'CONNECTED';
+    if (hostData.timeoutTimer) {
+      clearTimeout(hostData.timeoutTimer);
+      hostData.timeoutTimer = null;
+    }
+  }
+
+  const peerConfig = getPeerConfig();
+  const iceServers = peerConfig?.config?.iceServers || [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ];
+
+  const pc = new RTCPeerConnection({ iceServers });
+  directViewerPeerConnections.set(hostId, pc);
+  directPendingCandidates.set(hostId, []);
+
+  const videoTransceiver = pc.addTransceiver('video', { direction: 'recvonly' });
+  if (videoTransceiver?.receiver) {
+    if ('jitterBufferTarget' in videoTransceiver.receiver) videoTransceiver.receiver.jitterBufferTarget = 0;
+    if ('playoutDelayHint' in videoTransceiver.receiver) videoTransceiver.receiver.playoutDelayHint = 0;
+  }
+  if (data.hasAudio) {
+    const audioTransceiver = pc.addTransceiver('audio', { direction: 'recvonly' });
+    if (audioTransceiver?.receiver) {
+      if ('jitterBufferTarget' in audioTransceiver.receiver) audioTransceiver.receiver.jitterBufferTarget = 25;
+      if ('playoutDelayHint' in audioTransceiver.receiver) audioTransceiver.receiver.playoutDelayHint = 0.025;
+    }
+  }
+
+  const remoteStream = new MediaStream();
+  let cardInitialized = false;
+
+  pc.ontrack = (event) => {
+    console.log(`[DirectStream] Trilha recebida de ${hostId}: kind=${event.track?.kind}`);
+    const track = event.track;
+    if (track) {
+      if (track.kind === 'video') {
+        track.contentHint = 'motion';
+      }
+      if (!remoteStream.getTracks().includes(track)) {
+        remoteStream.addTrack(track);
+      }
+    }
+
+    hideCardLoading(hostId);
+    setCardStreamPaused(hostId, false);
+
+    if (discordUI) {
+      discordUI.syncStageView(true);
+    }
+
+    clipRecorder.start(remoteStream, hostId);
+    const reactionsDock = document.getElementById('reactions-dock');
+    if (reactionsDock) reactionsDock.style.display = 'flex';
+
+    if (!cardInitialized) {
+      cardInitialized = true;
+      addOrUpdateVideoCard({
+        stream: remoteStream,
+        peerId: hostId,
+        label: `🎮 Tela de ${hostId.slice(0, 6)}`,
+        isLocal: false,
+        onDisconnect: () => disconnectHost(hostId),
+        onCoopClick: (hId) => {
+          const state = getCoopState();
+          if (state.isPlayer2) {
+            releaseCoopControl();
+          } else {
+            requestCoopControl(hId, conn || watchingHosts.get(hId)?.conn);
+          }
+        }
+      });
+
+      applyTransceiverOptimizations(pc);
+      startStatsMonitor(hostId, pc, false);
+      showToast(`Transmissão direta de ${hostId.slice(0, 6)} conectada em alta fluidez!`, 'success');
+    }
+  };
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate && event.candidate.candidate) {
+      try {
+        conn.send({
+          type: 'DIRECT_STREAM_ICE_CANDIDATE',
+          candidate: event.candidate.candidate,
+          mlineIndex: event.candidate.sdpMLineIndex ?? 0
+        });
+      } catch (e) {}
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    console.log(`[DirectStream] ConnectionState com ${hostId}: ${pc.connectionState}`);
+    if (['failed', 'closed'].includes(pc.connectionState)) {
+      stopStatsMonitor(hostId);
+    }
+  };
+
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await waitForDirectIceGathering(pc, 1500);
+
+    const localSdp = pc.localDescription?.sdp || offer.sdp;
+    conn.send({
+      type: 'DIRECT_STREAM_OFFER',
+      sessionId: data.sessionId,
+      sdp: localSdp
+    });
+  } catch (err) {
+    console.error('[DirectStream] Falha ao gerar oferta SDP do espectador:', err);
+    showToast('Erro ao iniciar recepção do stream direto', 'error');
+  }
+}
+
+async function handleDirectStreamOffer(data, conn) {
+  const viewerId = conn.peer;
+  console.log(`[DirectStream] Recebido DIRECT_STREAM_OFFER de ${viewerId} (${data.sdp?.length} bytes)`);
+  if (!activeNativeCaptureProvider?.session?.sessionId) {
+    console.warn('[DirectStream] Host não possui sessão nativa ativa para responder oferta.');
+    return;
+  }
+  const sessionId = activeNativeCaptureProvider.session.sessionId;
+  try {
+    const peerConfig = getPeerConfig();
+    const iceServers = peerConfig?.config?.iceServers || [];
+    const iceUris = [];
+    for (const s of iceServers) {
+      const urls = Array.isArray(s.urls) ? s.urls : [s.urls || s.url];
+      for (const u of urls) {
+        if (!u) continue;
+        if (u.startsWith('turn:') || u.startsWith('turns:')) {
+          if (s.username && s.credential) {
+            const proto = u.startsWith('turns:') ? 'turns' : 'turn';
+            const hostPort = u.replace(/^turns?:/, '').replace(/^\/\//, '');
+            iceUris.push(`${proto}://${encodeURIComponent(s.username)}:${encodeURIComponent(s.credential)}@${hostPort}`);
+          } else {
+            iceUris.push(u);
+          }
+        } else {
+          iceUris.push(u);
+        }
+      }
+    }
+    const answer = await createNativeViewerPeer(sessionId, viewerId, data.sdp, iceUris.length ? iceUris : null);
+    activeNativeViewerPeers.add(viewerId);
+    activeDirectSignaling.delete(viewerId);
+    console.log(`[DirectStream] Resposta SDP gerada para ${viewerId} (${answer?.sdp?.length} bytes)`);
+    conn.send({
+      type: 'DIRECT_STREAM_ANSWER',
+      sdp: answer.sdp
+    });
+  } catch (err) {
+    activeDirectSignaling.delete(viewerId);
+    console.error(`[DirectStream] Erro ao criar peer nativo para espectador ${viewerId}:`, err);
+  }
+}
+
+async function handleDirectStreamAnswer(data, conn) {
+  const hostId = conn.peer;
+  console.log(`[DirectStream] Recebido DIRECT_STREAM_ANSWER de ${hostId} (${data.sdp?.length} bytes)`);
+  const pc = directViewerPeerConnections.get(hostId);
+  if (!pc) {
+    console.warn(`[DirectStream] Nenhuma RTCPeerConnection encontrada para host ${hostId}`);
+    return;
+  }
+  try {
+    await pc.setRemoteDescription({
+      type: 'answer',
+      sdp: data.sdp
+    });
+
+    try {
+      const transceivers = pc.getTransceivers ? pc.getTransceivers() : [];
+      for (const t of transceivers) {
+        if (t?.receiver) {
+          const isAudio = (t.receiver?.track?.kind === 'audio') || (t.sender?.track?.kind === 'audio');
+          if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = isAudio ? 25 : 0;
+          if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = isAudio ? 0.025 : 0;
+        }
+      }
+    } catch (_) {}
+
+    const pending = directPendingCandidates.get(hostId) || [];
+    directPendingCandidates.delete(hostId);
+    for (const cand of pending) {
+      try {
+        await pc.addIceCandidate(cand);
+      } catch (e) {
+        console.warn('[DirectStream] Erro ao aplicar candidato ICE retido:', e);
+      }
+    }
+  } catch (err) {
+    console.error(`[DirectStream] Falha ao aplicar remoteDescription da resposta de ${hostId}:`, err);
+  }
+}
+
+async function handleDirectStreamIceCandidate(data, conn) {
+  const peerId = conn.peer;
+  if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
+    // No Host: repassa candidato do espectador para a ponte Rust
+    const sessionId = activeNativeCaptureProvider.session.sessionId;
+    try {
+      await addNativeViewerIceCandidate(sessionId, peerId, data.mlineIndex, data.candidate);
+    } catch (err) {
+      console.warn(`[DirectStream] Falha ao adicionar candidato ICE do espectador ${peerId}:`, err);
+    }
+  } else {
+    // No Espectador: repassa candidato recebido do Host para RTCPeerConnection
+    const pc = directViewerPeerConnections.get(peerId);
+    if (!pc) return;
+    const candidateInit = {
+      candidate: data.candidate,
+      sdpMid: null,
+      sdpMLineIndex: Number(data.mlineIndex ?? 0)
+    };
+    if (pc.remoteDescription && pc.remoteDescription.type) {
+      try {
+        await pc.addIceCandidate(candidateInit);
+      } catch (e) {
+        console.warn('[DirectStream] Erro ao adicionar candidato ICE do host:', e);
+      }
+    } else {
+      const pending = directPendingCandidates.get(peerId);
+      if (pending) {
+        pending.push(candidateInit);
+      }
+    }
+  }
+}
+
+function handleDirectStreamSignaling(data, conn) {
+  if (!data || typeof data !== 'object') return false;
+  switch (data.type) {
+    case 'START_DIRECT_STREAM':
+      handleStartDirectStream(data, conn);
+      return true;
+    case 'DIRECT_STREAM_OFFER':
+      handleDirectStreamOffer(data, conn);
+      return true;
+    case 'DIRECT_STREAM_ANSWER':
+      handleDirectStreamAnswer(data, conn);
+      return true;
+    case 'DIRECT_STREAM_ICE_CANDIDATE':
+      handleDirectStreamIceCandidate(data, conn);
+      return true;
+    default:
+      return false;
+  }
+}
+
+export async function setupNativeBridgeListener() {
+  if (!isDesktopApp() || unlistenNativeBridge) return;
+  unlistenNativeBridge = await listenNativeCaptureBridge((event) => {
+    if (!event) return;
+    const viewerId = event.peerId || event.peer_id;
+    if (!viewerId) return; // ignora candidatos da ponte local
+    if (event.event !== 'ice-candidate' || !event.candidate) return;
+    console.log(`[DirectStream Bridge] Candidato ICE para espectador ${viewerId}: ${event.candidate}`);
+    const conn = connectedViewers.get(viewerId) || (roomManager && roomManager.meshConnections.get(viewerId));
+    if (conn && conn.open) {
+      try {
+        conn.send({
+          type: 'DIRECT_STREAM_ICE_CANDIDATE',
+          candidate: event.candidate,
+          mlineIndex: Number(event.mlineIndex ?? event.mline_index ?? 0)
+        });
+      } catch (e) {}
+    }
+  });
+}
+
 // Transmissor envia o vídeo com foco em alta fluidez (Idempotente)
-function initiateMediaCallToViewer(viewerPeerId) {
+export function initiateMediaCallToViewer(viewerPeerId) {
   if (!localStream || !peer) return;
+
+  // Barreira central de autorização: nunca inicia chamada ou negociação direta para peer não autorizado
+  if (!isPeerAuthorizedForMedia(viewerPeerId)) {
+    console.warn(`[Security] initiateMediaCallToViewer bloqueado para peer não autorizado: ${viewerPeerId}`);
+    return;
+  }
+
+  // Alternativa 1: se captura nativa estiver ativa no desktop, transmite diretamente via GStreamer webrtcbin
+  const isNativeActive = Boolean(isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId);
+  if (isNativeActive) {
+    const sessionId = activeNativeCaptureProvider.session.sessionId;
+    if (activeNativeViewerPeers.has(viewerPeerId) || activeDirectSignaling.has(viewerPeerId)) {
+      console.log(`Stream direto nativo já ativo ou em negociação para: ${viewerPeerId}`);
+      return;
+    }
+    const conn = connectedViewers.get(viewerPeerId) || (roomManager && roomManager.meshConnections.get(viewerPeerId));
+    if (conn && conn.open) {
+      console.log(`Iniciando stream direto GStreamer para espectador: ${viewerPeerId}`);
+      activeDirectSignaling.add(viewerPeerId);
+      conn.send({
+        type: 'START_DIRECT_STREAM',
+        sessionId,
+        hasAudio: Boolean(activeNativeCaptureProvider.session.audioRtpPort || activeNativeCaptureProvider.session.audio_rtp_port)
+      });
+      return;
+    }
+  }
 
   // Garante que não criamos chamadas duplicadas para o mesmo espectador
   const existingCall = activeMediaCalls.get(viewerPeerId);
@@ -1436,8 +2081,10 @@ function initiateMediaCallToViewer(viewerPeerId) {
         if (adaptiveBitrateController.isEnabled) {
           adaptiveBitrateController.processSample({
             packetLossRate: sample.packetLossRate || 0,
-            rttMs: sample.rtt || 0
-          });
+            rttMs: sample.rtt || 0,
+            qualityLimitationReason: sample.qualityReason || sample.qualityLimitationReason,
+            encodeTimeMs: sample.encodeTimeMs
+          }, viewerPeerId);
         }
       });
 
@@ -1480,6 +2127,13 @@ function initiateMediaCallToViewer(viewerPeerId) {
 // Espectador recebe o stream do amigo (Rejeita chamadas não solicitadas)
 function handleIncomingMediaCall(call) {
   console.log(`Recebendo chamada de mídia de: ${call.peer}`);
+
+  // Descarta se stream direto já está ativo para este peer
+  if (directViewerPeerConnections.has(call.peer)) {
+    console.log(`Chamada legada descartada: stream direto ativo com ${call.peer}`);
+    try { call.close(); } catch (e) {}
+    return;
+  }
 
   // Se for chamada de áudio da Sala de Voz
   if (call.metadata?.type === 'VOICE_CHAT') {
@@ -1528,7 +2182,7 @@ function handleIncomingMediaCall(call) {
       discordUI.syncStageView(true);
     }
 
-    clipRecorder.start(remoteStream);
+    clipRecorder.start(remoteStream, call.peer);
     const reactionsDock = document.getElementById('reactions-dock');
     if (reactionsDock) reactionsDock.style.display = 'flex';
 
@@ -1559,7 +2213,7 @@ function handleIncomingMediaCall(call) {
   });
 
   call.on('close', () => {
-    clipRecorder.stop();
+    clipRecorder.stop(call.peer);
     const reactionsDock = document.getElementById('reactions-dock');
     if (reactionsDock && watchingHosts.size === 0) reactionsDock.style.display = 'none';
 
@@ -1666,6 +2320,10 @@ export function watchFriend(rawTargetId) {
   conn.on('data', (data) => {
     if (!data || typeof data !== 'object') return;
 
+    if (handleDirectStreamSignaling(data, conn)) {
+      return;
+    }
+
     if (data.type === 'PIN_REQUIRED') {
       promptViewerPin(targetId, data.error);
       return;
@@ -1693,6 +2351,13 @@ export function watchFriend(rawTargetId) {
     } else if (data.type === 'STREAM_STOPPED') {
       showToast('O amigo pausou a transmissão.', 'info');
       setCardStreamPaused(targetId, true, 'Transmissão pausada pelo streamer.');
+      const directPc = directViewerPeerConnections.get(targetId);
+      if (directPc) {
+        try { directPc.close(); } catch (e) {}
+        directViewerPeerConnections.delete(targetId);
+        directPendingCandidates.delete(targetId);
+      }
+      stopStatsMonitor(targetId);
     } else if (data.type === 'STREAM_REJECTED') {
       showToast(`Conexão recusada: ${data.reason || 'Sala cheia'}`, 'error');
       disconnectHost(targetId);
@@ -1721,6 +2386,12 @@ export function watchFriend(rawTargetId) {
   });
 
   conn.on('close', () => {
+    const directPc = directViewerPeerConnections.get(targetId);
+    if (directPc) {
+      try { directPc.close(); } catch (e) {}
+      directViewerPeerConnections.delete(targetId);
+      directPendingCandidates.delete(targetId);
+    }
     const coopState = getCoopState();
     if (coopState.isPlayer2 && coopState.activeHostPeerId === targetId) {
       releaseCoopControl();
@@ -1763,6 +2434,15 @@ export function disconnectHost(peerId) {
     }
   }
 
+  const directPc = directViewerPeerConnections.get(peerId);
+  if (directPc) {
+    try {
+      directPc.close();
+    } catch (e) {}
+    directViewerPeerConnections.delete(peerId);
+    directPendingCandidates.delete(peerId);
+  }
+
   const mediaCall = activeMediaCalls.get(peerId);
   if (mediaCall) {
     try {
@@ -1772,6 +2452,7 @@ export function disconnectHost(peerId) {
   }
 
   watchingHosts.delete(peerId);
+  clipRecorder.stop(peerId);
   removeVideoCard(peerId);
   stopStatsMonitor(peerId);
   showToast(`Desconectado de ${peerId.slice(0, 6)}.`, 'info');
@@ -1802,7 +2483,7 @@ if (connectBtn && targetInput) {
 // INICIAR E ENCERRAR TRANSMISSÃO LOCAL
 // ==========================================
 
-export async function startLocalStream() {
+export async function startLocalStream(options = {}) {
   // Prevenção de condições de corrida (duplo clique durante permissão do navegador)
   if (isStartingStream) return;
 
@@ -1831,39 +2512,66 @@ export async function startLocalStream() {
   try {
     const wantSystemAudio = (audioMode === 'system');
 
-    try {
-      // Tentativa 1: Captura com áudio se solicitado
-      capturedDisplayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: videoConstraints,
-        audio: wantSystemAudio,
-        selfBrowserSurface: 'exclude',
-        surfaceSwitching: 'include'
+    if (isDesktopApp() && (options.sourceId || options.sourceType)) {
+      showToast('Iniciando captura nativa Direct3D 11...', 'info', 2500);
+      const nativeProvider = new NativeCaptureProvider();
+      const result = await nativeProvider.start({
+        sourceId: options.sourceId,
+        sourceType: options.sourceType || 'window',
+        audioMode: wantSystemAudio ? 'system' : 'none',
+        width: selectedProfile.width,
+        height: selectedProfile.height,
+        fps: selectedProfile.fps || 60,
+        bitrateKbps: Math.round(customBitrateBps / 1000) || 8000
       });
-    } catch (captureErr) {
-      // Se o usuário cancelou o seletor do navegador
-      if (captureErr.name === 'NotAllowedError') {
-        return;
-      }
-
-      // Fallback gracioso se o loopback de áudio for rejeitado pelo driver do fone/Windows
-      if (wantSystemAudio && (captureErr.name === 'NotReadableError' || captureErr.message?.toLowerCase().includes('audio'))) {
-        console.warn('Loopback de áudio rejeitado pelo driver/Windows. Fallback apenas vídeo...', captureErr);
-        audioFailedReason = 'O driver de áudio rejeitou a captura em loopback.';
-        showToast('Aviso: Áudio do sistema indisponível. Continuando apenas com vídeo...', 'info', 5000);
-
-        capturedDisplayStream = await navigator.mediaDevices.getDisplayMedia({
-          video: videoConstraints,
-          audio: false,
+      capturedDisplayStream = result.stream;
+      activeNativeCaptureProvider = nativeProvider;
+    } else {
+      try {
+        const displayMediaConstraints = {
+          video: {
+            ...videoConstraints,
+            ...(options.displaySurface ? { displaySurface: options.displaySurface } : {})
+          },
+          audio: wantSystemAudio,
           selfBrowserSurface: 'exclude',
-          surfaceSwitching: 'include'
-        });
-      } else {
-        throw captureErr;
+          surfaceSwitching: 'include',
+          ...(options.monitorTypeSurfaces ? { monitorTypeSurfaces: options.monitorTypeSurfaces } : {})
+        };
+        // Tentativa 1: Captura com áudio se solicitado
+        capturedDisplayStream = await navigator.mediaDevices.getDisplayMedia(displayMediaConstraints);
+      } catch (captureErr) {
+        // Se o usuário cancelou o seletor do navegador
+        if (captureErr.name === 'NotAllowedError') {
+          return;
+        }
+
+        // Fallback gracioso se o loopback de áudio for rejeitado pelo driver do fone/Windows
+        if (wantSystemAudio && (captureErr.name === 'NotReadableError' || captureErr.message?.toLowerCase().includes('audio'))) {
+          console.warn('Loopback de áudio rejeitado pelo driver/Windows. Fallback apenas vídeo...', captureErr);
+          audioFailedReason = 'O driver de áudio rejeitou a captura em loopback.';
+          showToast('Aviso: Áudio do sistema indisponível. Continuando apenas com vídeo...', 'info', 5000);
+
+          capturedDisplayStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              ...videoConstraints,
+              ...(options.displaySurface ? { displaySurface: options.displaySurface } : {})
+            },
+            audio: false,
+            selfBrowserSurface: 'exclude',
+            surfaceSwitching: 'include',
+            ...(options.monitorTypeSurfaces ? { monitorTypeSurfaces: options.monitorTypeSurfaces } : {})
+          });
+        } else {
+          throw captureErr;
+        }
       }
     }
 
     localStream = capturedDisplayStream;
-    clipRecorder.start(localStream);
+    if (options.replayEnabled !== false) {
+      clipRecorder.start(localStream, 'local');
+    }
     if (wantSystemAudio && localStream.getAudioTracks().length > 0) {
       capturedSystemAudioTrack = localStream.getAudioTracks()[0];
     }
@@ -1936,14 +2644,15 @@ export async function startLocalStream() {
         audioMode: audioModeSelect ? audioModeSelect.value : 'system'
       });
       roomManager.meshConnections.forEach((_, viewerId) => {
-        initiateMediaCallToViewer(viewerId);
+        if (roomManager.isPeerAuthorized(viewerId)) {
+          initiateMediaCallToViewer(viewerId);
+        }
       });
     }
 
     // Notifica e chama todos os espectadores autorizados conectados
     connectedViewers.forEach((conn, viewerId) => {
-      const hostPin = getStoredRoomPin();
-      if (!hostPin || authenticatedViewers.has(viewerId)) {
+      if (isPeerAuthorizedForMedia(viewerId)) {
         conn.send({ type: 'STREAM_STATUS', isStreaming: true });
         initiateMediaCallToViewer(viewerId);
       }
@@ -1978,7 +2687,19 @@ export async function startLocalStream() {
 }
 
 export function stopLocalStream() {
-  clipRecorder.stop();
+  clipRecorder.stop('local');
+  if (activeNativeCaptureProvider) {
+    const sessionId = activeNativeCaptureProvider.session?.sessionId;
+    if (sessionId && isDesktopApp()) {
+      for (const viewerId of activeNativeViewerPeers) {
+        closeNativeViewerPeer(sessionId, viewerId).catch(() => {});
+      }
+      activeNativeViewerPeers.clear();
+      activeDirectSignaling.clear();
+    }
+    activeNativeCaptureProvider.stop().catch(() => {});
+    activeNativeCaptureProvider = null;
+  }
   if (localStream) {
     const stream = localStream;
     localStream = null;
@@ -2050,6 +2771,9 @@ export async function initDesktopSupport() {
   // Eleva a prioridade de processo imediatamente para alta prioridade de GPU
   await setHighPriority();
 
+  // Escuta candidatos ICE da ponte Rust para espectadores
+  await setupNativeBridgeListener();
+
   const desktopPickerModal = document.getElementById('desktop-picker-modal');
   const desktopWindowsList = document.getElementById('desktop-windows-list');
   const pickerRefreshBtn = document.getElementById('picker-refresh-btn');
@@ -2060,8 +2784,20 @@ export async function initDesktopSupport() {
     if (!desktopWindowsList) return;
     desktopWindowsList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 20px;">🔍 Buscando jogos e janelas ativas no Windows...</div>';
 
-    const windows = await getCapturableWindows();
-    if (!windows || windows.length === 0) {
+    const pickerNativeStatus = document.getElementById('picker-native-status');
+    try {
+      const caps = await getNativeCaptureCapabilities();
+      if (caps && (caps.available || caps.provider === 'native') && pickerNativeStatus) {
+        pickerNativeStatus.innerHTML = 'Captura Nativa Ativa: Windows Graphics Capture';
+      }
+    } catch (e) {}
+
+    let sources = await getCapturableSources();
+    if (!sources || sources.length === 0) {
+      sources = await getCapturableWindows();
+    }
+
+    if (!sources || sources.length === 0) {
       desktopWindowsList.innerHTML = `
         <div style="text-align: center; color: var(--text-muted); padding: 20px;">
           Nenhum jogo em janela detectado no momento.<br>
@@ -2072,24 +2808,60 @@ export async function initDesktopSupport() {
     }
 
     desktopWindowsList.innerHTML = '';
-    windows.forEach((win) => {
-      const item = document.createElement('div');
-      item.className = 'window-item';
-      item.innerHTML = `
-        <div class="window-info">
-          <span class="window-title" title="${win.title}">🎮 ${win.title}</span>
-          <span class="window-process">${win.process_name || 'Processo Windows'}</span>
-        </div>
-        <button class="window-action-btn">Transmitir</button>
-      `;
 
-      item.querySelector('.window-action-btn').addEventListener('click', () => {
-        if (desktopPickerModal) desktopPickerModal.style.display = 'none';
-        startLocalStream();
+    const monitors = sources.filter(s => s.sourceType === 'monitor' || s.source_type === 'monitor');
+    const windows = sources.filter(s => s.sourceType !== 'monitor' && s.source_type !== 'monitor');
+
+    if (monitors.length > 0) {
+      const monHeader = document.createElement('div');
+      monHeader.style.padding = '8px 4px 4px 4px';
+      monHeader.style.fontWeight = 'bold';
+      monHeader.style.color = 'var(--text-muted, #9ca3af)';
+      monHeader.textContent = 'Telas Inteiras / Monitores';
+      desktopWindowsList.appendChild(monHeader);
+
+      monitors.forEach(mon => {
+        const item = document.createElement('div');
+        item.className = 'window-item';
+        item.innerHTML = `
+          <div class="window-info">
+            <span class="window-title" title="${mon.title}">🖥️ ${mon.title}</span>
+          </div>
+          <button class="window-action-btn">Transmitir</button>
+        `;
+        item.addEventListener('click', () => {
+          if (desktopPickerModal) desktopPickerModal.style.display = 'none';
+          startLocalStream({ sourceId: mon.sourceId || mon.id, sourceType: 'monitor' });
+        });
+        desktopWindowsList.appendChild(item);
       });
+    }
 
-      desktopWindowsList.appendChild(item);
-    });
+    if (windows.length > 0) {
+      const winHeader = document.createElement('div');
+      winHeader.style.padding = '8px 4px 4px 4px';
+      winHeader.style.fontWeight = 'bold';
+      winHeader.style.color = 'var(--text-muted, #9ca3af)';
+      winHeader.textContent = 'Jogos e Janelas Ativas';
+      desktopWindowsList.appendChild(winHeader);
+
+      windows.forEach(win => {
+        const item = document.createElement('div');
+        item.className = 'window-item';
+        item.innerHTML = `
+          <div class="window-info">
+            <span class="window-title" title="${win.title}">🎮 ${win.title}</span>
+            <span class="window-process">${win.processName || win.process_name || 'Processo Windows'}</span>
+          </div>
+          <button class="window-action-btn">Transmitir</button>
+        `;
+        item.addEventListener('click', () => {
+          if (desktopPickerModal) desktopPickerModal.style.display = 'none';
+          startLocalStream({ sourceId: win.sourceId || win.id, sourceType: 'window' });
+        });
+        desktopWindowsList.appendChild(item);
+      });
+    }
   }
 
   if (pickerRefreshBtn) {
@@ -2103,8 +2875,17 @@ export async function initDesktopSupport() {
   }
 
   if (pickerScreenFallbackBtn && desktopPickerModal) {
-    pickerScreenFallbackBtn.addEventListener('click', () => {
+    pickerScreenFallbackBtn.addEventListener('click', async () => {
       desktopPickerModal.style.display = 'none';
+      try {
+        let sources = await getCapturableSources().catch(() => []);
+        if (!sources || sources.length === 0) sources = await getCapturableWindows().catch(() => []);
+        const mon = sources?.find(s => s.sourceType === 'monitor' || s.source_type === 'monitor');
+        if (mon) {
+          startLocalStream({ sourceId: mon.sourceId || mon.id, sourceType: 'monitor' });
+          return;
+        }
+      } catch (_) {}
       startLocalStream();
     });
   }
@@ -2161,24 +2942,46 @@ function checkAutoWatchUrl() {
 // ==========================================
 
 export function initFixedIdAndPinControls() {
-  // 1. PIN na barra de tuning do Streamer
+  // 1. PIN na barra de tuning do Streamer ou Modal de Configuração da Sala
   if (roomPinInput) {
-    const savedPin = getStoredRoomPin();
-    if (savedPin) roomPinInput.value = savedPin;
+    if (isRoomMode()) {
+      const { roomPin } = getRoomInfoFromUrl();
+      const currentRoomPin = roomManager ? roomManager.roomPin : roomPin;
+      if (currentRoomPin) roomPinInput.value = currentRoomPin;
 
-    roomPinInput.addEventListener('input', (e) => {
-      const val = e.target.value.trim();
-      setStoredRoomPin(val);
-    });
+      roomPinInput.addEventListener('input', (e) => {
+        const val = e.target.value.trim();
+        if (roomManager) {
+          roomManager.setRoomPin(val);
+        }
+      });
 
-    roomPinInput.addEventListener('change', (e) => {
-      const val = e.target.value.trim();
-      if (val) {
-        showToast('🔒 PIN da sala salvo. Novos espectadores precisarão da senha.', 'info');
-      } else {
-        showToast('🔓 PIN removido. Sala agora é aberta ao público.', 'info');
-      }
-    });
+      roomPinInput.addEventListener('change', (e) => {
+        const val = e.target.value.trim();
+        if (val) {
+          showToast('🔒 PIN da sala atualizado. Novos membros precisarão da senha para entrar.', 'info');
+        } else {
+          showToast('🔓 PIN removido. A sala agora é aberta a todos.', 'info');
+        }
+      });
+    } else {
+      const savedPin = getStoredRoomPin();
+      if (savedPin) roomPinInput.value = savedPin;
+
+      roomPinInput.addEventListener('input', (e) => {
+        const val = e.target.value.trim();
+        setStoredRoomPin(val);
+      });
+
+      roomPinInput.addEventListener('change', (e) => {
+        const val = e.target.value.trim();
+        if (val) {
+          showToast('🔒 PIN da sala salvo. Novos espectadores precisarão da senha.', 'info');
+        } else {
+          showToast('🔓 PIN removido. Sala agora é aberta ao público.', 'info');
+        }
+      });
+    }
   }
 
   // 2. Modal de ID Fixo Permanente
@@ -2558,6 +3361,15 @@ export function closeClipPostModal() {
   if (modal) {
     modal.style.display = 'none';
   }
+  const previewVideo = document.getElementById('clip-preview-video');
+  if (previewVideo) {
+    try { previewVideo.pause(); } catch {}
+    if (previewVideo._blobUrl) {
+      try { URL.revokeObjectURL(previewVideo._blobUrl); } catch {}
+      previewVideo._blobUrl = null;
+    }
+    previewVideo.src = '';
+  }
 }
 
 export async function openClipPostModal(clipBlob) {
@@ -2568,6 +3380,17 @@ export async function openClipPostModal(clipBlob) {
   activeAudioBuffer = null;
   activeEffectId = 'none';
   modal.style.display = 'flex';
+
+  const previewVideo = document.getElementById('clip-preview-video');
+  if (previewVideo && clipBlob) {
+    try {
+      const url = URL.createObjectURL(clipBlob);
+      previewVideo.src = url;
+      previewVideo._blobUrl = url;
+    } catch (e) {
+      console.warn('Falha ao definir preview de vídeo do clip:', e);
+    }
+  }
 
   const closeBtn = document.getElementById('clip-post-close-btn');
   const downloadVideoBtn = document.getElementById('clip-download-video-btn');
@@ -3171,6 +3994,20 @@ export function initGamerFeatures() {
       }
     });
   }
+
+  // Atalho de teclado para Clipping (C)
+  window.addEventListener('keydown', (e) => {
+    const tag = e.target?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) {
+      return;
+    }
+    if (e.key === 'c' || e.key === 'C') {
+      const clipBtnEl = document.getElementById('clip-btn');
+      if (clipBtnEl && clipBtnEl.style.display !== 'none') {
+        clipBtnEl.click();
+      }
+    }
+  });
 }
 
 // Inicializa controles de ID, PIN e Gamer Features se os elementos já existirem no DOM
@@ -3183,9 +4020,9 @@ if (typeof document !== 'undefined') {
 // INICIALIZAÇÃO GERAL
 // ==========================================
 
-window.addEventListener('DOMContentLoaded', () => {
-  const acceptedVersion = localStorage.getItem('seemygame_terms_version');
-  const legacyAccepted = localStorage.getItem('seemygame_terms_accepted') === 'true';
+function initAppDom() {
+  const acceptedVersion = typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_terms_version') : null;
+  const legacyAccepted = typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_terms_accepted') === 'true' : false;
 
   // Pré-busca credenciais TURN da API serverless em segundo plano se disponível
   fetchIceServersFromApi().catch(() => {});
@@ -3203,14 +4040,30 @@ window.addEventListener('DOMContentLoaded', () => {
   initGamerFeatures();
 
   initTermsModal(() => {
-    initPeer();
+    if (isRoomMode()) {
+      initGreenRoomLobby();
+    } else {
+      initPeer();
+    }
   });
 
   // Só conecta à sinalização se os termos já tiverem sido aceitos
   if (acceptedVersion === TERMS_VERSION || (legacyAccepted && !acceptedVersion)) {
-    initPeer();
+    if (isRoomMode()) {
+      initGreenRoomLobby();
+    } else {
+      initPeer();
+    }
   }
-});
+}
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', initAppDom);
+  } else {
+    initAppDom();
+  }
+}
 
 // ==========================================
 // ATALHOS DE TECLADO GAMER (F = Fullscreen, M = Mute)
@@ -3273,4 +4126,132 @@ window.addEventListener('keyup', (e) => {
     voiceManager.setPttActive(false);
   }
 });
+
+export async function initGreenRoomLobby() {
+  const greenRoomModal = document.getElementById('green-room-modal');
+  if (greenRoomModal) {
+    greenRoomModal.style.display = 'flex';
+  }
+  const info = getRoomInfoFromUrl();
+  const idLabel = document.getElementById('green-room-id-label');
+  if (idLabel && info?.roomId) {
+    idLabel.textContent = `#${info.roomId}`;
+  }
+
+  const joinBtn = document.getElementById('green-room-join-btn');
+  const nameInput = document.getElementById('green-room-user-name');
+  if (nameInput) {
+    const savedName = (typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_user_name') : null);
+    if (savedName && !nameInput.value) nameInput.value = savedName;
+  }
+  if (joinBtn) {
+    joinBtn.onclick = () => {
+      if (nameInput && nameInput.value.trim() && typeof localStorage !== 'undefined') {
+        localStorage.setItem('seemygame_user_name', nameInput.value.trim());
+      }
+      if (greenRoomModal) {
+        greenRoomModal.style.display = 'none';
+      }
+      if (!peer || peer.destroyed || peer.disconnected) {
+        initPeer();
+      } else if (roomManager && !roomManager.isInRoom) {
+        setupRoomSession(peer.id);
+      }
+    };
+  }
+
+  const micSelect = document.getElementById('green-room-mic-select');
+  const speakerSelect = document.getElementById('green-room-speaker-select');
+
+  if (navigator?.mediaDevices?.enumerateDevices) {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      if (micSelect) {
+        micSelect.innerHTML = '<option value="">Microfone Padrão</option>';
+        devices.filter(d => d.kind === 'audioinput').forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || `Microfone (${d.deviceId.slice(0, 6)})`;
+          micSelect.appendChild(opt);
+        });
+      }
+      if (speakerSelect) {
+        speakerSelect.innerHTML = '<option value="">Alto-falante Padrão</option>';
+        devices.filter(d => d.kind === 'audiooutput').forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || `Alto-falante (${d.deviceId.slice(0, 6)})`;
+          speakerSelect.appendChild(opt);
+        });
+      }
+    } catch (err) {
+      console.warn('[GreenRoom] Erro ao enumerar dispositivos:', err);
+    }
+  }
+}
+
+export function bootstrapApp() {
+  const termsModal = document.getElementById('terms-modal');
+  const checkAge = document.getElementById('check-age');
+  const checkTerms = document.getElementById('check-terms');
+  const acceptBtn = document.getElementById('accept-btn');
+
+  const accepted = localStorage.getItem('seemygame_terms_accepted') === 'true' ||
+                   localStorage.getItem('seemygame_terms_version') === TERMS_VERSION;
+
+  if (termsModal && accepted) {
+    termsModal.style.display = 'none';
+    if (isRoomMode()) {
+      initGreenRoomLobby();
+    }
+  }
+
+  function sync() {
+    if (acceptBtn && checkAge && checkTerms) {
+      const ok = Boolean(checkAge.checked && checkTerms.checked);
+      acceptBtn.disabled = !ok;
+      acceptBtn.setAttribute('aria-disabled', String(!ok));
+      if (ok) {
+        acceptBtn.removeAttribute('disabled');
+        acceptBtn.classList.remove('disabled');
+      } else {
+        acceptBtn.setAttribute('disabled', 'true');
+        acceptBtn.classList.add('disabled');
+      }
+    }
+  }
+
+  if (checkAge && checkTerms) {
+    ['change', 'input', 'click'].forEach(evt => {
+      checkAge.addEventListener(evt, sync);
+      checkTerms.addEventListener(evt, sync);
+    });
+    sync();
+  }
+
+  if (acceptBtn) {
+    acceptBtn.addEventListener('click', () => {
+      if (checkAge && checkTerms && checkAge.checked && checkTerms.checked) {
+        try {
+          localStorage.setItem('seemygame_terms_version', TERMS_VERSION);
+          localStorage.setItem('seemygame_terms_accepted', 'true');
+        } catch (e) {}
+        if (termsModal) termsModal.style.display = 'none';
+        if (isRoomMode()) {
+          initGreenRoomLobby();
+        }
+      }
+    });
+  }
+}
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => bootstrapApp());
+  } else {
+    bootstrapApp();
+  }
+}
+
+
 

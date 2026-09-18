@@ -44,4 +44,13 @@ describe('Serverless: api/turn.js', () => {
 
     process.env = originalEnv;
   });
+
+  it('deve rejeitar origens externas não configuradas', async () => {
+    mockReq.headers = { origin: 'https://evilseemygame.com' };
+
+    await turnHandler(mockReq, mockRes);
+
+    expect(statusMock).toHaveBeenCalledWith(403);
+    expect(jsonMock).toHaveBeenCalledWith({ error: 'Origin not allowed' });
+  });
 });

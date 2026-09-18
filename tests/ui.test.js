@@ -129,6 +129,35 @@ describe('Módulo: ui.js', () => {
       expect(modal.style.display).toBe('none');
     });
 
+    it('deve habilitar o botão via eventos click ou input também', () => {
+      initTermsModal();
+
+      const checkAge = document.getElementById('check-age');
+      const checkTerms = document.getElementById('check-terms');
+      const acceptBtn = document.getElementById('accept-btn');
+
+      checkAge.checked = true;
+      checkAge.dispatchEvent(new Event('input'));
+      expect(acceptBtn.disabled).toBe(true);
+
+      checkTerms.checked = true;
+      checkTerms.dispatchEvent(new Event('click'));
+      expect(acceptBtn.disabled).toBe(false);
+    });
+
+    it('deve sincronizar o botão imediatamente se os checkboxes já estiverem marcados no DOM', () => {
+      const checkAge = document.getElementById('check-age');
+      const checkTerms = document.getElementById('check-terms');
+      const acceptBtn = document.getElementById('accept-btn');
+
+      checkAge.checked = true;
+      checkTerms.checked = true;
+      acceptBtn.disabled = true;
+
+      initTermsModal();
+      expect(acceptBtn.disabled).toBe(false);
+    });
+
     it('deve reabrir o modal e marcar os checkboxes ao clicar no link de termos', () => {
       localStorage.setItem('seemygame_terms_accepted', 'true');
       initTermsModal();
@@ -283,6 +312,31 @@ describe('Módulo: ui.js', () => {
 
       const exitBtn = card.querySelector('.card-btn-danger');
       expect(exitBtn.textContent).toBe('Encerrar');
+    });
+
+    it('deve renderizar botão de Clipar no card e acionar #clip-btn global ao ser clicado', () => {
+      const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
+      const clipBtnGlobal = document.createElement('button');
+      clipBtnGlobal.id = 'clip-btn';
+      clipBtnGlobal.click = vi.fn();
+      document.body.appendChild(clipBtnGlobal);
+
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'clip-test-peer',
+        label: 'Clip Test',
+        isLocal: false
+      });
+
+      const card = document.getElementById('card-clip-test-peer');
+      const clipCardBtn = card.querySelector('.card-btn-clip');
+      expect(clipCardBtn).not.toBeNull();
+      expect(clipCardBtn.textContent).toContain('Clipar');
+
+      clipCardBtn.click();
+      expect(clipBtnGlobal.click).toHaveBeenCalled();
+
+      clipBtnGlobal.remove();
     });
 
     it('deve reaproveitar o elemento video e preservar o card ao reconectar ou atualizar stream', () => {

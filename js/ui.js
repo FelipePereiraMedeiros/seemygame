@@ -70,39 +70,70 @@ export function initTermsModal(onAcceptCallback) {
   modal.setAttribute('aria-modal', 'true');
 
   function updateAcceptButton() {
-    acceptBtn.disabled = !(checkAge.checked && checkTerms.checked);
+    const isBothChecked = Boolean(checkAge.checked && checkTerms.checked);
+    acceptBtn.disabled = !isBothChecked;
+    acceptBtn.setAttribute('aria-disabled', String(!isBothChecked));
+    if (isBothChecked) {
+      acceptBtn.removeAttribute('disabled');
+      acceptBtn.classList.remove('disabled');
+    } else {
+      acceptBtn.setAttribute('disabled', 'true');
+      acceptBtn.classList.add('disabled');
+    }
   }
 
-  checkAge.addEventListener('change', updateAcceptButton);
-  checkTerms.addEventListener('change', updateAcceptButton);
+  // Registra múltiplos eventos (change, input, click) para máxima compatibilidade em navegadores e WebView2
+  if (!modal.dataset.termsInitialized) {
+    modal.dataset.termsInitialized = 'true';
 
-  const acceptedVersion = localStorage.getItem('seemygame_terms_version');
-  const legacyAccepted = localStorage.getItem('seemygame_terms_accepted') === 'true';
+    ['change', 'input', 'click'].forEach((evt) => {
+      checkAge.addEventListener(evt, updateAcceptButton);
+      checkTerms.addEventListener(evt, updateAcceptButton);
+    });
+
+    acceptBtn.addEventListener('click', () => {
+      if (!checkAge.checked || !checkTerms.checked) {
+        updateAcceptButton();
+        return;
+      }
+
+      try {
+        localStorage.setItem('seemygame_terms_version', TERMS_VERSION);
+        localStorage.setItem('seemygame_terms_accepted', 'true');
+      } catch (e) {}
+
+      modal.style.display = 'none';
+      showToast('Termos aceitos com sucesso!', 'success');
+
+      if (typeof onAcceptCallback === 'function') {
+        onAcceptCallback();
+      }
+    });
+
+    if (openTermsLink) {
+      openTermsLink.addEventListener('click', () => {
+        checkAge.checked = true;
+        checkTerms.checked = true;
+        updateAcceptButton();
+        modal.style.display = 'flex';
+      });
+    }
+  }
+
+  // Sincroniza o botão imediatamente de acordo com o estado atual dos checkboxes
+  updateAcceptButton();
+
+  let acceptedVersion = null;
+  let legacyAccepted = false;
+  try {
+    acceptedVersion = localStorage.getItem('seemygame_terms_version');
+    legacyAccepted = localStorage.getItem('seemygame_terms_accepted') === 'true';
+  } catch (e) {}
 
   if (acceptedVersion === TERMS_VERSION || (legacyAccepted && !acceptedVersion)) {
     modal.style.display = 'none';
   } else {
     modal.style.display = 'flex';
-  }
-
-  acceptBtn.addEventListener('click', () => {
-    localStorage.setItem('seemygame_terms_version', TERMS_VERSION);
-    localStorage.setItem('seemygame_terms_accepted', 'true');
-    modal.style.display = 'none';
-    showToast('Termos aceitos com sucesso!', 'success');
-
-    if (typeof onAcceptCallback === 'function') {
-      onAcceptCallback();
-    }
-  });
-
-  if (openTermsLink) {
-    openTermsLink.addEventListener('click', () => {
-      checkAge.checked = true;
-      checkTerms.checked = true;
-      updateAcceptButton();
-      modal.style.display = 'flex';
-    });
   }
 }
 
@@ -275,7 +306,7 @@ export function removeVideoCard(peerId) {
  * @param {boolean} [options.isLocal=false]
  * @param {Function} [options.onDisconnect]
  */
-export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, onDisconnect, onCoopClick, onPanicClick }) {
+export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, onDisconnect, onCoopClick, onPanicClick, onClipClick }) {
   const grid = document.getElementById('video-grid');
   if (!grid) return null;
 
@@ -428,6 +459,25 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
   };
   controls.appendChild(pipBtn);
 
+  // Botão de Clipar
+  const clipCardBtn = document.createElement('button');
+  clipCardBtn.className = 'card-btn card-btn-clip';
+  clipCardBtn.innerHTML = '🎬 Clipar';
+  clipCardBtn.title = 'Salvar os últimos 30 segundos desta transmissão';
+  clipCardBtn.onclick = () => {
+    if (typeof onClipClick === 'function') {
+      onClipClick(peerId, stream);
+      return;
+    }
+    const globalClipBtn = document.getElementById('clip-btn');
+    if (globalClipBtn) {
+      globalClipBtn.click();
+    } else {
+      showToast('Gravação de clipe iniciada.', 'info');
+    }
+  };
+  controls.appendChild(clipCardBtn);
+
   // Botão Fullscreen
   const fsBtn = document.createElement('button');
   fsBtn.className = 'card-btn';
@@ -525,6 +575,12 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
   video.playsInline = true;
   video.controls = false;
   video.muted = isLocal;
+  try {
+    const savedSpeaker = typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_audio_output_id') : null;
+    if (savedSpeaker && typeof video.setSinkId === 'function') {
+      video.setSinkId(savedSpeaker).catch(() => {});
+    }
+  } catch (e) {}
 
   // Overlay de transmissão pausada
   const pausedOverlay = document.createElement('div');
@@ -830,5 +886,12 @@ export function updateCoopUI(state) {
       }
     }
   }
+}
+
+/**
+ * Renderiza ou atualiza o dock de slots de jogadores Co-op
+ */
+export function renderCoopLobbyDock(slots = [], isHost = false, options = {}) {
+  // Safe stub/renderer para slots coop no lobby
 }
 

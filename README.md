@@ -2,7 +2,7 @@
 
 Plataforma de streaming P2P (*Peer-to-Peer*) em tempo real no navegador com foco em **máxima fluidez** e **baixa latência**.
 
-Desenvolvido para transmitir jogos e telas diretamente entre navegadores usando WebRTC e sinalização via PeerJS, sem necessidade de servidores de mídia intermediários centralizados.
+Desenvolvido para transmitir jogos e telas entre navegadores usando WebRTC e sinalização via PeerJS. A mídia normalmente segue P2P, mas pode passar por TURN quando a rede não permite conexão direta.
 
 ---
 
@@ -17,8 +17,8 @@ Desenvolvido para transmitir jogos e telas diretamente entre navegadores usando 
 - **Telemetria WebRTC Real (HUD):** Medição ao vivo de FPS, ping/latência RTT (ms) a partir do candidate-pair ativo/nomeado, bitrate consumido (Mbps), pacotes perdidos e resolução atual via `RTCPeerConnection.getStats()`.
 - **Blindagem contra Injeção de HTML (XSS):** Validação estrita de Peer IDs (`^[a-zA-Z0-9_-]{1,64}$`) e manipulação de DOM através de APIs nativas seguras com `textContent`.
 - **Gerenciamento Idempotente de Chamadas:** Prevenção de chamadas duplicadas por espectador, encerramento completo de conexões WebRTC ao parar a transmissão e máquina de estados para cancelamento de conexões pendentes.
-- **Suporte a TURN Dinâmico via Serverless (/api/turn):** Resolução dinâmica de servidores TURN/STUN com credenciais temporárias (compatível com Metered Video no Vercel via `METERED_DOMAIN` e `METERED_API_KEY`) e fallback automático para OpenRelay, garantindo 100% de conectividade em redes móveis (4G/5G) e CGNAT restritivos.
-- **Controle Remoto Co-op Player 2 (Parsec no Navegador):** Espectadores podem solicitar autorização ao streamer para jogar como Player 2. Os comandos (teclado, mouse normalizado e gamepad a 60 Hz) trafegam via WebRTC DataChannel de baixíssima latência.
+- **Suporte a TURN Dinâmico via Serverless (/api/turn):** Resolução dinâmica de servidores TURN/STUN com cache/TTL e fallback configurável. A conectividade depende da configuração do endpoint, das credenciais e da rede; não é uma garantia de 100%.
+- **Controle Remoto Co-op Player 2:** Espectadores podem solicitar autorização ao streamer. O teclado tem fallback para jogos web; mouse nativo depende das capacidades negociadas pelo Companion. Gamepad virtual nativo não está disponível neste build.
 - **Botão de Pânico / Killswitch Instantâneo:** O streamer tem total controle com autorização explícita via modal e revogação imediata a qualquer momento ao pressionar a tecla `Escape` ou o botão de pânico na interface.
 - **Agente Companion para Jogos de PC (tools/coop-agent.py):** Agente local em Python opcional para o streamer que injeta os comandos remotos do Player 2 diretamente em jogos nativos do Windows (Steam, emuladores, etc.).
 - **Responsividade & Acessibilidade:** Grade fluida sem overflow em telas móveis, semântica ARIA para modais e leitores de tela, e integridade SRI no CDN do PeerJS.
@@ -29,11 +29,11 @@ Desenvolvido para transmitir jogos e telas diretamente entre navegadores usando 
 
 1. **Jogos Web / Emuladores no Navegador:** Funciona 100% nativo no navegador sem nenhum programa adicional instalado. O streamer clica em autorizar e o Player 2 já assume o controle!
 2. **Jogos Nativos do Windows (Steam, RetroArch, etc.):**
-   - O streamer executa uma única vez no terminal:
+   - O streamer inicia o Companion com um token exclusivo de pareamento:
      ```bash
-     python tools/coop-agent.py
+     python tools/coop-agent.py --token SEU_TOKEN
      ```
-   - O SeeMyGame conecta automaticamente via WebSocket local (`ws://localhost:9876`). Os inputs recebidos do Player 2 passam a ser injetados diretamente na janela ativa do Windows com suporte a gamepad e teclado.
+   - A conexão só ocorre após autorização explícita da sessão e confirmação do token via WebSocket local (`ws://localhost:9876`). O agente anuncia teclado/mouse conforme as capacidades reais e não simula gamepad virtual.
 
 ---
 
@@ -53,14 +53,32 @@ SeeMyGame/
 │   └── player.css        # Grade fluida, cartões de vídeo, HUDs, overlays e estilo Player 2
 ├── js/
 │   ├── config.js         # Servidores STUN/TURN, fetchIceServersFromApi, perfis de qualidade
+│   ├── capture.js        # Provedores browser/native e máquina de estados de captura
 │   ├── webrtc.js         # Motor WebRTC: SDP RFC 8866, preferência H.264, Jitter Buffer e FPS target
 │   ├── coop.js           # Módulo Co-op: DataChannel, inputs P2, gamepad polling, killswitch
 │   ├── audio.js          # Analisador estéreo Web Audio API, VU meter e ciclo de vida de nós
 │   ├── stats.js          # Coletor de telemetria getStats (FPS, RTT ativo, bitrate, perda de pacotes)
 │   ├── ui.js             # Manipulação segura do DOM (sem XSS), validação de IDs, modais Co-op
-│   └── app.js            # Orquestrador central: PeerJS, getDisplayMedia resiliente, chamadas
+│   └── app.js            # Orquestrador central: PeerJS, captura autorizada e chamadas
 └── README.md             # Documentação técnica e operacional
 ```
+
+### Captura nativa no Windows
+
+O app desktop enumera janelas e monitores com IDs opacos e valida a fonte no Rust antes de iniciar uma sessão. A seleção de uma janela/monitor não abre o seletor do WebView2; o fallback do navegador é uma ação separada.
+
+O controle de fontes e sessões, o worker WGC/WASAPI e a ponte
+GStreamer/WebRTC já estão implementados. O worker mantém vídeo no pipeline
+nativo (H.264 ou HEVC/H.265) e áudio de loopback em Opus; o bridge
+`webrtcbin` negocia SDP/ICE e entrega um `MediaStream` ao WebView sem passar
+quadros pelo IPC. Prepare runtime e SDK com `npm run native:prepare` e valide
+com `npm run native:smoke`. Ainda faltam os testes ponta a ponta em Windows
+limpo, TURN, reconexão e múltiplos espectadores. O estado detalhado está em
+[`docs/captura-nativa-implementacao.md`](docs/captura-nativa-implementacao.md).
+
+### TURN em produção
+
+Configure `METERED_DOMAIN`, `METERED_API_KEY` e `TURN_ACCESS_TOKEN` no ambiente da função `/api/turn`. O frontend pode receber o token de runtime por `window.__SEEMYGAME_TURN_ACCESS_TOKEN__` ou pelo armazenamento da sessão; ele não deve ser commitado no bundle. Sem autenticação/configuração válida, a API não entrega credenciais TURN e uma origem HTTPS usa somente STUN como fallback.
 
 ---
 

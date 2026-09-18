@@ -51,7 +51,10 @@ export class FloatingReactionsManager {
     el.className = 'floating-reaction';
 
     // Posição horizontal aleatória (10% a 90%) se não fornecida
-    const x = xPercent !== null ? Math.max(5, Math.min(95, Number(xPercent))) : (Math.random() * 70 + 15);
+    const parsedX = Number(xPercent);
+    const x = xPercent !== null && Number.isFinite(parsedX)
+      ? Math.max(5, Math.min(95, parsedX))
+      : (Math.random() * 70 + 15);
     const drift = (Math.random() - 0.5) * 60; // Desvio lateral em pixels
     const duration = 2.0 + Math.random() * 0.8; // 2s a 2.8s
 
@@ -71,7 +74,7 @@ export class FloatingReactionsManager {
     if (senderName) {
       const nameTag = document.createElement('small');
       nameTag.className = 'reaction-sender';
-      nameTag.textContent = senderName;
+      nameTag.textContent = String(senderName).slice(0, 64);
       el.appendChild(nameTag);
     }
 
