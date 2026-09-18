@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="stone" x1="8" y1="4" x2="40" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B58258"/>
+      <stop offset="1" stop-color="#574134"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="14" y1="5" x2="36" y2="41" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE6A6"/>
+      <stop offset=".45" stop-color="#FFB747"/>
+      <stop offset="1" stop-color="#F47738"/>
+    </linearGradient>
+    <linearGradient id="world" x1="24" y1="12" x2="24" y2="41" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB747" stop-opacity=".04"/>
+      <stop offset="1" stop-color="#FF9B43" stop-opacity=".32"/>
+    </linearGradient>
+  </defs>
+  <!-- Architectural shoulders echo the ruin surrounding the original portal. -->
+  <path d="M5 41V19h4v-8h6V5h6V2h6v3h6v6h6v8h4v22h-6V23C37 12 31 6 24 6S11 12 11 23v18H5Z" fill="url(#stone)"/>
+  <path d="M24 7C16 7 10 15 10 25s6 18 14 18 14-8 14-18S32 7 24 7Z" fill="#141C23"/>
+  <ellipse cx="24" cy="25" rx="12" ry="17" fill="url(#world)" stroke="#FF922F" stroke-opacity=".2" stroke-width="7"/>
+  <ellipse cx="24" cy="25" rx="12" ry="17" stroke="url(#rim)" stroke-width="3"/>
+  <path d="M24 10c-6 0-10 7-10 15 0 6 2 11 6 14" stroke="#FFF0C5" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="m16 34 5-7 5 6 4-4 5 7" fill="#EBA354" fill-opacity=".55"/>
+  <path d="M12 43h24M18 46h12" stroke="url(#rim)" stroke-width="2" stroke-linecap="round"/>
+</svg>
