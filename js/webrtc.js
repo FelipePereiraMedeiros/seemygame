@@ -201,16 +201,32 @@ export function applyTransceiverOptimizations(pc, latencyMode = 'ultra-low', pre
 
   try {
     const transceivers = pc.getTransceivers();
+    const hasAudio = transceivers.some((t) => 
+      (t.sender && t.sender.track && t.sender.track.kind === 'audio') ||
+      (t.receiver && t.receiver.track && t.receiver.track.kind === 'audio') ||
+      (t.mid && t.mid.toLowerCase().includes('audio'))
+    );
+
     transceivers.forEach((t) => {
       // IMPORTANTE: Só aplica preferências de codecs de VÍDEO se o transceiver NÃO for explicitamente de áudio
       const isAudio = (t.sender && t.sender.track && t.sender.track.kind === 'audio') ||
                       (t.receiver && t.receiver.track && t.receiver.track.kind === 'audio') ||
                       (t.mid && t.mid.toLowerCase().includes('audio'));
 
-      // Ajuste de Jitter Buffer do receptor (vídeo pode operar em 0ms; áudio exige margem mínima de 25ms para evitar estalidos/underrun)
+      // Ajuste de Jitter Buffer do receptor:
+      // Quando há áudio presente no stream, áudio e vídeo DEVEM compartilhar o mesmo target (25ms em ultra-low)
+      // para evitar que o A/V sync do Chromium retenha e descarregue frames em rajadas (stutter/FPS oscilante).
+      // Em transmissões exclusivamente de vídeo (sem áudio), o vídeo opera em 0ms para latência pura de vidro a vidro.
       if (t.receiver) {
-        const targetMs = isAudio ? (latencyMode === 'stable' ? 50 : 25) : (latencyMode === 'stable' ? 50 : 0);
-        const targetSec = isAudio ? (latencyMode === 'stable' ? 0.05 : 0.025) : (latencyMode === 'stable' ? 0.05 : 0);
+        let targetMs;
+        let targetSec;
+        if (isAudio) {
+          targetMs = latencyMode === 'stable' ? 50 : 25;
+          targetSec = latencyMode === 'stable' ? 0.05 : 0.025;
+        } else {
+          targetMs = latencyMode === 'stable' ? 50 : (hasAudio ? 25 : 0);
+          targetSec = latencyMode === 'stable' ? 0.05 : (hasAudio ? 0.025 : 0);
+        }
         if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = targetMs;
         if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = targetSec;
       }

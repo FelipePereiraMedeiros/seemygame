@@ -1773,10 +1773,12 @@ async function handleStartDirectStream(data, conn) {
   directViewerPeerConnections.set(hostId, pc);
   directPendingCandidates.set(hostId, []);
 
+  const videoTargetMs = data.hasAudio ? 25 : 0;
+  const videoTargetSec = data.hasAudio ? 0.025 : 0;
   const videoTransceiver = pc.addTransceiver('video', { direction: 'recvonly' });
   if (videoTransceiver?.receiver) {
-    if ('jitterBufferTarget' in videoTransceiver.receiver) videoTransceiver.receiver.jitterBufferTarget = 0;
-    if ('playoutDelayHint' in videoTransceiver.receiver) videoTransceiver.receiver.playoutDelayHint = 0;
+    if ('jitterBufferTarget' in videoTransceiver.receiver) videoTransceiver.receiver.jitterBufferTarget = videoTargetMs;
+    if ('playoutDelayHint' in videoTransceiver.receiver) videoTransceiver.receiver.playoutDelayHint = videoTargetSec;
   }
   if (data.hasAudio) {
     const audioTransceiver = pc.addTransceiver('audio', { direction: 'recvonly' });
@@ -1931,11 +1933,18 @@ async function handleDirectStreamAnswer(data, conn) {
 
     try {
       const transceivers = pc.getTransceivers ? pc.getTransceivers() : [];
+      const hasAudio = transceivers.some(t => 
+        (t.receiver?.track?.kind === 'audio') || 
+        (t.sender?.track?.kind === 'audio') || 
+        (t.mid && t.mid.toLowerCase().includes('audio'))
+      );
       for (const t of transceivers) {
         if (t?.receiver) {
-          const isAudio = (t.receiver?.track?.kind === 'audio') || (t.sender?.track?.kind === 'audio');
-          if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = isAudio ? 25 : 0;
-          if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = isAudio ? 0.025 : 0;
+          const isAudio = (t.receiver?.track?.kind === 'audio') || (t.sender?.track?.kind === 'audio') || (t.mid && t.mid.toLowerCase().includes('audio'));
+          const targetMs = isAudio ? 25 : (hasAudio ? 25 : 0);
+          const targetSec = isAudio ? 0.025 : (hasAudio ? 0.025 : 0);
+          if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = targetMs;
+          if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = targetSec;
         }
       }
     } catch (_) {}

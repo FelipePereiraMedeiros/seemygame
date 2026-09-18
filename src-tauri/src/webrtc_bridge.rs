@@ -161,8 +161,9 @@ impl NativeWebRtcBridge {
             make_caps_filter("seemygame-video-caps", &rtp_caps(codec, video_payload))?;
         let video_queue = make_element("queue", "seemygame-video-queue")?;
         video_queue.set_property("max-size-buffers", 0u32);
-        video_queue.set_property("max-size-time", 100_000_000u64);
+        video_queue.set_property("max-size-time", 40_000_000u64);
         video_queue.set_property("max-size-bytes", 0u32);
+        video_queue.set_property_from_str("leaky", "downstream");
         pipeline
             .add_many([&video_src, &video_depay, &video_pay, &video_capsfilter, &video_queue])
             .map_err(|error| format!("Falha ao adicionar entrada de vídeo: {error}"))?;
@@ -194,8 +195,9 @@ impl NativeWebRtcBridge {
                 make_caps_filter("seemygame-audio-caps", &audio_rtp_caps(audio_payload))?;
             let audio_queue = make_element("queue", "seemygame-audio-queue")?;
             audio_queue.set_property("max-size-buffers", 0u32);
-            audio_queue.set_property("max-size-time", 100_000_000u64);
+            audio_queue.set_property("max-size-time", 40_000_000u64);
             audio_queue.set_property("max-size-bytes", 0u32);
+            audio_queue.set_property_from_str("leaky", "downstream");
             pipeline
                 .add_many([&audio_src, &audio_depay, &audio_pay, &audio_capsfilter, &audio_queue])
                 .map_err(|error| format!("Falha ao adicionar entrada de áudio: {error}"))?;
