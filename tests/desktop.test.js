@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { isDesktopApp, invokeDesktopCommand, getCapturableWindows, setHighPriority, toggleAlwaysOnTop, isAlwaysOnTop } from '../js/desktop.js';
+import { 
+    isDesktopApp, 
+    invokeDesktopCommand, 
+    getCapturableWindows, 
+    setHighPriority, 
+    toggleAlwaysOnTop, 
+    isAlwaysOnTop,
+    createNativeViewerPeer,
+    addNativeViewerIceCandidate,
+    closeNativeViewerPeer
+} from '../js/desktop.js';
 
 describe('Módulo: desktop.js (Tauri v2 / Rust Integration)', () => {
     const originalTauri = window.__TAURI_INTERNALS__;
@@ -101,5 +111,56 @@ describe('Módulo: desktop.js (Tauri v2 / Rust Integration)', () => {
         const res = await isAlwaysOnTop();
         expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('is_always_on_top', {});
         expect(res).toBe(false);
+    });
+
+    it('createNativeViewerPeer deve invocar create_native_viewer_peer com parâmetros corretos', async () => {
+        window.__TAURI_INTERNALS__ = {
+            invoke: vi.fn().mockResolvedValue({ type: 'answer', sdp: 'v=0...' })
+        };
+        const res = await createNativeViewerPeer('session-1', 'viewer-a', 'v=0\r\no=...');
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('create_native_viewer_peer', {
+            sessionId: 'session-1',
+            viewerId: 'viewer-a',
+            offerSdp: 'v=0\r\no=...'
+        });
+        expect(res.type).toBe('answer');
+    });
+
+    it('createNativeViewerPeer deve propagar iceServers se fornecido', async () => {
+        window.__TAURI_INTERNALS__ = {
+            invoke: vi.fn().mockResolvedValue({ type: 'answer', sdp: 'v=0...' })
+        };
+        const res = await createNativeViewerPeer('session-1', 'viewer-a', 'v=0\r\no=...', ['turn:user:pass@turn.example.com:3478']);
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('create_native_viewer_peer', {
+            sessionId: 'session-1',
+            viewerId: 'viewer-a',
+            offerSdp: 'v=0\r\no=...',
+            iceServers: ['turn:user:pass@turn.example.com:3478']
+        });
+        expect(res.type).toBe('answer');
+    });
+
+    it('addNativeViewerIceCandidate deve invocar add_native_viewer_ice_candidate com tipos corretos', async () => {
+        window.__TAURI_INTERNALS__ = {
+            invoke: vi.fn().mockResolvedValue(null)
+        };
+        await addNativeViewerIceCandidate('session-1', 'viewer-a', '0', 'candidate:1 1 UDP ...');
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('add_native_viewer_ice_candidate', {
+            sessionId: 'session-1',
+            viewerId: 'viewer-a',
+            mlineIndex: 0,
+            candidate: 'candidate:1 1 UDP ...'
+        });
+    });
+
+    it('closeNativeViewerPeer deve invocar close_native_viewer_peer', async () => {
+        window.__TAURI_INTERNALS__ = {
+            invoke: vi.fn().mockResolvedValue(null)
+        };
+        await closeNativeViewerPeer('session-1', 'viewer-a');
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('close_native_viewer_peer', {
+            sessionId: 'session-1',
+            viewerId: 'viewer-a'
+        });
     });
 });
