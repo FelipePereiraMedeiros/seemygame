@@ -47,11 +47,14 @@
 
     let sessionStartTime = performance.now();
     let nextFrameTargetTime = sessionStartTime;
+    let lastDrawTime = sessionStartTime;
     let drawnFrames = 0;
-    let plannedFrames = 0;
     let skippedTicks = 0;
+    let missedDeadlines = 0;
+    let maxDrawIntervalMs = 0;
 
-    // Janela deslizante para medição estrita de FPS (últimos 60 frames)
+    // Janela deslizante para medição de intervalos reais entre desenhos (últimos 120 frames)
+    const drawIntervals = [];
     const frameTimestamps = [];
 
     function getSlidingWindowFps() {
@@ -61,6 +64,27 @@
       const durationSec = (newest - oldest) / 1000.0;
       if (durationSec <= 0) return TARGET_FPS;
       return (frameTimestamps.length - 1) / durationSec;
+    }
+
+    function getIntervalStats() {
+      if (drawIntervals.length < 2) return { mean: 16.67, p95: 16.67, p99: 16.67, min: 16.67, max: 16.67, stdDev: 0 };
+      const sorted = [...drawIntervals].sort((a, b) => a - b);
+      const sum = sorted.reduce((a, b) => a + b, 0);
+      const mean = sum / sorted.length;
+      const p95 = sorted[Math.floor(sorted.length * 0.95)];
+      const p99 = sorted[Math.floor(sorted.length * 0.99)];
+      const min = sorted[0];
+      const max = sorted[sorted.length - 1];
+      const variance = sorted.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / sorted.length;
+      const stdDev = Math.sqrt(variance);
+      return {
+        mean: Number(mean.toFixed(2)),
+        p95: Number(p95.toFixed(2)),
+        p99: Number(p99.toFixed(2)),
+        min: Number(min.toFixed(2)),
+        max: Number(max.toFixed(2)),
+        stdDev: Number(stdDev.toFixed(2))
+      };
     }
 
     // WebAudio sintetizador contínuo
@@ -88,30 +112,43 @@
     window.addEventListener('keydown', startAudio);
     startAudio();
 
-    // Loop com trava temporal estrita a 60.0 Hz
+    // Loop com trava temporal estrita a 60.0 Hz e prevenção absoluta de rajadas (bursts)
     function render(now) {
       requestAnimationFrame(render);
 
-      // Descarta tiques extras de monitores de 120Hz, 144Hz, 165Hz ou 240Hz
-      // Tolerância de 1.0ms para jitter de timer do rAF
+      // Descarta tiques extras de monitores de alta taxa (120Hz, 144Hz, 165Hz ou 240Hz)
+      // Tolerância de 1.0ms para alinhamento com o timer do rAF
       if (now < nextFrameTargetTime - 1.0) {
         skippedTicks++;
         return;
       }
 
-      // Previne rajadas (bursts) em caso de travamento do sistema ou suspensão de aba
-      if (now - nextFrameTargetTime > 100.0) {
-        nextFrameTargetTime = now;
+      // Prevenção estrita de rajadas:
+      // Se atrasar mais de um slot inteiro, registra deadline perdido e avança sem tentar
+      // desenhar frames atrasados em rajada
+      if (now >= nextFrameTargetTime + FRAME_DURATION_MS) {
+        missedDeadlines++;
+        nextFrameTargetTime = now + FRAME_DURATION_MS;
+      } else {
+        nextFrameTargetTime += FRAME_DURATION_MS;
       }
-      nextFrameTargetTime += FRAME_DURATION_MS;
-      plannedFrames++;
 
       drawnFrames++;
+      const currentInterval = now - lastDrawTime;
+      lastDrawTime = now;
+      if (drawnFrames > 1) {
+        drawIntervals.push(currentInterval);
+        if (drawIntervals.length > 120) drawIntervals.shift();
+        if (currentInterval > maxDrawIntervalMs) maxDrawIntervalMs = currentInterval;
+      }
+
       frameTimestamps.push(now);
       if (frameTimestamps.length > 60) frameTimestamps.shift();
 
       const currentFps = getSlidingWindowFps();
       const elapsedMs = now - sessionStartTime;
+      const plannedFrames = Math.floor(elapsedMs / FRAME_DURATION_MS);
+      const intervalStats = getIntervalStats();
 
       // Alterna tom a cada 500ms para verificação de modulação sonora contínua
       if (audioCtx && osc) {
@@ -150,15 +187,16 @@
       // 5. Textos de auditoria em alta visibilidade e resolução nativa 1080p
       ctx.fillStyle = '#f8fafc';
       ctx.font = 'bold 44px monospace';
-      ctx.fillText(`FRAME: ${String(drawnFrames).padStart(6, '0')} (Planejado: ${plannedFrames})`, 80, 140);
+      ctx.fillText(`FRAME: ${String(drawnFrames).padStart(6, '0')} (Planejado pelo Relógio: ${plannedFrames})`, 80, 140);
       ctx.fillText(`TEMPO REAL: ${elapsedMs.toFixed(1)} ms`, 80, 200);
-      ctx.fillText(`CADÊNCIA: ${currentFps.toFixed(2)} FPS (Trava 60.0 Hz)`, 80, 260);
+      ctx.fillText(`CADÊNCIA: ${currentFps.toFixed(2)} FPS | INTERVALO MÉDIO: ${intervalStats.mean.toFixed(2)} ms`, 80, 260);
 
       ctx.font = '28px monospace';
       ctx.fillStyle = '#94a3b8';
-      ctx.fillText(`FONTE: REFERÊNCIA DETERMINÍSTICA NATIVA (1920x1080 @ 60.0Hz)`, 80, 960);
+      ctx.fillText(`FONTE: REFERÊNCIA DETERMINÍSTICA NATIVA (1920x1080 @ 60.0Hz)`, 80, 920);
+      ctx.fillText(`ESPACAMENTO: p95=${intervalStats.p95}ms | p99=${intervalStats.p99}ms | max=${intervalStats.max}ms | stdDev=${intervalStats.stdDev}ms`, 80, 960);
       ctx.fillText(`ÁUDIO: 48 kHz ESTÉREO (SINE 440Hz / 880Hz ALTERNADO)`, 80, 1000);
-      ctx.fillText(`TICKS SKIPPED (DESCARTE ALTA TAXA): ${skippedTicks}`, 80, 1040);
+      ctx.fillText(`SLOTS: TICKS DESCARTADOS=${skippedTicks} | DEADLINES PERDIDOS=${missedDeadlines}`, 80, 1040);
     }
 
     requestAnimationFrame(render);
@@ -168,9 +206,12 @@
       reset: () => {
         sessionStartTime = performance.now();
         nextFrameTargetTime = sessionStartTime;
+        lastDrawTime = sessionStartTime;
         drawnFrames = 0;
-        plannedFrames = 0;
         skippedTicks = 0;
+        missedDeadlines = 0;
+        maxDrawIntervalMs = 0;
+        drawIntervals.length = 0;
         frameTimestamps.length = 0;
         if (audioCtx && osc) {
           osc.frequency.setValueAtTime(440, audioCtx.currentTime);
@@ -180,16 +221,26 @@
         const now = performance.now();
         const elapsed = now - sessionStartTime;
         const fps = getSlidingWindowFps();
+        const plannedFrames = Math.floor(elapsed / FRAME_DURATION_MS);
+        const rect = canvas.getBoundingClientRect();
         return {
           drawnFrames,
           plannedFrames,
           skippedTicks,
+          missedDeadlines,
+          maxDrawIntervalMs: Number(maxDrawIntervalMs.toFixed(2)),
+          intervalStats: getIntervalStats(),
           fps: Number(fps.toFixed(2)),
           elapsedMs: Number(elapsed.toFixed(1)),
           currentTime: Number((elapsed / 1000.0).toFixed(2)),
           audioActive: audioCtx?.state === 'running',
           nativeWidth: 1920,
           nativeHeight: 1080,
+          actualCanvasWidth: Math.round(rect.width),
+          actualCanvasHeight: Math.round(rect.height),
+          windowInnerWidth: window.innerWidth,
+          windowInnerHeight: window.innerHeight,
+          devicePixelRatio: window.devicePixelRatio,
           paused: false,
           readyState: 4,
           playerState: 1,

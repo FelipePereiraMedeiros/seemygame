@@ -16,10 +16,11 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
     'encoderImplementation', 'decoderImplementation', 'powerEfficientEncoder',
     'powerEfficientDecoder', 'timestamp', 'bytesSent', 'bytesReceived',
     'framesEncoded', 'framesDecoded', 'framesReceived', 'framesDropped',
+    'keyFramesDecoded', 'keyFramesEncoded', 'qpSum',
     'framesPerSecond', 'frameWidth', 'frameHeight', 'totalEncodeTime',
     'totalDecodeTime', 'totalPacketSendDelay', 'packetsSent', 'packetsReceived',
     'packetsLost', 'jitter', 'jitterBufferDelay', 'jitterBufferEmittedCount',
-    'freezeCount', 'totalFreezesDuration', 'nackCount', 'pliCount',
+    'jitterBufferMinimumDelay', 'freezeCount', 'totalFreezesDuration', 'nackCount', 'pliCount',
     'qualityLimitationReason', 'qualityLimitationDurations',
     'selectedCandidatePairId', 'currentRoundTripTime', 'availableOutgoingBitrate',
     'localCandidateId', 'remoteCandidateId', 'candidateType', 'protocol', 'state', 'nominated',
@@ -534,7 +535,13 @@ export function deltaMetrics(previous, current) {
     sentMbps: dt > 0 && delta('bytesSent') !== null ? delta('bytesSent') * 8 / dt / 1e6 : null,
     audioSamplesDelta: delta('totalSamplesReceived'),
     concealedSamplesDelta: delta('concealedSamples'),
-    audioBytesDelta: delta('bytesReceived')
+    audioBytesDelta: delta('bytesReceived'),
+    rawDeltaTotalDecodeTime: delta('totalDecodeTime'),
+    rawDeltaFramesDecoded: delta('framesDecoded'),
+    rawDeltaTotalEncodeTime: delta('totalEncodeTime'),
+    rawDeltaFramesEncoded: delta('framesEncoded'),
+    rawDeltaJitterBufferDelay: delta('jitterBufferDelay'),
+    rawDeltaJitterBufferEmittedCount: delta('jitterBufferEmittedCount')
   };
 }
 

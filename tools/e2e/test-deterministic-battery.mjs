@@ -5,6 +5,7 @@ import { spawn, execSync } from 'node:child_process';
 import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { ensureDefaultDesktop } from './desktop-affinity.mjs';
 import { installTelemetry, deltaMetrics } from './telemetry.mjs';
@@ -36,8 +37,80 @@ const hashFile = async filepath => {
   }
 };
 
+// Orçamento explícito de qualidade (Quality Budget)
+const evaluateQualityBudget = ({
+  fpsMean,
+  fpsP10,
+  maxPauseMs,
+  totalGapsCount,
+  totalPacketsLost,
+  videoJitterMeanMs
+}) => {
+  const violations = [];
+  const warnings = [];
+
+  // 1. Cadência de FPS recebido (Alvo: 60.0 FPS)
+  if (fpsMean == null || fpsMean < 45.0) {
+    violations.push(`fps_critically_low: mean=${fpsMean ?? 'null'} < 45.0`);
+  } else if (fpsMean < 55.0) {
+    warnings.push(`fps_suboptimal: mean=${fpsMean} < 55.0`);
+  }
+
+  if (fpsP10 != null && fpsP10 < 40.0) {
+    violations.push(`fps_p10_critically_low: p10=${fpsP10} < 40.0`);
+  } else if (fpsP10 != null && fpsP10 < 50.0) {
+    warnings.push(`fps_p10_degraded: p10=${fpsP10} < 50.0`);
+  }
+
+  // 2. Pausas na apresentação (Maior gap RVFC)
+  if (maxPauseMs > 500) {
+    violations.push(`severe_pause: maxPause=${maxPauseMs}ms > 500ms`);
+  } else if (maxPauseMs > 250) {
+    warnings.push(`moderate_pause: maxPause=${maxPauseMs}ms > 250ms`);
+  }
+
+  // 3. Frequência de gaps (>100ms)
+  if (totalGapsCount > 10) {
+    violations.push(`excessive_gaps: count=${totalGapsCount} > 10`);
+  } else if (totalGapsCount > 3) {
+    warnings.push(`frequent_gaps: count=${totalGapsCount} > 3`);
+  }
+
+  // 4. Perda de pacotes WebRTC
+  if (totalPacketsLost > 0) {
+    violations.push(`packet_loss_detected: lost=${totalPacketsLost}`);
+  }
+
+  // 5. Jitter buffer de vídeo
+  if (videoJitterMeanMs != null && videoJitterMeanMs > 50) {
+    violations.push(`excessive_jitter_buffer: jitter=${videoJitterMeanMs}ms > 50ms`);
+  } else if (videoJitterMeanMs != null && videoJitterMeanMs > 20) {
+    warnings.push(`elevated_jitter_buffer: jitter=${videoJitterMeanMs}ms > 20ms`);
+  }
+
+  let status = 'PASSED';
+  if (violations.length > 0) {
+    status = 'FAILED';
+  } else if (warnings.length > 0) {
+    status = 'DEGRADED';
+  }
+
+  return {
+    status,
+    violations,
+    warnings,
+    budgetRules: {
+      fpsMean: '>= 55.0 (PASS) / >= 45.0 (DEGRADED)',
+      fpsP10: '>= 50.0 (PASS) / >= 40.0 (DEGRADED)',
+      maxPauseMs: '<= 250ms (PASS) / <= 500ms (DEGRADED)',
+      gapsCount: '<= 3 (PASS) / <= 10 (DEGRADED)',
+      packetLoss: '0 (PASS)'
+    }
+  };
+};
+
 // Coleta de proveniência expandida com auditoria completa de artefatos
-const getProvenance = async (samplePage = null) => {
+const getProvenance = async (samplePage = null, nativeCaps = null, viewerLaunchArgs = []) => {
   let gitCommit = 'unknown';
   let gitBranch = 'unknown';
   let gitDirty = false;
@@ -108,7 +181,10 @@ const getProvenance = async (samplePage = null) => {
     nodeVersion: process.version,
     platform: process.platform,
     arch: process.arch,
+    osRelease: os.release(),
     browserChannel: channel,
+    viewerBrowserLaunchArgs: viewerLaunchArgs,
+    nativeCapabilities: nativeCaps,
     sourceType: 'deterministic-60fps-native1080p',
     startedAt: new Date().toISOString()
   };
@@ -277,31 +353,46 @@ const runIsolationSuite = async () => {
   }).catch(() => {});
   console.log('Conectado ao WebView2 desktop. URL:', hostPage.url());
 
-  // 3. Iniciar navegador espectador (com --mute-audio para evitar realimentação acústica no endpoint WASAPI padrão da mesma máquina)
-  console.log('\n[Passo 3] Iniciando navegador espectador (Edge com isolamento de áudio local)...');
+  // 3. Iniciar navegador espectador (com --mute-audio para isolar endpoint WASAPI do SO de realimentação acústica em máquina única)
+  console.log('\n[Passo 3] Iniciando navegador espectador (Edge com isolamento de áudio do sistema)...');
+  const viewerLaunchArgs = [
+    '--window-position=600,100',
+    '--window-size=1280,720',
+    '--autoplay-policy=no-user-gesture-required',
+    '--mute-audio', // Previne retroalimentação / loopback acústico do espectador no endpoint WASAPI padrão em máquina única
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding'
+  ];
   const viewerBrowser = await chromium.launch({
     channel,
     headless: false,
-    args: [
-      '--window-position=600,100',
-      '--window-size=1280,720',
-      '--autoplay-policy=no-user-gesture-required',
-      '--mute-audio', // Previne retroalimentação / loopback acústico do espectador no endpoint WASAPI padrão
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding'
-    ]
+    args: viewerLaunchArgs
   });
   const viewerContext = await viewerBrowser.newContext();
   await setupContext(viewerContext);
   const viewerPage = await viewerContext.newPage();
 
+  // Listeners de diagnóstico
+  hostPage.on('console', msg => {
+    if (msg.type() === 'error' || msg.text().includes('Capture') || msg.text().includes('WebRTC') || msg.text().includes('Native')) {
+      console.log(`[Host Console ${msg.type()}] ${msg.text()}`);
+    }
+  });
+  hostPage.on('pageerror', err => console.log(`[Host PageError] ${err.message}`));
+  viewerPage.on('console', msg => {
+    if (msg.type() === 'error' || msg.text().includes('WebRTC') || msg.text().includes('Track') || msg.text().includes('Stream')) {
+      console.log(`[Viewer Console ${msg.type()}] ${msg.text()}`);
+    }
+  });
+  viewerPage.on('pageerror', err => console.log(`[Viewer PageError] ${err.message}`));
+
   // Proveniência completa
-  const provenance = await getProvenance(viewerPage);
+  const provenance = await getProvenance(viewerPage, null, viewerLaunchArgs);
   console.log(`[Proveniência] Git Commit: ${provenance.gitCommit} (dirty: ${provenance.gitDirty})`);
   console.log(`[Proveniência] Exe SHA256: ${provenance.exeSha256?.slice(0, 16)}...`);
   console.log(`[Proveniência] Fixture SHA256: ${provenance.componentHashes['fixtures/deterministic-60fps.html']?.slice(0, 16)}...`);
-  console.log(`[Proveniência] GPU Renderer: ${provenance.gpuInfo.renderer}`);
+  console.log(`[Proveniência] OS Release: ${provenance.osRelease} | GPU Renderer: ${provenance.gpuInfo.renderer}`);
 
   // 4. Ambos entram na mesma sala
   const roomName = `det-iso-${randomBytes(4).toString('hex')}`;
@@ -312,6 +403,13 @@ const runIsolationSuite = async () => {
   console.log(`\nEntrando na sala WebRTC: ${roomName}`);
   await joinRoom(hostPage, `${nativeOrigin}/room.html${roomHash}`, 'Host Desktop');
   await joinRoom(viewerPage, `${webOrigin}/room.html${roomHash}`, 'Espectador Web');
+
+  const nativeCaps = await hostPage.evaluate(async () => {
+    const d = await import('/js/desktop.js').catch(() => null);
+    return d?.getNativeCaptureCapabilities ? await d.getNativeCaptureCapabilities() : null;
+  }).catch(() => null);
+  console.log('[Host] Capacidades nativas detectadas:', JSON.stringify(nativeCaps));
+  provenance.nativeCapabilities = nativeCaps;
 
   const hostId = await hostPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
   const viewerId = await viewerPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
@@ -340,13 +438,21 @@ const runIsolationSuite = async () => {
     await sourcePage.bringToFront().catch(() => {});
     await sourcePage.evaluate(() => window.focus()).catch(() => {});
     await sleep(400);
-    await targetWindow.click();
+
+    const actionBtn = targetWindow.locator('.window-action-btn');
+    if ((await actionBtn.count()) > 0) {
+      await actionBtn.first().click({ force: true });
+    } else {
+      await targetWindow.click({ force: true });
+    }
+
     await sourcePage.bringToFront().catch(() => {});
     await sourcePage.evaluate(() => window.focus()).catch(() => {});
 
     console.log('Aguardando stream nativo chegar ao espectador...');
     const deadline = Date.now() + 45000;
     let ready = false;
+    let lastDiagTime = 0;
     while (Date.now() < deadline) {
       ready = await viewerPage.evaluate(({ hId, prevTrackId }) => {
         const unmute = document.querySelector('.audio-unmute-overlay button');
@@ -354,6 +460,7 @@ const runIsolationSuite = async () => {
         const card = document.getElementById(`card-${hId}`);
         const v = card?.querySelector('video');
         if (v && v.paused) {
+          v.muted = true;
           v.play().catch(() => {});
         }
         const stream = v?.srcObject;
@@ -364,6 +471,37 @@ const runIsolationSuite = async () => {
         return v.videoWidth > 0 && v.readyState >= 2 && !v.paused;
       }, { hId: hostId, prevTrackId: lastSeenVideoTrackId }).catch(() => false);
       if (ready) break;
+
+      if (Date.now() - lastDiagTime >= 4000) {
+        lastDiagTime = Date.now();
+        const hostDiag = await hostPage.evaluate(async () => {
+          const a = await import('/js/app.js').catch(() => null);
+          const d = await import('/js/desktop.js').catch(() => null);
+          const capState = d?.getNativeCaptureState ? await d.getNativeCaptureState() : null;
+          return {
+            isStartingStream: a?.isStartingStream,
+            hasLocalStream: !!a?.localStream,
+            capState: capState?.state
+          };
+        }).catch(err => ({ err: err.message }));
+        const viewerDiag = await viewerPage.evaluate(({ hId }) => {
+          const card = document.getElementById(`card-${hId}`);
+          const v = card?.querySelector('video');
+          const stream = v?.srcObject;
+          const vTrack = stream?.getVideoTracks?.()[0];
+          return {
+            card: !!card,
+            video: !!v,
+            vWidth: v?.videoWidth,
+            vReady: v?.readyState,
+            vPaused: v?.paused,
+            stream: !!stream,
+            vTrack: vTrack?.readyState
+          };
+        }, { hId: hostId }).catch(err => ({ err: err.message }));
+        console.log(`  [Aguardando stream] Host: ${JSON.stringify(hostDiag)} | Viewer: ${JSON.stringify(viewerDiag)}`);
+      }
+
       await sleep(1000);
     }
     if (!ready) throw new Error('Espectador não reproduziu stream nativo dentro de 45s');
@@ -549,6 +687,10 @@ const runIsolationSuite = async () => {
     let totalAudioSamplesEnd = null;
     let totalAudioBytesStart = null;
     let totalAudioBytesEnd = null;
+    let latestVideoRow = null;
+    let latestAudioRow = null;
+    let latestVideoCodecRow = null;
+    let latestAudioCodecRow = null;
 
     while (Date.now() < endTime) {
       await sleep(1000);
@@ -579,14 +721,28 @@ const runIsolationSuite = async () => {
         previousMap.set(rowId, row);
       }
 
-      // Localiza linha estrita de vídeo
-      const videoRow = sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'video' && r.trackIdentifier === activeVideoTrackId)
-                    || sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'video');
+      // Localiza linha estrita de vídeo SEM fallback silencioso
+      const videoRow = sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'video' && r.trackIdentifier === activeVideoTrackId);
+      if (!videoRow) {
+        unmetInvariants.push(`missing_inbound_video_rtp_track: expected trackId ${activeVideoTrackId}`);
+      }
 
-      // Localiza linha estrita de áudio
-      const audioRow = activeAudioTrackId
-        ? sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'audio' && r.trackIdentifier === activeAudioTrackId)
-        : sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'audio');
+      // Localiza linha estrita de áudio SEM fallback silencioso
+      let audioRow = null;
+      if (activeAudioTrackId) {
+        audioRow = sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'audio' && r.trackIdentifier === activeAudioTrackId);
+        if (!audioRow && expectAudible) {
+          unmetInvariants.push(`missing_inbound_audio_rtp_track: expected trackId ${activeAudioTrackId}`);
+        }
+      }
+
+      const videoCodecRow = videoRow?.codecId ? sample.rows.find(r => r.id === videoRow.codecId) : null;
+      const audioCodecRow = audioRow?.codecId ? sample.rows.find(r => r.id === audioRow.codecId) : null;
+
+      if (videoRow) latestVideoRow = videoRow;
+      if (audioRow) latestAudioRow = audioRow;
+      if (videoCodecRow) latestVideoCodecRow = videoCodecRow;
+      if (audioCodecRow) latestAudioCodecRow = audioCodecRow;
 
       if (audioRow) {
         if (totalAudioSamplesStart === null && typeof audioRow.totalSamplesReceived === 'number') {
@@ -629,7 +785,21 @@ const runIsolationSuite = async () => {
         audioSamplesDelta,
         maxPauseMs,
         gapsCount,
-        streamInfo: currentStreamInfo
+        streamInfo: currentStreamInfo,
+        rawStats: {
+          videoSsrc: videoRow?.ssrc ?? null,
+          videoTrackId: videoRow?.trackIdentifier ?? null,
+          decoderImplementation: videoRow?.decoderImplementation ?? null,
+          powerEfficientDecoder: videoRow?.powerEfficientDecoder ?? null,
+          totalDecodeTime: videoRow?.totalDecodeTime ?? null,
+          framesDecoded: videoRow?.framesDecoded ?? null,
+          keyFramesDecoded: videoRow?.keyFramesDecoded ?? null,
+          rawDeltaTotalDecodeTime: videoRow?.delta?.rawDeltaTotalDecodeTime ?? null,
+          rawDeltaFramesDecoded: videoRow?.delta?.rawDeltaFramesDecoded ?? null,
+          audioSsrc: audioRow?.ssrc ?? null,
+          audioTotalSamplesReceived: audioRow?.totalSamplesReceived ?? null,
+          audioBytesReceived: audioRow?.bytesReceived ?? null
+        }
       });
 
       if (sec % 5 === 0 || Date.now() >= endTime - 500) {
@@ -664,7 +834,8 @@ const runIsolationSuite = async () => {
     const steady = timeline.slice(1);
     const fpsList = steady.map(t => t.decodedFps).filter(n => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
     const decodeList = steady.map(t => t.decodeTimeMs).filter(n => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
-    const jitterList = steady.map(t => t.videoJitterMs).filter(n => typeof n === 'number' && Number.isFinite(n));
+    const videoJitterList = steady.map(t => t.videoJitterMs).filter(n => typeof n === 'number' && Number.isFinite(n));
+    const audioJitterList = steady.map(t => t.audioJitterMs).filter(n => typeof n === 'number' && Number.isFinite(n));
     const lastLost = steady.length ? steady[steady.length - 1].packetsLost : 0;
     const maxPause = Math.max(0, ...steady.map(t => t.maxPauseMs || 0));
     const totalGaps = steady.length ? steady[steady.length - 1].gapsCount : 0;
@@ -684,6 +855,16 @@ const runIsolationSuite = async () => {
     const executionStatus = 'COMPLETED';
     const validityStatus = unmetInvariants.length === 0 ? 'VALID' : 'INCONCLUSIVE';
 
+    const qualityBudget = evaluateQualityBudget({
+      fpsMean: avg(fpsList),
+      fpsP10: p10(fpsList),
+      maxPauseMs: maxPause,
+      totalGapsCount: totalGaps,
+      totalPacketsLost: lastLost,
+      videoJitterMeanMs: avg(videoJitterList)
+    });
+    const qualityStatus = qualityBudget.status;
+
     // Captura screenshot da fase
     const shotPrefix = id;
     await hostPage.screenshot({ path: path.join(outputDir, `${shotPrefix}-host.png`) }).catch(() => {});
@@ -695,7 +876,11 @@ const runIsolationSuite = async () => {
       name,
       executionStatus,
       validityStatus,
+      qualityStatus,
+      qualityBudget,
       unmetInvariants,
+      audioIsolation: scenarioConfig.audioIsolation || (audioMode === 'none' ? 'none' : 'os_system_loopback_viewer_globally_muted'),
+      browserGloballyMuted: scenarioConfig.browserGloballyMuted ?? true,
       validFpsSamples,
       totalDurationMs,
       sourceValidation: {
@@ -703,7 +888,15 @@ const runIsolationSuite = async () => {
         finalSourceState,
         effectiveSourceFps,
         elapsedSourceSec,
-        framesAdvanced
+        framesAdvanced,
+        intervalStats: finalSourceState.intervalStats ?? null,
+        layoutDimensions: {
+          actualCanvasWidth: finalSourceState.actualCanvasWidth ?? null,
+          actualCanvasHeight: finalSourceState.actualCanvasHeight ?? null,
+          windowInnerWidth: finalSourceState.windowInnerWidth ?? null,
+          windowInnerHeight: finalSourceState.windowInnerHeight ?? null,
+          devicePixelRatio: finalSourceState.devicePixelRatio ?? null
+        }
       },
       fpsMean: avg(fpsList),
       fpsMedian: median(fpsList),
@@ -712,16 +905,30 @@ const runIsolationSuite = async () => {
       fpsMax: fpsList.length ? Number(fpsList[fpsList.length - 1].toFixed(1)) : null,
       decodeTimeMeanMs: avg(decodeList),
       decodeTimeP95Ms: decodeList.length ? Number(decodeList[Math.floor(decodeList.length * 0.95)].toFixed(1)) : null,
-      jitterBufferMeanMs: avg(jitterList),
+      jitterBufferMeanMs: avg(videoJitterList),
+      audioJitterBufferMeanMs: avg(audioJitterList),
       totalPacketsLost: lastLost,
       maxPauseMs: maxPause,
       totalGapsCount: totalGaps,
+      decoderInfo: {
+        implementation: latestVideoRow?.decoderImplementation ?? 'unknown',
+        powerEfficient: latestVideoRow?.powerEfficientDecoder ?? null,
+        codec: latestVideoCodecRow?.mimeType ?? 'unknown',
+        ssrc: latestVideoRow?.ssrc ?? null
+      },
+      rawTotals: {
+        totalFramesDecoded: latestVideoRow?.framesDecoded ?? null,
+        totalKeyFramesDecoded: latestVideoRow?.keyFramesDecoded ?? null,
+        totalDecodeTimeSec: latestVideoRow?.totalDecodeTime ?? null
+      },
       audioValidation: {
         expectAudible,
         totalAudioSamplesStart,
         totalAudioSamplesEnd,
         audioSamplesProgressed: (totalAudioSamplesEnd ?? 0) - (totalAudioSamplesStart ?? 0),
-        audioBytesProgressed: (totalAudioBytesEnd ?? 0) - (totalAudioBytesStart ?? 0)
+        audioBytesProgressed: (totalAudioBytesEnd ?? 0) - (totalAudioBytesStart ?? 0),
+        audioCodec: latestAudioCodecRow?.mimeType ?? 'unknown',
+        audioSsrc: latestAudioRow?.ssrc ?? null
       },
       effectiveReceivers,
       timeline
@@ -734,12 +941,14 @@ const runIsolationSuite = async () => {
   };
 
   // ==========================================
-  // CENÁRIO 1: CONTROLE BASE A/V (Audível, Prévia ON, Áudio de Sistema)
+  // CENÁRIO 1: CONTROLE BASE A/V (Áudio de Sistema, Receptor com Mute no SO)
   // ==========================================
   results.scenarios.cenario1_controleBase = await runScenarioExecution({
     id: 'c1',
-    name: 'Cenário 1: Controle Base (A/V Completo, Audível, Prévia Ligada)',
+    name: 'Cenário 1: Controle Base (A/V Completo, Áudio de Sistema, Receptor com Mute no SO)',
     audioMode: 'system',
+    audioIsolation: 'os_system_loopback_viewer_globally_muted',
+    browserGloballyMuted: true,
     expectAudible: true,
     expectedElementMuted: false,
     expectedElementVolume: 1.0,
@@ -749,12 +958,14 @@ const runIsolationSuite = async () => {
   });
 
   // ==========================================
-  // CENÁRIO 2: ISOLAMENTO DA PRÉVIA LOCAL (Audível, Prévia SUSPENSA)
+  // CENÁRIO 2: ISOLAMENTO DA PRÉVIA LOCAL (A/V Completo, Prévia Suspensa, Receptor com Mute no SO)
   // ==========================================
   results.scenarios.cenario2_previaSuspensa = await runScenarioExecution({
     id: 'c2',
-    name: 'Cenário 2: Isolamento de Prévia (A/V Completo, Audível, Prévia Suspensa)',
+    name: 'Cenário 2: Isolamento de Prévia (A/V Completo, Prévia Suspensa, Receptor com Mute no SO)',
     audioMode: 'system',
+    audioIsolation: 'os_system_loopback_viewer_globally_muted',
+    browserGloballyMuted: true,
     expectAudible: true,
     expectedElementMuted: false,
     expectedElementVolume: 1.0,
@@ -764,12 +975,14 @@ const runIsolationSuite = async () => {
   });
 
   // ==========================================
-  // CENÁRIO 3: ISOLAMENTO DA SAÍDA DE ÁUDIO (Áudio Capturado/RTP, Saída MUTADA no Player)
+  // CENÁRIO 3: ISOLAMENTO DA SAÍDA NO PLAYER (Áudio Capturado/RTP, Player Mutado no DOM, Receptor com Mute no SO)
   // ==========================================
   results.scenarios.cenario3_audioMutado = await runScenarioExecution({
     id: 'c3',
-    name: 'Cenário 3: Isolamento de Saída de Áudio (Áudio Capturado/RTP, Saída Mutada)',
+    name: 'Cenário 3: Isolamento de Saída no Player (Áudio Capturado/RTP, Player Mutado no DOM, Receptor com Mute no SO)',
     audioMode: 'system',
+    audioIsolation: 'os_system_loopback_viewer_globally_muted',
+    browserGloballyMuted: true,
     expectAudible: false,
     expectedElementMuted: true,
     expectedElementVolume: 0,
@@ -785,6 +998,8 @@ const runIsolationSuite = async () => {
     id: 'c4',
     name: 'Cenário 4: Baseline Vídeo Puro (Sem Trilha de Áudio)',
     audioMode: 'none',
+    audioIsolation: 'none',
+    browserGloballyMuted: true,
     expectAudible: false,
     expectedElementMuted: false,
     expectedElementVolume: 1.0,
@@ -794,12 +1009,44 @@ const runIsolationSuite = async () => {
   });
 
   // ==========================================
-  // CENÁRIOS 5A, 5B, 5C: POLÍTICAS DE JITTER INDEPENDENTES (Audíveis)
+  // CENÁRIO 5: ÁUDIO POR PROCESSO (Isolamento WASAPI por PID)
   // ==========================================
-  results.scenarios.cenario5a_jitter0ms = await runScenarioExecution({
-    id: 'c5a',
-    name: 'Cenário 5A: Jitter Buffer Target 0ms (Audível, Ultra-Low Playout)',
+  if (nativeCaps?.supports_process_audio) {
+    results.scenarios.cenario5_audioProcesso = await runScenarioExecution({
+      id: 'c5',
+      name: 'Cenário 5: Áudio por Processo (Isolamento WASAPI por PID, Sem Loopback de Sistema)',
+      audioMode: 'process',
+      audioIsolation: 'wasapi_process_tree',
+      browserGloballyMuted: false,
+      expectAudible: true,
+      expectedElementMuted: false,
+      expectedElementVolume: 1.0,
+      expectHostPreviewSuspended: false,
+      warmupSec: 3,
+      durationSec: 25
+    });
+  } else {
+    console.log('\n[Cenário 5] Áudio por Processo NÃO suportado no SO atual (requer Windows 11 / Server 2022 build >= 20348).');
+    results.scenarios.cenario5_audioProcesso = {
+      id: 'c5',
+      name: 'Cenário 5: Áudio por Processo (Isolamento WASAPI por PID)',
+      executionStatus: 'SKIPPED_UNSUPPORTED_OS',
+      validityStatus: 'NOT_APPLICABLE',
+      qualityStatus: 'NOT_APPLICABLE',
+      reason: `Host está executando Windows 10 Build ${os.release()} (sem AUDIOCLIENT_ACTIVATION_PARAMS). Requer Windows 11 ou Server 2022 build >= 20348.`,
+      capabilities: nativeCaps
+    };
+  }
+
+  // ==========================================
+  // CENÁRIOS 6A, 6B, 6C: POLÍTICAS DE JITTER INDEPENDENTES
+  // ==========================================
+  results.scenarios.cenario6a_jitter0ms = await runScenarioExecution({
+    id: 'c6a',
+    name: 'Cenário 6A: Jitter Buffer Target 0ms (Ultra-Low Playout, Receptor com Mute no SO)',
     audioMode: 'system',
+    audioIsolation: 'os_system_loopback_viewer_globally_muted',
+    browserGloballyMuted: true,
     expectAudible: true,
     expectedElementMuted: false,
     expectedElementVolume: 1.0,
@@ -810,10 +1057,12 @@ const runIsolationSuite = async () => {
     durationSec: 20
   });
 
-  results.scenarios.cenario5b_jitter25ms = await runScenarioExecution({
-    id: 'c5b',
-    name: 'Cenário 5B: Jitter Buffer Target 25ms (Audível, Buffer Estático)',
+  results.scenarios.cenario6b_jitter25ms = await runScenarioExecution({
+    id: 'c6b',
+    name: 'Cenário 6B: Jitter Buffer Target 25ms (Buffer Estático, Receptor com Mute no SO)',
     audioMode: 'system',
+    audioIsolation: 'os_system_loopback_viewer_globally_muted',
+    browserGloballyMuted: true,
     expectAudible: true,
     expectedElementMuted: false,
     expectedElementVolume: 1.0,
@@ -824,10 +1073,12 @@ const runIsolationSuite = async () => {
     durationSec: 20
   });
 
-  results.scenarios.cenario5c_jitterDefault = await runScenarioExecution({
-    id: 'c5c',
-    name: 'Cenário 5C: Jitter Buffer Default (Audível, Padrão WebRTC)',
+  results.scenarios.cenario6c_jitterDefault = await runScenarioExecution({
+    id: 'c6c',
+    name: 'Cenário 6C: Jitter Buffer Default (Padrão WebRTC, Receptor com Mute no SO)',
     audioMode: 'system',
+    audioIsolation: 'os_system_loopback_viewer_globally_muted',
+    browserGloballyMuted: true,
     expectAudible: true,
     expectedElementMuted: false,
     expectedElementVolume: 1.0,
@@ -862,17 +1113,18 @@ const runIsolationSuite = async () => {
     summaryTable[key] = {
       'Execução': sc.executionStatus,
       'Validade': sc.validityStatus,
-      'Invariantes': sc.unmetInvariants.length ? sc.unmetInvariants.join('; ') : '100% OK',
+      'Qualidade': sc.qualityStatus ?? 'N/A',
+      'Problemas Qualidade': sc.qualityBudget?.violations?.length ? sc.qualityBudget.violations.join('; ') : (sc.qualityBudget?.warnings?.length ? sc.qualityBudget.warnings.join('; ') : 'OK'),
+      'Invariantes': sc.unmetInvariants?.length ? sc.unmetInvariants.join('; ') : '100% OK',
       'FPS Fonte Real': sc.sourceValidation?.effectiveSourceFps ?? 'N/A',
-      'FPS Médio Recv': sc.fpsMean,
-      'FPS p10': sc.fpsP10,
-      'Decode (ms)': sc.decodeTimeMeanMs,
-      'Jitter (ms)': sc.jitterBufferMeanMs,
-      'Max Pausa (ms)': sc.maxPauseMs,
-      'Gaps': sc.totalGapsCount,
-      'Perda Pkts': sc.totalPacketsLost,
-      'Progresso Áudio': sc.audioValidation?.audioSamplesProgressed > 0 ? `+${sc.audioValidation.audioSamplesProgressed} samples` : 'N/A',
-      'Amostras': sc.validFpsSamples
+      'FPS Médio Recv': sc.fpsMean ?? 'N/A',
+      'FPS p10': sc.fpsP10 ?? 'N/A',
+      'Decode (ms)': sc.decodeTimeMeanMs ?? 'N/A',
+      'Jitter V/A (ms)': `${sc.jitterBufferMeanMs ?? 'N/A'} / ${sc.audioJitterBufferMeanMs ?? 'N/A'}`,
+      'Max Pausa (ms)': sc.maxPauseMs ?? 'N/A',
+      'Gaps >100ms': sc.totalGapsCount ?? 'N/A',
+      'Perda Pkts': sc.totalPacketsLost ?? 'N/A',
+      'Decoder': sc.decoderInfo?.implementation ?? 'N/A'
     };
   }
   console.table(summaryTable);
