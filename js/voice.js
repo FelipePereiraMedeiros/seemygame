@@ -3,9 +3,11 @@
  */
 
 import { getAudioContext } from './audio.js';
+import { isValidPeerId } from './ui.js';
 
 export const VAD_THRESHOLD = 14; // Limiar de sensibilidade do microfone (0-100)
 export const VAD_SILENCE_DELAY_MS = 300; // Tempo de retenção antes de desligar o anel verde
+export const MAX_VOICE_PARTICIPANTS = 16;
 
 export class VoiceManager {
   constructor() {
@@ -30,39 +32,80 @@ export class VoiceManager {
       isSpeaking: false,
     };
 
+    this.selectedMicId = (typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_audio_input_id') : '') || '';
+    this.selectedSpeakerId = (typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_audio_output_id') : '') || '';
+
     this.listeners = {
       participantUpdate: new Set(),
       speakingChange: new Set(),
       voiceStateChange: new Set(),
       voiceJoined: new Set(),
       voiceLeft: new Set(),
+      audioInputTrackChange: new Set(),
+      audioOutputDeviceChange: new Set(),
     };
   }
 
-  async joinVoice({ peerId, name = 'Você', role = 'host', customStream = null } = {}) {
+  async joinVoice({ peerId, name = 'Você', role = 'host', customStream = null, inputDeviceId = null } = {}) {
     if (this.isInVoice) return this.localStream;
 
     this.myPeerId = peerId;
     this.myName = name;
     this.myRole = role;
+    if (inputDeviceId !== null && inputDeviceId !== undefined) {
+      this.selectedMicId = inputDeviceId;
+    }
 
     try {
       if (customStream) {
         this.localStream = customStream;
       } else if (navigator?.mediaDevices?.getUserMedia) {
-        this.localStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: false,
-        });
+        const audioConstraints = {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        };
+        if (this.selectedMicId) {
+          audioConstraints.deviceId = { exact: this.selectedMicId };
+        }
+
+        try {
+          this.localStream = await navigator.mediaDevices.getUserMedia({
+            audio: audioConstraints,
+            video: false,
+          });
+        } catch (deviceErr) {
+          if (this.selectedMicId) {
+            console.warn('[Voice] Microfone preferencial indisponível, usando padrão:', deviceErr);
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              },
+              video: false,
+            });
+          } else {
+            throw deviceErr;
+          }
+        }
       } else {
         throw new Error('getUserMedia não suportado neste ambiente');
       }
 
       this.isInVoice = true;
+
+      // SEGURANÇA / PRIVACIDADE (A07): Se estiver em modo PTT e a tecla não estiver ativa,
+      // inicializa o microfone mutado para não vazar áudio ao entrar ou reconectar
+      if (this.voiceMode === 'ptt' && !this.isPttActive) {
+        this.isMuted = true;
+      }
+
+      if (this.localStream) {
+        this.localStream.getAudioTracks().forEach((track) => {
+          track.enabled = !this.isMuted;
+        });
+      }
 
       // Registra a si mesmo como participante local
       this.participants.set(this.myPeerId, {
@@ -117,7 +160,12 @@ export class VoiceManager {
 
     this.participants.clear();
     this.isInVoice = false;
-    this.isMuted = false;
+    if (this.voiceMode === 'ptt') {
+      this.isMuted = true;
+      this.isPttActive = false;
+    } else {
+      this.isMuted = false;
+    }
     this.isDeafened = false;
 
     this.emit('voiceLeft');
@@ -216,7 +264,12 @@ export class VoiceManager {
   }
 
   addRemoteParticipant(peerId, { name = 'Amigo', role = 'viewer', stream = null } = {}) {
-    if (!peerId) return;
+    if (!isValidPeerId(peerId) || peerId === this.myPeerId) return false;
+    if (!this.participants.has(peerId) && this.participants.size >= MAX_VOICE_PARTICIPANTS) return false;
+
+    if (this.participants.has(peerId)) {
+      this.removeRemoteParticipant(peerId);
+    }
 
     let audioElem = null;
     if (stream && typeof document !== 'undefined') {
@@ -225,6 +278,11 @@ export class VoiceManager {
       audioElem.muted = this.isDeafened;
       audioElem.srcObject = stream;
       audioElem.style.display = 'none';
+      if (this.selectedSpeakerId && typeof audioElem.setSinkId === 'function') {
+        audioElem.setSinkId(this.selectedSpeakerId).catch((err) => {
+          console.warn('[Voice] Falha ao configurar saída de áudio para participante:', err);
+        });
+      }
       document.body.appendChild(audioElem);
     }
 
@@ -247,6 +305,7 @@ export class VoiceManager {
 
     this.participants.set(peerId, participant);
     this.emit('participantUpdate', this.getParticipantsList());
+    return true;
   }
 
   removeRemoteParticipant(peerId) {
@@ -396,6 +455,116 @@ export class VoiceManager {
     } catch (err) {
       console.warn(`[Remote VAD] Falha para ${participant.peerId}:`, err);
     }
+  }
+
+  async setAudioInputDevice(deviceId) {
+    this.selectedMicId = deviceId || '';
+    try {
+      if (typeof localStorage !== 'undefined') {
+        if (this.selectedMicId) {
+          localStorage.setItem('seemygame_audio_input_id', this.selectedMicId);
+        } else {
+          localStorage.removeItem('seemygame_audio_input_id');
+        }
+      }
+    } catch (e) {}
+
+    if (!this.isInVoice) return null;
+
+    try {
+      const audioConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      };
+      if (this.selectedMicId) {
+        audioConstraints.deviceId = { exact: this.selectedMicId };
+      }
+
+      let newStream;
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          audio: audioConstraints,
+          video: false,
+        });
+      } catch (e) {
+        if (this.selectedMicId) {
+          console.warn('[Voice] Microfone falhou, voltando para o padrão:', e);
+          newStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            video: false,
+          });
+        } else {
+          throw e;
+        }
+      }
+
+      const newTrack = newStream.getAudioTracks()[0];
+      if (!newTrack) return null;
+      newTrack.enabled = !this.isMuted;
+
+      // Interrompe faixas anteriores
+      if (this.localStream) {
+        this.localStream.getAudioTracks().forEach((t) => {
+          try { t.stop(); } catch (err) {}
+        });
+      }
+
+      this.localStream = newStream;
+
+      // Reinicializa o analisador VAD local com a nova faixa
+      this.initLocalVAD();
+
+      // Notifica para atualização dos senders WebRTC nas conexões ativas
+      this.emit('audioInputTrackChange', { newTrack, stream: newStream, deviceId: this.selectedMicId });
+      return newStream;
+    } catch (err) {
+      console.warn('[Voice] Falha ao alternar dispositivo de microfone:', err);
+      throw err;
+    }
+  }
+
+  async setAudioOutputDevice(deviceId) {
+    this.selectedSpeakerId = deviceId || '';
+    try {
+      if (typeof localStorage !== 'undefined') {
+        if (this.selectedSpeakerId) {
+          localStorage.setItem('seemygame_audio_output_id', this.selectedSpeakerId);
+        } else {
+          localStorage.removeItem('seemygame_audio_output_id');
+        }
+      }
+    } catch (e) {}
+
+    const updatePromises = [];
+    for (const p of this.participants.values()) {
+      if (p.audioElem && typeof p.audioElem.setSinkId === 'function') {
+        updatePromises.push(
+          p.audioElem.setSinkId(this.selectedSpeakerId).catch((err) => {
+            console.warn('[Voice] Erro ao aplicar sinkId no participante:', err);
+          })
+        );
+      }
+    }
+
+    if (typeof document !== 'undefined') {
+      const mediaElements = document.querySelectorAll('video, audio');
+      mediaElements.forEach((el) => {
+        if (typeof el.setSinkId === 'function') {
+          updatePromises.push(
+            el.setSinkId(this.selectedSpeakerId).catch(() => {})
+          );
+        }
+      });
+    }
+
+    await Promise.all(updatePromises);
+    this.emit('audioOutputDeviceChange', { deviceId: this.selectedSpeakerId });
+    return this.selectedSpeakerId;
   }
 
   on(event, callback) {

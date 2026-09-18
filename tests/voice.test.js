@@ -168,4 +168,58 @@ describe('Módulo: voice.js (Chat de Voz P2P Estilo Discord)', () => {
       expect(voice.getParticipantsList()).toHaveLength(0);
     });
   });
+
+  describe('Seleção de Dispositivos de Áudio (Microfone e Saída)', () => {
+    it('deve armazenar e persistir preferências de microfone e saída', async () => {
+      await voice.setAudioOutputDevice('speaker-usb-123');
+      expect(voice.selectedSpeakerId).toBe('speaker-usb-123');
+      expect(localStorage.getItem('seemygame_audio_output_id')).toBe('speaker-usb-123');
+
+      await voice.setAudioInputDevice('mic-headset-456');
+      expect(voice.selectedMicId).toBe('mic-headset-456');
+      expect(localStorage.getItem('seemygame_audio_input_id')).toBe('mic-headset-456');
+    });
+
+    it('deve atualizar elementos de áudio dos participantes ao alterar a saída de som', async () => {
+      const origCreateElement = document.createElement.bind(document);
+      const realAudio = origCreateElement('audio');
+      realAudio.setSinkId = vi.fn().mockResolvedValue(undefined);
+
+      vi.spyOn(document, 'createElement').mockImplementation((tag) => {
+        if (tag === 'audio') return realAudio;
+        return origCreateElement(tag);
+      });
+
+      voice.addRemoteParticipant('friend-audio', { name: 'Amigo Audio', stream: mockStream });
+
+      await voice.setAudioOutputDevice('speaker-hdmi');
+      expect(realAudio.setSinkId).toHaveBeenCalledWith('speaker-hdmi');
+    });
+
+    it('deve emitir audioInputTrackChange ao alternar microfone enquanto conectado', async () => {
+      await voice.joinVoice({ peerId: 'user-mic', customStream: mockStream });
+
+      const newTrack = { kind: 'audio', enabled: true, stop: vi.fn() };
+      const newStream = {
+        getAudioTracks: vi.fn().mockReturnValue([newTrack]),
+        getTracks: vi.fn().mockReturnValue([newTrack]),
+      };
+
+      navigator.mediaDevices = {
+        getUserMedia: vi.fn().mockResolvedValue(newStream),
+      };
+
+      const trackChangeSpy = vi.fn();
+      voice.on('audioInputTrackChange', trackChangeSpy);
+
+      await voice.setAudioInputDevice('mic-novo');
+      expect(trackChangeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          newTrack,
+          stream: newStream,
+          deviceId: 'mic-novo',
+        })
+      );
+    });
+  });
 });
