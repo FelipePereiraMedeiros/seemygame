@@ -238,27 +238,27 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
   });
 
   describe('Inicialização do PeerJS com ID Fixo', () => {
-    it('deve inicializar PeerJS passando o ID fixo se configurado no localStorage', () => {
+    it('deve inicializar PeerJS passando o ID fixo se configurado no localStorage', async () => {
       app.setCustomStreamerId('gamer-diogo');
-      app.initPeer();
+      await app.initPeer();
 
       const instance = MockPeer.lastInstance;
       expect(instance).not.toBeNull();
       expect(instance.id).toBe('gamer-diogo');
     });
 
-    it('deve inicializar PeerJS sem ID fixo se nenhum estiver configurado', () => {
+    it('deve inicializar PeerJS sem ID fixo se nenhum estiver configurado', async () => {
       app.setCustomStreamerId(null);
-      app.initPeer();
+      await app.initPeer();
 
       const instance = MockPeer.lastInstance;
       expect(instance).not.toBeNull();
       expect(instance.id).toBeNull();
     });
 
-    it('deve exibir aviso e abrir modal quando o PeerJS emitir erro unavailable-id para ID não pertencente à sessão', () => {
+    it('deve exibir aviso e abrir modal quando o PeerJS emitir erro unavailable-id para ID não pertencente à sessão', async () => {
       app.setCustomStreamerId('diogo');
-      app.initPeer();
+      await app.initPeer();
 
       const instance = MockPeer.lastInstance;
       instance.emit('error', { type: 'unavailable-id', message: 'ID is taken' });
@@ -273,10 +273,10 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       expect(customIdError.textContent).toContain('já está em uso');
     });
 
-    it('deve tentar reconectar automaticamente em reload/mesma sessão quando unavailable-id for emitido', () => {
+    it('deve tentar reconectar automaticamente em reload/mesma sessão quando unavailable-id for emitido', async () => {
       sessionStorage.setItem('seemygame_last_id', 'diogo');
       app.setCustomStreamerId('diogo');
-      app.initPeer();
+      await app.initPeer();
 
       const instance = MockPeer.lastInstance;
       instance.emit('error', { type: 'unavailable-id', message: 'ID is taken' });
@@ -289,10 +289,10 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       expect(customIdModal.style.display).not.toBe('flex');
     });
 
-    it('quando reconexão for bem sucedida no open, deve zerar customIdRetryAttempts e persistir na sessionStorage', () => {
+    it('quando reconexão for bem sucedida no open, deve zerar customIdRetryAttempts e persistir na sessionStorage', async () => {
       app.setCustomStreamerId('diogo');
       app.setCustomIdRetryAttempts(2);
-      app.initPeer();
+      await app.initPeer();
 
       const instance = MockPeer.lastInstance;
       instance.emit('open', 'diogo');
@@ -301,11 +301,11 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       expect(sessionStorage.getItem('seemygame_last_id')).toBe('diogo');
     });
 
-    it('deve abrir modal após esgotar tentativas de reconexão de ID', () => {
+    it('deve abrir modal após esgotar tentativas de reconexão de ID', async () => {
       sessionStorage.setItem('seemygame_last_id', 'diogo');
       app.setCustomStreamerId('diogo');
       app.setCustomIdRetryAttempts(app.MAX_CUSTOM_ID_RETRIES);
-      app.initPeer();
+      await app.initPeer();
 
       const instance = MockPeer.lastInstance;
       instance.emit('error', { type: 'unavailable-id', message: 'ID is taken' });
@@ -320,8 +320,8 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       expect(sessionStorage.getItem('seemygame_last_id')).toBeNull();
     });
 
-    it('deve chamar peer.destroy() no evento beforeunload para liberar o ID de forma limpa', () => {
-      app.initPeer();
+    it('deve chamar peer.destroy() no evento beforeunload para liberar o ID de forma limpa', async () => {
+      await app.initPeer();
       const inst = MockPeer.lastInstance;
       expect(inst.destroyed).toBe(false);
 
@@ -329,7 +329,7 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       expect(inst.destroyed).toBe(true);
     });
 
-    it('em viewer.html, não deve inicializar com o ID customizado do streamer', () => {
+    it('em viewer.html, não deve inicializar com o ID customizado do streamer', async () => {
       const origLocation = window.location;
       delete window.location;
       window.location = new URL('http://localhost/viewer.html');
@@ -337,7 +337,7 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       try {
         app.setCustomStreamerId('streamer-mason');
         app.resetPeer();
-        app.initPeer();
+        await app.initPeer();
 
         const inst = MockPeer.lastInstance;
         expect(inst.id).toBeNull();
@@ -348,9 +348,9 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
   });
 
   describe('Handshake de Proteção por Senha (PIN)', () => {
-    it('em sala SEM PIN, deve autorizar espectador e enviar STREAM_STATUS imediatamente', () => {
+    it('em sala SEM PIN, deve autorizar espectador e enviar STREAM_STATUS imediatamente', async () => {
       app.setStoredRoomPin('');
-      app.initPeer();
+      await app.initPeer();
 
       const peerInstance = MockPeer.lastInstance;
       const conn = new MockDataConnection('viewer-no-pin');
@@ -368,9 +368,9 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       conn.emit('close');
     });
 
-    it('em sala COM PIN, deve enviar PIN_REQUIRED e NÃO autorizar antes da senha', () => {
+    it('em sala COM PIN, deve enviar PIN_REQUIRED e NÃO autorizar antes da senha', async () => {
       app.setStoredRoomPin('senha123');
-      app.initPeer();
+      await app.initPeer();
 
       const peerInstance = MockPeer.lastInstance;
       const conn = new MockDataConnection('viewer-with-pin');
@@ -383,9 +383,9 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       conn.emit('close');
     });
 
-    it('em sala COM PIN, deve rejeitar REQUEST_STREAM com PIN incorreto', () => {
+    it('em sala COM PIN, deve rejeitar REQUEST_STREAM com PIN incorreto', async () => {
       app.setStoredRoomPin('senha123');
-      app.initPeer();
+      await app.initPeer();
 
       const peerInstance = MockPeer.lastInstance;
       const conn = new MockDataConnection('viewer-wrong-pin');
@@ -404,9 +404,9 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       conn.emit('close');
     });
 
-    it('em sala COM PIN, deve aceitar REQUEST_STREAM com PIN correto e autorizar o espectador', () => {
+    it('em sala COM PIN, deve aceitar REQUEST_STREAM com PIN correto e autorizar o espectador', async () => {
       app.setStoredRoomPin('senha123');
-      app.initPeer();
+      await app.initPeer();
 
       const peerInstance = MockPeer.lastInstance;
       const conn = new MockDataConnection('viewer-correct-pin');
@@ -425,9 +425,9 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       conn.emit('close');
     });
 
-    it('deve bloquear mensagens de chat e voz se espectador não autenticou o PIN', () => {
+    it('deve bloquear mensagens de chat e voz se espectador não autenticou o PIN', async () => {
       app.setStoredRoomPin('senha123');
-      app.initPeer();
+      await app.initPeer();
 
       const peerInstance = MockPeer.lastInstance;
       const conn = new MockDataConnection('viewer-unauthed');
@@ -447,9 +447,9 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
       conn.emit('close');
     });
 
-    it('deve remover espectador de authenticatedViewers ao fechar a conexão', () => {
+    it('deve remover espectador de authenticatedViewers ao fechar a conexão', async () => {
       app.setStoredRoomPin('senha123');
-      app.initPeer();
+      await app.initPeer();
 
       const peerInstance = MockPeer.lastInstance;
       const conn = new MockDataConnection('viewer-leave');

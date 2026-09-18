@@ -14,6 +14,13 @@ describe('Módulo: room.js (Gerenciador de Salas P2P - Paradigma Room-First)', (
     expect(getRoomMasterPeerId('jogatina vip')).toBe('smg_room_jogatina-vip_host');
   });
 
+  it('chave de convite deve tornar o ID do coordenador imprevisÃ­vel e determinÃ­stico', () => {
+    const first = getRoomMasterPeerId('amigos', '0123456789abcdef');
+    expect(first).toBe(getRoomMasterPeerId('amigos', '0123456789abcdef'));
+    expect(first).not.toBe(getRoomMasterPeerId('amigos', 'fedcba9876543210'));
+    expect(first).not.toBe(getRoomMasterPeerId('amigos'));
+  });
+
   describe('RoomManager Lifecycle & State', () => {
     let room;
 
@@ -58,6 +65,7 @@ describe('Módulo: room.js (Gerenciador de Salas P2P - Paradigma Room-First)', (
 
       const fakeConn = { open: true, send: vi.fn(), close: vi.fn() };
       room.registerConnection('peer-remote-2', fakeConn, { name: 'Lucas' });
+      room.promoteConnection('peer-remote-2', fakeConn, { name: 'Lucas' });
 
       expect(room.members.size).toBe(2);
       expect(room.meshConnections.has('peer-remote-2')).toBe(true);
@@ -71,6 +79,7 @@ describe('Módulo: room.js (Gerenciador de Salas P2P - Paradigma Room-First)', (
       room.join('peer-local-1');
       const fakeConn = { open: true, send: vi.fn() };
       room.registerConnection('peer-remote-2', fakeConn, { name: 'Lucas', isStreaming: true });
+      room.promoteConnection('peer-remote-2', fakeConn, { name: 'Lucas', isStreaming: true });
 
       const leftSpy = vi.fn();
       const streamUnpubSpy = vi.fn();
@@ -88,6 +97,7 @@ describe('Módulo: room.js (Gerenciador de Salas P2P - Paradigma Room-First)', (
       room.join('peer-local-1');
       const fakeConn = { open: true, send: vi.fn() };
       room.registerConnection('peer-remote-2', fakeConn);
+      room.promoteConnection('peer-remote-2', fakeConn);
 
       const pubSpy = vi.fn();
       room.on('streamPublished', pubSpy);
@@ -125,6 +135,7 @@ describe('Módulo: room.js (Gerenciador de Salas P2P - Paradigma Room-First)', (
       room.join('peer-local-1');
       const fakeConn = { open: true, send: vi.fn() };
       room.registerConnection('peer-remote-2', fakeConn);
+      room.promoteConnection('peer-remote-2', fakeConn);
 
       room.setLocalVoiceState({ isMuted: true, isDeafened: false, isSpeaking: false });
 
@@ -169,10 +180,56 @@ describe('Módulo: room.js (Gerenciador de Salas P2P - Paradigma Room-First)', (
       }));
     });
 
+    it('deve exigir a chave da sala antes de promover uma conexÃ£o pendente', () => {
+      const roomKey = '0123456789abcdef';
+      const keyedRoom = new RoomManager({ roomId: 'privada', roomKey });
+      keyedRoom.join(getRoomMasterPeerId('privada', roomKey), true);
+
+      const wrongConn = { peer: 'guest-key-1', open: true, send: vi.fn(), close: vi.fn() };
+      keyedRoom.registerConnection(wrongConn.peer, wrongConn);
+      keyedRoom.handleRoomMessage(wrongConn.peer, {
+        type: 'ROOM_JOIN_REQUEST',
+        roomId: 'privada',
+        roomKey: 'wrong-key-0000000'
+      }, wrongConn);
+
+      expect(wrongConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'ROOM_KEY_REQUIRED' }));
+      expect(keyedRoom.members.has(wrongConn.peer)).toBe(false);
+      expect(keyedRoom.isPeerAuthorized(wrongConn.peer)).toBe(false);
+
+      const validConn = { peer: 'guest-key-1', open: true, send: vi.fn(), close: vi.fn() };
+      keyedRoom.registerConnection(validConn.peer, validConn);
+      keyedRoom.handleRoomMessage(validConn.peer, {
+        type: 'ROOM_JOIN_REQUEST',
+        roomId: 'privada',
+        roomKey,
+        name: 'Convidado'
+      }, validConn);
+
+      expect(keyedRoom.members.has(validConn.peer)).toBe(true);
+      expect(keyedRoom.isPeerAuthorized(validConn.peer)).toBe(true);
+      expect(validConn.send).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'ROOM_PIN_ACCEPTED',
+        roomKey
+      }));
+    });
+
+    it('deve manter conexÃ£o publica pendente ate o handshake de admissÃ£o', () => {
+      const publicRoom = new RoomManager({ roomId: 'publica' });
+      publicRoom.join('master-public', true);
+      const conn = { peer: 'guest-public', open: true, send: vi.fn(), close: vi.fn() };
+
+      expect(publicRoom.registerConnection(conn.peer, conn)).toBe(true);
+      expect(publicRoom.pendingConnections.has(conn.peer)).toBe(true);
+      expect(publicRoom.meshConnections.has(conn.peer)).toBe(false);
+      expect(publicRoom.isPeerAuthorized(conn.peer)).toBe(false);
+    });
+
     it('handleRoomMessage deve processar ROOM_STREAM_PUBLISHED e ROOM_STREAM_UNPUBLISHED remotos', () => {
       room.join('peer-local-1');
       const fakeConn = { open: true, send: vi.fn() };
       room.registerConnection('peer-remote-2', fakeConn);
+      room.promoteConnection('peer-remote-2', fakeConn);
 
       const pubSpy = vi.fn();
       const unpubSpy = vi.fn();
@@ -206,6 +263,7 @@ describe('Módulo: room.js (Gerenciador de Salas P2P - Paradigma Room-First)', (
       room.join('peer-local-1');
       const fakeConn = { open: true, send: vi.fn(), close: vi.fn() };
       room.registerConnection('peer-remote-2', fakeConn);
+      room.promoteConnection('peer-remote-2', fakeConn);
 
       const closeSpy = vi.fn();
       room.on('roomClosed', closeSpy);
