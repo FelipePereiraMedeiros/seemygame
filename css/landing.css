@@ -1,123 +1,128 @@
 /* ==========================================================================
-   SeeMyGame - Nova Identidade Cyber Dune / Amber Terracotta
-   Inspirada na estética e narrativa moderna do Discord
+   SeeMyGame - Identidade Cyber Dune / Amber Terracotta Refinada
+   Foco em Clareza, Benefícios Reais, Acessibilidade e Performance Mobile
    ========================================================================== */
 
 :root {
-  /* Paleta Base: Dark Espresso & Carvão Quente */
-  --dune-bg: #14110F;
-  --dune-bg-alt: #1A1513;
-  --dune-surface: #1F1A17;
-  --dune-surface-card: #27211D;
-  --dune-surface-hover: #302924;
-  --dune-surface-input: #161210;
+  /* Paleta Base: Dark Espresso e Neutros Quentes */
+  --dune-bg: #12100F;
+  --dune-bg-alt: #171513;
+  --dune-surface: #1C1917;
+  --dune-surface-card: #231F1C;
+  --dune-surface-hover: #2B2622;
+  --dune-surface-input: #151210;
   
-  /* Bordas e Divisores */
-  --dune-border: #382E27;
-  --dune-border-subtle: #2A221C;
-  --dune-border-hover: #554439;
+  /* Bordas Sutis */
+  --dune-border: #332B25;
+  --dune-border-subtle: #241E1A;
+  --dune-border-hover: #4C3F36;
   
-  /* Cores de Ação: Cobre & Terracota Âmbar */
+  /* Cores de Ação: Cobre & Terracota */
   --dune-accent: #E06C38;
-  --dune-accent-hover: #F97316;
-  --dune-accent-glow: rgba(224, 108, 56, 0.28);
-  --dune-accent-light: #FF8A50;
+  --dune-accent-hover: #EA7743;
+  --dune-accent-glow: rgba(224, 108, 56, 0.22);
   
   /* Tons Secundários e Destaques */
   --dune-gold: #F3C98B;
-  --dune-gold-glow: rgba(243, 201, 139, 0.22);
+  --dune-gold-glow: rgba(243, 201, 139, 0.18);
   
   /* Status Funcionais */
-  --dune-green: #4ADE80;
-  --dune-green-glow: rgba(74, 222, 128, 0.35);
-  --dune-red: #F87171;
+  --dune-green: #22C55E;
+  --dune-green-glow: rgba(34, 197, 94, 0.25);
+  --dune-red: #EF4444;
   --dune-blue: #38BDF8;
   
-  /* Tipografia */
+  /* Tipografia & Contraste */
   --dune-text: #FDFBF7;
-  --dune-text-muted: #A89F91;
-  --dune-text-dim: #73695C;
+  --dune-text-muted: #A3998E;
+  --dune-text-dim: #70665C;
+  --dune-text-on-accent: #12100F; /* Contraste > 5.5:1 com --dune-accent */
   
   /* Transições e Sombras */
-  --dune-transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-  --dune-shadow-card: 0 12px 32px -4px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3);
-  --dune-shadow-glow: 0 0 24px var(--dune-accent-glow);
+  --dune-transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  --dune-shadow-card: 0 10px 28px -4px rgba(0, 0, 0, 0.5), 0 3px 10px rgba(0, 0, 0, 0.3);
 }
 
 /* ==========================================================================
-   RESET & LAYOUT BASE DA LANDING
+   RESET & ACESSIBILIDADE
    ========================================================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--dune-gold);
+  outline-offset: 3px;
+}
 
 body.dune-theme {
   background-color: var(--dune-bg);
+  /* Brilho concentrado no topo, transicionando para neutralidade abaixo */
   background-image: 
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(224, 108, 56, 0.18) 0%, transparent 60%),
-    radial-gradient(circle at 10% 40%, rgba(243, 201, 139, 0.04) 0%, transparent 40%),
-    radial-gradient(circle at 90% 80%, rgba(224, 108, 56, 0.06) 0%, transparent 50%);
-  background-attachment: fixed;
+    radial-gradient(ellipse 70% 450px at 50% 0%, rgba(224, 108, 56, 0.16) 0%, transparent 70%);
+  background-repeat: no-repeat;
   color: var(--dune-text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   margin: 0;
   padding: 0;
-  line-height: 1.6;
+  line-height: 1.55;
   min-height: 100vh;
   overflow-x: hidden;
   overflow-y: auto;
 }
 
-/* Container de conteúdo */
 .dune-container {
-  max-width: 1200px;
+  max-width: 1140px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 20px;
   width: 100%;
-  box-sizing: border-box;
 }
 
 /* ==========================================================================
-   NAVBAR (HEADER DISCORD-STYLE)
+   NAVBAR
    ========================================================================== */
 
 .dune-nav {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(20, 17, 15, 0.88);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(18, 16, 15, 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--dune-border-subtle);
-  padding: 14px 0;
-  transition: var(--dune-transition);
+  padding: 12px 0;
 }
 
 .dune-nav-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 16px;
 }
 
 .dune-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   text-decoration: none;
   color: var(--dune-text);
   font-weight: 800;
-  font-size: 1.35rem;
-  letter-spacing: -0.5px;
+  font-size: 1.25rem;
+  letter-spacing: -0.4px;
 }
 
 .dune-brand-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--dune-accent) 0%, #B85324 100%);
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--dune-accent) 0%, #BA4F1D 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.25rem;
-  box-shadow: 0 4px 14px var(--dune-accent-glow);
+  font-size: 1.15rem;
+  box-shadow: 0 3px 10px var(--dune-accent-glow);
+  flex-shrink: 0;
 }
 
 .dune-brand span {
@@ -127,7 +132,7 @@ body.dune-theme {
 .dune-nav-links {
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: 24px;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -136,7 +141,7 @@ body.dune-theme {
 .dune-nav-links a {
   color: var(--dune-text-muted);
   text-decoration: none;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 600;
   transition: var(--dune-transition);
 }
@@ -148,40 +153,39 @@ body.dune-theme {
 .dune-nav-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 /* ==========================================================================
-   BOTÕES PILL (ESTILO DISCORD)
+   BOTÕES COM CONTRASTE WCAG AA (>= 4.5:1)
    ========================================================================== */
 
 .dune-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  border-radius: 30px;
+  gap: 8px;
+  border-radius: 26px;
   font-weight: 700;
-  font-size: 0.95rem;
-  padding: 12px 24px;
+  font-size: 0.92rem;
+  padding: 11px 22px;
   text-decoration: none;
   cursor: pointer;
   border: none;
   transition: var(--dune-transition);
-  outline: none;
-  box-sizing: border-box;
+  white-space: nowrap;
 }
 
+/* Contraste verificado: #12100F sobre #E06C38 tem proporção de 5.8:1 (Aprovado AA) */
 .dune-btn-primary {
   background: var(--dune-accent);
-  color: #fff;
-  box-shadow: 0 4px 18px var(--dune-accent-glow);
+  color: var(--dune-text-on-accent);
+  box-shadow: 0 4px 14px var(--dune-accent-glow);
 }
 
 .dune-btn-primary:hover {
   background: var(--dune-accent-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px var(--dune-accent-glow);
+  transform: translateY(-1px);
 }
 
 .dune-btn-secondary {
@@ -193,33 +197,31 @@ body.dune-theme {
 .dune-btn-secondary:hover {
   background: var(--dune-surface-hover);
   border-color: var(--dune-border-hover);
-  transform: translateY(-2px);
-  color: #fff;
+  transform: translateY(-1px);
 }
 
 .dune-btn-gold {
   background: var(--dune-gold);
-  color: #1A1513;
-  box-shadow: 0 4px 16px var(--dune-gold-glow);
+  color: var(--dune-text-on-accent);
 }
 
 .dune-btn-gold:hover {
-  background: #FFDE9E;
-  transform: translateY(-2px);
+  background: #F8D8A7;
+  transform: translateY(-1px);
 }
 
 .dune-btn-lg {
-  padding: 16px 32px;
-  font-size: 1.05rem;
-  border-radius: 34px;
+  padding: 14px 28px;
+  font-size: 1rem;
+  border-radius: 30px;
 }
 
 /* ==========================================================================
-   HERO SECTION
+   HERO SECTION COM FOCO EM BENEFÍCIOS REAIS
    ========================================================================== */
 
 .dune-hero {
-  padding: 70px 0 60px;
+  padding: 56px 0 48px;
   text-align: center;
   position: relative;
 }
@@ -229,73 +231,64 @@ body.dune-theme {
   align-items: center;
   gap: 8px;
   background: rgba(224, 108, 56, 0.12);
-  border: 1px solid rgba(224, 108, 56, 0.3);
-  padding: 6px 16px;
+  border: 1px solid rgba(224, 108, 56, 0.28);
+  padding: 5px 14px;
   border-radius: 20px;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: var(--dune-gold);
-  margin-bottom: 24px;
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
+  margin-bottom: 20px;
+  letter-spacing: 0.2px;
 }
 
 .dune-hero h1 {
-  font-size: 3.4rem;
+  font-size: 3rem;
   font-weight: 900;
-  line-height: 1.12;
-  letter-spacing: -1.5px;
-  margin: 0 auto 20px;
-  max-width: 960px;
-  text-transform: uppercase;
+  line-height: 1.14;
+  letter-spacing: -1px;
+  margin: 0 auto 16px;
+  max-width: 820px;
   color: #FFFFFF;
 }
 
-.dune-hero h1 span.gradient-text {
-  background: linear-gradient(135deg, #FFFFFF 20%, var(--dune-gold) 60%, var(--dune-accent) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
 .dune-hero p.lead {
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   color: var(--dune-text-muted);
-  max-width: 740px;
-  margin: 0 auto 36px;
-  line-height: 1.65;
+  max-width: 660px;
+  margin: 0 auto 30px;
+  line-height: 1.6;
 }
 
 .dune-hero-cta-group {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 14px;
   flex-wrap: wrap;
-  margin-bottom: 50px;
+  margin-bottom: 40px;
 }
 
 /* ==========================================================================
-   HERO MOCKUP (SALA DO SEEMYGAME EM CSS)
+   VISUAL PRINCIPAL: DEMONSTRAÇÃO DO FLUXO REAL EM 4 PASSOS
    ========================================================================== */
 
 .dune-mockup-wrapper {
-  max-width: 1000px;
+  max-width: 980px;
   margin: 0 auto;
-  perspective: 1000px;
 }
 
 .dune-mockup-window {
   background: var(--dune-surface);
   border: 1px solid var(--dune-border);
-  border-radius: 18px;
-  box-shadow: var(--dune-shadow-card), 0 0 60px rgba(224, 108, 56, 0.12);
+  border-radius: 16px;
+  box-shadow: var(--dune-shadow-card);
   overflow: hidden;
   text-align: left;
 }
 
 .dune-mockup-titlebar {
   background: var(--dune-bg-alt);
-  padding: 12px 18px;
+  padding: 10px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -304,22 +297,22 @@ body.dune-theme {
 
 .dune-mockup-dots {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .dune-mockup-dot {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--dune-border);
 }
 
-.dune-mockup-dot.red { background: #FF5F56; }
-.dune-mockup-dot.yellow { background: #FFBD2E; }
-.dune-mockup-dot.green { background: #27C93F; }
+.dune-mockup-dot.red { background: #E05248; }
+.dune-mockup-dot.yellow { background: #E5A83B; }
+.dune-mockup-dot.green { background: #22C55E; }
 
 .dune-mockup-roomname {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: var(--dune-text-muted);
   display: flex;
@@ -329,61 +322,55 @@ body.dune-theme {
 
 .dune-mockup-body {
   display: grid;
-  grid-template-columns: 240px 1fr;
-  min-height: 400px;
+  grid-template-columns: 220px 1fr;
+  min-height: 380px;
 }
 
 /* Sidebar simulada */
 .dune-mockup-sidebar {
   background: var(--dune-surface-card);
   border-right: 1px solid var(--dune-border-subtle);
-  padding: 16px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .dune-mockup-section-title {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.8px;
+  letter-spacing: 0.7px;
   color: var(--dune-text-dim);
   font-weight: 800;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .dune-mockup-user {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 7px 9px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  font-size: 0.88rem;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 0.84rem;
   font-weight: 600;
 }
 
 .dune-mockup-avatar {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: #3A3029;
+  background: #2E2722;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  font-size: 1rem;
+  font-size: 0.95rem;
+  flex-shrink: 0;
 }
 
 .dune-mockup-avatar.speaking {
-  box-shadow: 0 0 0 2.5px var(--dune-green);
-  animation: dune-pulse-ring 1.8s infinite;
-}
-
-@keyframes dune-pulse-ring {
-  0% { box-shadow: 0 0 0 2px var(--dune-green); }
-  50% { box-shadow: 0 0 0 5px var(--dune-green-glow); }
-  100% { box-shadow: 0 0 0 2px var(--dune-green); }
+  box-shadow: 0 0 0 2px var(--dune-green);
 }
 
 .dune-mockup-user-info {
@@ -392,128 +379,186 @@ body.dune-theme {
 }
 
 .dune-mockup-user-name {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .dune-mockup-user-tag {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
+  color: var(--dune-text-dim);
+}
+
+.dune-mockup-user-tag.active {
   color: var(--dune-green);
   font-weight: 700;
 }
 
-/* Área de vídeo simulada */
+/* Palco de vídeo e gameplay */
 .dune-mockup-stage {
-  padding: 18px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   background: var(--dune-bg);
 }
 
 .dune-mockup-video-card {
   flex: 1;
-  background: linear-gradient(135deg, #1C1714 0%, #2A201A 100%);
+  background: linear-gradient(135deg, #181513 0%, #201A16 100%);
   border: 1px solid var(--dune-border);
   border-radius: 12px;
   position: relative;
   overflow: hidden;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   justify-content: center;
-  min-height: 280px;
+  align-items: center;
+  min-height: 270px;
+  padding: 40px 16px 20px;
 }
 
-.dune-mockup-gameplay-bg {
+/* Linha flexível para selos (sem sobreposição!) */
+.dune-mockup-badges-row {
   position: absolute;
-  inset: 0;
-  background: 
-    radial-gradient(circle at 70% 30%, rgba(224, 108, 56, 0.25) 0%, transparent 50%),
-    radial-gradient(circle at 30% 70%, rgba(243, 201, 139, 0.15) 0%, transparent 50%);
-  opacity: 0.85;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  z-index: 3;
 }
 
-.dune-mockup-gameplay-center {
-  position: relative;
+.dune-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 9px;
+  border-radius: 6px;
+  letter-spacing: 0.3px;
+}
+
+.dune-badge-live {
+  background: rgba(220, 38, 38, 0.9);
+  color: #fff;
+}
+
+.dune-badge-coop {
+  background: rgba(28, 23, 20, 0.85);
+  border: 1px solid var(--dune-gold);
+  color: var(--dune-gold);
+}
+
+.dune-mockup-gameplay-content {
   text-align: center;
+  max-width: 440px;
   z-index: 2;
 }
 
-.dune-mockup-badge-live {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 3;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(239, 68, 68, 0.9);
-  color: #fff;
-  font-size: 0.72rem;
-  font-weight: 800;
-  padding: 4px 10px;
-  border-radius: 6px;
-  letter-spacing: 0.5px;
+.dune-mockup-gameplay-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 10px;
+  color: var(--dune-accent);
 }
 
-.dune-mockup-badge-coop {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 3;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(31, 26, 23, 0.85);
-  border: 1px solid var(--dune-gold);
-  color: var(--dune-gold);
+.dune-mockup-note {
   font-size: 0.72rem;
-  font-weight: 800;
-  padding: 4px 10px;
-  border-radius: 6px;
-}
-
-.dune-mockup-hud {
-  position: absolute;
-  bottom: 14px;
-  left: 14px;
-  z-index: 3;
-  display: flex;
-  gap: 10px;
-  font-size: 0.72rem;
-  color: var(--dune-text-muted);
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(8px);
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-family: monospace;
-}
-
-.dune-mockup-hud span.val {
-  color: var(--dune-green);
-  font-weight: 700;
+  color: var(--dune-text-dim);
+  text-align: right;
+  margin-top: 4px;
 }
 
 /* ==========================================================================
-   SEÇÕES DE RECURSOS / STORYTELLING (ALTERNADAS ESTILO DISCORD)
+   FLUXO REAL EM 4 ETAPAS (PASSO A PASSO DIDÁTICO)
+   ========================================================================== */
+
+.dune-steps-container {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.dune-step-card {
+  background: var(--dune-surface);
+  border: 1px solid var(--dune-border-subtle);
+  border-radius: 12px;
+  padding: 14px;
+  text-align: left;
+}
+
+.dune-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--dune-accent);
+  color: var(--dune-text-on-accent);
+  font-size: 0.75rem;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.dune-step-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.dune-step-desc {
+  font-size: 0.78rem;
+  color: var(--dune-text-muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* ==========================================================================
+   SEÇÕES DE RECURSOS E COMPARAÇÃO
    ========================================================================== */
 
 .dune-section {
-  padding: 100px 0;
+  padding: 68px 0;
   border-top: 1px solid var(--dune-border-subtle);
-  position: relative;
 }
 
 .dune-section.alt-bg {
   background: var(--dune-bg-alt);
 }
 
+.dune-section-header {
+  text-align: center;
+  max-width: 680px;
+  margin: 0 auto 36px;
+}
+
+.dune-section-header h2 {
+  font-size: 2.1rem;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 10px;
+  letter-spacing: -0.6px;
+}
+
+.dune-section-header p {
+  color: var(--dune-text-muted);
+  font-size: 1.02rem;
+  line-height: 1.55;
+}
+
 .dune-feature-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 60px;
+  gap: 40px;
   align-items: center;
 }
 
@@ -526,192 +571,199 @@ body.dune-theme {
 }
 
 .dune-feature-text h2 {
-  font-size: 2.5rem;
+  font-size: 2rem;
   font-weight: 800;
-  letter-spacing: -0.8px;
-  line-height: 1.18;
-  margin-bottom: 20px;
+  letter-spacing: -0.6px;
+  line-height: 1.25;
+  margin-bottom: 16px;
   color: #fff;
 }
 
 .dune-feature-text p {
-  font-size: 1.1rem;
+  font-size: 1rem;
   color: var(--dune-text-muted);
-  line-height: 1.7;
-  margin-bottom: 24px;
+  line-height: 1.65;
+  margin-bottom: 20px;
 }
 
 .dune-feature-list {
   list-style: none;
   padding: 0;
-  margin: 0 0 28px 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .dune-feature-list li {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  font-size: 0.98rem;
+  gap: 10px;
+  font-size: 0.92rem;
   color: var(--dune-text);
 }
 
-.dune-feature-list li span.icon {
-  font-size: 1.25rem;
-  line-height: 1.2;
+.dune-feature-list .icon-wrapper {
+  color: var(--dune-gold);
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .dune-feature-card {
   background: var(--dune-surface);
   border: 1px solid var(--dune-border);
-  border-radius: 20px;
-  padding: 36px;
+  border-radius: 16px;
+  padding: 28px;
   box-shadow: var(--dune-shadow-card);
-  position: relative;
-  overflow: hidden;
-}
-
-.dune-feature-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--dune-accent), var(--dune-gold));
 }
 
 /* ==========================================================================
-   CARDS DE DIFERENCIAIS (GRID 3 COLUNAS)
+   NAVEGADOR VS APLICATIVO WINDOWS
    ========================================================================== */
 
-.dune-cards-grid {
+.dune-platforms-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: 24px;
-  margin-top: 40px;
 }
 
-.dune-info-card {
+.dune-platform-card {
   background: var(--dune-surface);
   border: 1px solid var(--dune-border);
   border-radius: 16px;
   padding: 28px;
-  transition: var(--dune-transition);
-}
-
-.dune-info-card:hover {
-  transform: translateY(-4px);
-  border-color: var(--dune-border-hover);
-  box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.5);
-}
-
-.dune-info-icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  background: rgba(224, 108, 56, 0.12);
-  border: 1px solid rgba(224, 108, 56, 0.25);
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.6rem;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.dune-platform-card.highlight {
+  border-color: var(--dune-accent);
+  box-shadow: 0 0 24px var(--dune-accent-glow);
+}
+
+.dune-platform-badge {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 20px;
+  margin-bottom: 14px;
+}
+
+.dune-platform-badge.web {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--dune-text);
+}
+
+.dune-platform-badge.desktop {
+  background: rgba(224, 108, 56, 0.2);
+  color: var(--dune-gold);
+}
+
+.dune-platform-card h3 {
+  font-size: 1.35rem;
+  font-weight: 800;
+  margin-bottom: 10px;
+  color: #fff;
+}
+
+.dune-platform-card p {
+  font-size: 0.92rem;
+  color: var(--dune-text-muted);
+  line-height: 1.55;
   margin-bottom: 20px;
 }
 
-.dune-info-card h3 {
-  font-size: 1.3rem;
-  font-weight: 700;
+.dune-platform-features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+
+.dune-platform-features li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dune-platform-features li svg {
+  color: var(--dune-green);
+  flex-shrink: 0;
+}
+
+.dune-platform-reqs {
+  font-size: 0.75rem;
+  color: var(--dune-text-dim);
+  margin-top: 10px;
+}
+
+/* ==========================================================================
+   BIG CALL TO ACTION
+   ========================================================================== */
+
+.dune-cta-banner {
+  margin: 50px 0 70px;
+  background: linear-gradient(135deg, #1F1B18 0%, #171412 100%);
+  border: 1px solid var(--dune-border);
+  border-radius: 20px;
+  padding: 46px 24px;
+  text-align: center;
+}
+
+.dune-cta-banner h2 {
+  font-size: 2.2rem;
+  font-weight: 900;
+  letter-spacing: -0.6px;
   margin-bottom: 12px;
   color: #fff;
 }
 
-.dune-info-card p {
-  color: var(--dune-text-muted);
-  font-size: 0.95rem;
-  line-height: 1.6;
-  margin: 0;
-}
-
-/* ==========================================================================
-   BIG CALL TO ACTION (RODAPÉ FINAL ESTILO DISCORD)
-   ========================================================================== */
-
-.dune-cta-banner {
-  margin: 80px 0 100px;
-  background: linear-gradient(135deg, #251D18 0%, #1A1411 100%);
-  border: 1px solid var(--dune-border);
-  border-radius: 24px;
-  padding: 60px 40px;
-  text-align: center;
-  position: relative;
-  overflow: hidden;
-  box-shadow: var(--dune-shadow-card);
-}
-
-.dune-cta-banner::before {
-  content: '';
-  position: absolute;
-  top: -150px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 500px;
-  height: 300px;
-  background: radial-gradient(circle, var(--dune-accent-glow) 0%, transparent 70%);
-  pointer-events: none;
-}
-
-.dune-cta-banner h2 {
-  font-size: 2.8rem;
-  font-weight: 900;
-  letter-spacing: -1px;
-  margin-bottom: 16px;
-  color: #fff;
-  position: relative;
-}
-
 .dune-cta-banner p {
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   color: var(--dune-text-muted);
-  max-width: 600px;
-  margin: 0 auto 36px;
-  position: relative;
+  max-width: 540px;
+  margin: 0 auto 28px;
 }
 
 /* ==========================================================================
-   FOOTER (MULTI-COLUNAS ESTILO DISCORD)
+   FOOTER
    ========================================================================== */
 
 .dune-footer {
   background: var(--dune-bg-alt);
   border-top: 1px solid var(--dune-border-subtle);
-  padding: 60px 0 30px;
+  padding: 48px 0 24px;
   color: var(--dune-text-muted);
 }
 
 .dune-footer-grid {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr 1fr;
-  gap: 40px;
-  margin-bottom: 40px;
+  gap: 32px;
+  margin-bottom: 32px;
 }
 
 .dune-footer-brand p {
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   color: var(--dune-text-dim);
-  max-width: 320px;
-  margin-top: 12px;
-  line-height: 1.6;
+  max-width: 280px;
+  margin-top: 8px;
+  line-height: 1.5;
 }
 
 .dune-footer-col h4 {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.8px;
   color: var(--dune-gold);
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   font-weight: 800;
 }
 
@@ -721,13 +773,13 @@ body.dune-theme {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .dune-footer-col a {
   color: var(--dune-text-muted);
   text-decoration: none;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   transition: var(--dune-transition);
 }
 
@@ -739,28 +791,25 @@ body.dune-theme {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 24px;
+  padding-top: 20px;
   border-top: 1px solid var(--dune-border-subtle);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--dune-text-dim);
 }
 
 /* ==========================================================================
    LOBBY DEDICADO (lobby.html)
-   Centralizado, minimalista, estilo Launcher Gamer Cyber Dune
    ========================================================================== */
 
 body.lobby-page {
   background-color: var(--dune-bg);
   background-image: 
-    radial-gradient(circle at 50% 15%, rgba(224, 108, 56, 0.14) 0%, transparent 60%),
-    radial-gradient(circle at 85% 85%, rgba(243, 201, 139, 0.05) 0%, transparent 50%);
+    radial-gradient(circle at 50% 15%, rgba(224, 108, 56, 0.12) 0%, transparent 60%);
   color: var(--dune-text);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-sizing: border-box;
   padding: 16px 20px;
 }
 
@@ -768,7 +817,7 @@ body.lobby-page {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 0;
+  padding: 8px 0;
 }
 
 .lobby-center-container {
@@ -781,38 +830,26 @@ body.lobby-page {
 
 .lobby-card {
   width: 100%;
-  max-width: 480px;
+  max-width: 440px;
   background: var(--dune-surface);
   border: 1px solid var(--dune-border);
-  border-radius: 20px;
-  padding: 32px 28px;
-  box-shadow: var(--dune-shadow-card), 0 0 40px rgba(224, 108, 56, 0.08);
-  position: relative;
-  overflow: hidden;
-}
-
-.lobby-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3.5px;
-  background: linear-gradient(90deg, var(--dune-accent) 0%, var(--dune-gold) 100%);
+  border-radius: 18px;
+  padding: 28px 24px;
+  box-shadow: var(--dune-shadow-card);
 }
 
 .lobby-field-group {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .lobby-label {
   display: block;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.4px;
   color: var(--dune-text-muted);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .lobby-input {
@@ -820,24 +857,23 @@ body.lobby-page {
   background: var(--dune-surface-input);
   border: 1px solid var(--dune-border);
   border-radius: 10px;
-  padding: 13px 16px;
-  font-size: 0.98rem;
+  padding: 12px 14px;
+  font-size: 0.95rem;
   color: #fff;
   outline: none;
   transition: var(--dune-transition);
-  box-sizing: border-box;
 }
 
-.lobby-input:focus {
+.lobby-input:focus-visible {
   border-color: var(--dune-accent);
-  box-shadow: 0 0 0 3px var(--dune-accent-glow);
+  outline: 2px solid var(--dune-gold);
 }
 
 .lobby-divider {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin: 20px 0;
+  gap: 12px;
+  margin: 18px 0;
 }
 
 .lobby-divider-line {
@@ -847,7 +883,7 @@ body.lobby-page {
 }
 
 .lobby-divider-text {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -855,12 +891,17 @@ body.lobby-page {
 }
 
 /* ==========================================================================
-   RESPONSIVIDADE (MOBILE & TABLET)
+   RESPONSIVIDADE MOBILE OTIMIZADA (ELIMINA ALTURA EXCESSIVA)
    ========================================================================== */
 
-@media (max-width: 900px) {
+@media (max-width: 860px) {
   .dune-hero h1 {
-    font-size: 2.5rem;
+    font-size: 2.2rem;
+    letter-spacing: -0.6px;
+  }
+  
+  .dune-hero p.lead {
+    font-size: 1.05rem;
   }
   
   .dune-mockup-body {
@@ -871,17 +912,23 @@ body.lobby-page {
     display: none;
   }
   
+  .dune-steps-container {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
   .dune-feature-grid {
     grid-template-columns: 1fr;
-    gap: 36px;
+    gap: 28px;
   }
   
   .dune-feature-grid.reverse {
     direction: ltr;
   }
   
-  .dune-cards-grid {
+  .dune-platforms-grid {
     grid-template-columns: 1fr;
+    gap: 16px;
   }
   
   .dune-footer-grid {
@@ -894,23 +941,69 @@ body.lobby-page {
 }
 
 @media (max-width: 600px) {
+  .dune-hero {
+    padding: 38px 0 28px;
+  }
+
   .dune-hero h1 {
-    font-size: 2rem;
+    font-size: 1.85rem;
   }
   
   .dune-hero p.lead {
-    font-size: 1.05rem;
+    font-size: 0.98rem;
+    margin-bottom: 24px;
   }
-  
-  .dune-footer-grid {
+
+  .dune-section {
+    padding: 44px 0;
+  }
+
+  .dune-section-header {
+    margin-bottom: 24px;
+  }
+
+  .dune-section-header h2 {
+    font-size: 1.7rem;
+  }
+
+  .dune-feature-text h2 {
+    font-size: 1.55rem;
+  }
+
+  .dune-steps-container {
     grid-template-columns: 1fr;
   }
-  
-  .dune-cta-banner h2 {
-    font-size: 2rem;
+
+  .dune-footer-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
   }
-  
+
   .dune-cta-banner {
-    padding: 40px 20px;
+    padding: 32px 18px;
+    margin: 36px 0 48px;
+  }
+
+  .dune-cta-banner h2 {
+    font-size: 1.7rem;
+  }
+
+  .dune-btn-lg {
+    width: 100%;
+  }
+
+  .dune-hero-cta-group {
+    flex-direction: column;
+    width: 100%;
+  }
+}
+
+/* Redução de Movimento */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -203,13 +203,14 @@ export function createNativeWebRtcBridge({ target = globalThis } = {}) {
 
             sessions.set(sessionId, { close });
 
-            const applyZeroJitter = () => {
+            const applyReceiverJitter = () => {
                 try {
                     const transceivers = peerConnection.getTransceivers ? peerConnection.getTransceivers() : [];
                     for (const t of transceivers) {
                         if (t?.receiver) {
-                            if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = 0;
-                            if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = 0;
+                            const targetMs = hasNativeAudio ? 25 : 0;
+                            if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = targetMs;
+                            if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = targetMs / 1000;
                         }
                     }
                 } catch (_) {}
@@ -224,7 +225,7 @@ export function createNativeWebRtcBridge({ target = globalThis } = {}) {
                     }
                     if (!stream.getTracks().includes(track)) stream.addTrack(track);
                 });
-                applyZeroJitter();
+                applyReceiverJitter();
                 event.track?.addEventListener?.('ended', () => close());
             });
             peerConnection.addEventListener('iceconnectionstatechange', () => {
@@ -298,7 +299,7 @@ export function createNativeWebRtcBridge({ target = globalThis } = {}) {
                     sdp: answer.sdp
                 });
                 isRemoteDescriptionSet = true;
-                applyZeroJitter();
+                applyReceiverJitter();
 
                 logDiagnostic(`[JS] Remote description aplicada com sucesso. Drenando ${pendingCandidates.length} candidatos ICE em espera...`);
                 for (const cand of pendingCandidates) {

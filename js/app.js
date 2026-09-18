@@ -2542,13 +2542,23 @@ export async function startLocalStream(options = {}) {
             ...videoConstraints,
             ...(options.displaySurface ? { displaySurface: options.displaySurface } : {})
           },
-          audio: wantSystemAudio,
+          audio: wantSystemAudio ? {
+            autoGainControl: false,
+            echoCancellation: false,
+            noiseSuppression: false,
+            channelCount: 2
+          } : false,
+          systemAudio: wantSystemAudio ? 'include' : 'exclude',
           selfBrowserSurface: 'exclude',
           surfaceSwitching: 'include',
           ...(options.monitorTypeSurfaces ? { monitorTypeSurfaces: options.monitorTypeSurfaces } : {})
         };
         // Tentativa 1: Captura com áudio se solicitado
         capturedDisplayStream = await navigator.mediaDevices.getDisplayMedia(displayMediaConstraints);
+        console.log('[Capture Browser] Trilhas capturadas:', {
+          video: capturedDisplayStream.getVideoTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled, readyState: t.readyState, settings: t.getSettings?.() })),
+          audio: capturedDisplayStream.getAudioTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled, readyState: t.readyState, settings: t.getSettings?.() }))
+        });
       } catch (captureErr) {
         // Se o usuário cancelou o seletor do navegador
         if (captureErr.name === 'NotAllowedError') {

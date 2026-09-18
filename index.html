@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SeeMyGame - Onde Sua Gameplay Não Tem Delay</title>
-  <meta name="description" content="Salas de jogos P2P em tempo real com voz de baixa latência, streaming a 60 FPS com som estéreo e Co-op Player 2 direto pelo navegador.">
+  <title>SeeMyGame - Sua partida. Seus amigos. Na mesma sala.</title>
+  <meta name="description" content="Compartilhe o jogo, converse por voz e convide seus amigos por um link. Salas de jogos P2P de baixa latência, suporte a até 60 FPS e Co-op Player 2 direto pelo navegador.">
   
   <!-- Estilos Modulares -->
   <link rel="stylesheet" href="css/main.css">
@@ -40,7 +40,6 @@
         }
       }
 
-      // Se houver convite direto com sala, encaminha imediatamente para a sala
       if (targetRoom) {
         let basePath = window.location.pathname;
         if (basePath.endsWith('.html')) {
@@ -63,24 +62,24 @@
 </head>
 <body class="dune-theme">
 
-  <!-- Modal de Termos de Uso e Idade (Acessível) -->
+  <!-- Modal de Termos de Uso e Responsabilidade (Acessível) -->
   <div id="terms-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="terms-title">
     <div class="modal-content" style="background: var(--dune-surface); border: 1px solid var(--dune-border);">
-      <h3 id="terms-title" style="color: var(--dune-text);">🛡️ Termos de Uso & Responsabilidade</h3>
+      <h3 id="terms-title" style="color: var(--dune-text);">Termos de Uso & Responsabilidade</h3>
       
       <div class="terms-box" style="background: var(--dune-surface-input); border-color: var(--dune-border); color: var(--dune-text-muted);">
         <p><strong>1. Natureza da Aplicação:</strong> O <em>SeeMyGame</em> é uma ferramenta técnica de comunicação direta ponto-a-ponto (Peer-to-Peer - WebRTC). Todo o tráfego audiovisual ocorre exclusivamente entre os navegadores conectados, sem armazenamento, gravação ou moderação em servidores centrais.</p>
-        <p><strong>2. Isenção Total de Responsabilidade do Desenvolvedor:</strong> O desenvolvedor/mantenedor desta aplicação não tem acesso nem controle sobre as telas, transmissões, áudios ou informações compartilhadas. O desenvolvedor <strong>isenta-se integralmente</strong> de qualquer responsabilidade legal, cível ou criminal decorrente de conteúdos ilícitos, direitos autorais violados, dados confidenciais expostos ou condutas inadequadas praticadas pelos usuários.</p>
+        <p><strong>2. Isenção de Responsabilidade do Desenvolvedor:</strong> O desenvolvedor/mantenedor desta aplicação não tem acesso nem controle sobre as telas, transmissões, áudios ou informações compartilhadas. O desenvolvedor isenta-se de qualquer responsabilidade legal, cível ou criminal decorrente de conteúdos ilícitos, direitos autorais violados, dados confidenciais expostos ou condutas inadequadas praticadas pelos usuários.</p>
         <p><strong>3. Responsabilidade do Usuário:</strong> Você é o único e exclusivo responsável por todo o conteúdo que decidir transmitir e pelas conexões que estabelecer.</p>
       </div>
 
       <div class="modal-actions">
-        <button id="close-terms-btn" class="dune-btn dune-btn-primary" style="padding: 9px 20px; font-size: 13.5px;">Entendido</button>
+        <button id="close-terms-btn" class="dune-btn dune-btn-primary" style="padding: 9px 20px;">Entendido</button>
       </div>
     </div>
   </div>
 
-  <!-- Navbar Estilo Discord -->
+  <!-- Navbar -->
   <header class="dune-nav">
     <div class="dune-container dune-nav-inner">
       <a href="index.html" class="dune-brand">
@@ -89,15 +88,14 @@
       </a>
 
       <ul class="dune-nav-links">
+        <li><a href="#como-funciona">Como funciona</a></li>
         <li><a href="#recursos">Recursos</a></li>
-        <li><a href="#fluidez">60 FPS & Áudio</a></li>
-        <li><a href="#coop">Co-op Player 2</a></li>
-        <li><a href="#vantagens">Diferenciais P2P</a></li>
+        <li><a href="#plataformas">Navegador vs. Windows</a></li>
       </ul>
 
       <div class="dune-nav-actions">
-        <a href="lobby.html" class="dune-btn dune-btn-secondary" style="padding: 9px 18px; font-size: 0.88rem;">
-          <span>🚪</span> Entrar na Sala
+        <a href="lobby.html" class="dune-btn dune-btn-secondary" style="padding: 8px 16px;">
+          Entrar em uma sala
         </a>
       </div>
     </div>
@@ -108,25 +106,27 @@
     <section class="dune-hero">
       <div class="dune-container">
         <div class="dune-hero-badge">
-          <span>✨</span> Salas de Jogos P2P sem Delay
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Salas de Jogos P2P
         </div>
         
-        <h1>ONDE SUA GAMEPLAY <br><span class="gradient-text">NÃO TEM DELAY.</span></h1>
+        <h1>Sua partida. Seus amigos.<br>Na mesma sala.</h1>
         
         <p class="lead">
-          Converse por voz com detecção inteligente, transmita sua tela em 60 FPS cravados com som estéreo e passe o controle para o Player 2 em tempo real. Tudo direto pelo navegador, sem cadastros e 100% gratuito.
+          Compartilhe o jogo, converse por voz e convide seus amigos por um link. Sem criar conta.
         </p>
 
         <div class="dune-hero-cta-group">
           <button id="hero-create-btn" class="dune-btn dune-btn-primary dune-btn-lg">
-            <span>🚀</span> Criar Sala Instantânea
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            Criar sala
           </button>
           <a href="lobby.html" class="dune-btn dune-btn-secondary dune-btn-lg">
-            <span>🚪</span> Abrir no Navegador (Lobby)
+            Entrar em uma sala
           </a>
         </div>
 
-        <!-- MOCKUP VISUAL DA SALA DO SEEMYGAME (CSS PURO) -->
+        <!-- MOCKUP VISUAL DA INTERFACE COM FLUXO REAL -->
         <div class="dune-mockup-wrapper">
           <div class="dune-mockup-window">
             <div class="dune-mockup-titlebar">
@@ -136,25 +136,26 @@
                 <div class="dune-mockup-dot green"></div>
               </div>
               <div class="dune-mockup-roomname">
-                <span>🔊</span> canal-da-resenha • SeeMyGame P2P
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                sala-resenha • Conexão Direta
               </div>
-              <div style="font-size: 0.75rem; color: var(--dune-text-dim);">
-                🔒 Criptografia P2P Ativa
+              <div style="font-size: 0.74rem; color: var(--dune-text-dim);">
+                Link seguro P2P
               </div>
             </div>
 
             <div class="dune-mockup-body">
-              <!-- Sidebar simulada -->
+              <!-- Sidebar de Participantes -->
               <div class="dune-mockup-sidebar">
-                <div class="dune-mockup-section-title">Canal de Voz (3 Online)</div>
+                <div class="dune-mockup-section-title">Voz na Sala (3 Conectados)</div>
                 
                 <div class="dune-mockup-user">
                   <div class="dune-mockup-avatar speaking">
                     <span>👑</span>
                   </div>
                   <div class="dune-mockup-user-info">
-                    <div class="dune-mockup-user-name">Diogo (Host)</div>
-                    <div class="dune-mockup-user-tag">Transmitindo 60 FPS</div>
+                    <div class="dune-mockup-user-name">Host (Você)</div>
+                    <div class="dune-mockup-user-tag active">Transmitindo Jogo</div>
                   </div>
                 </div>
 
@@ -163,8 +164,8 @@
                     <span>🎮</span>
                   </div>
                   <div class="dune-mockup-user-info">
-                    <div class="dune-mockup-user-name">Player 2</div>
-                    <div class="dune-mockup-user-tag" style="color: var(--dune-gold);">Controle Conectado</div>
+                    <div class="dune-mockup-user-name">Amigo 1</div>
+                    <div class="dune-mockup-user-tag" style="color: var(--dune-gold);">Player 2 Ativo</div>
                   </div>
                 </div>
 
@@ -173,252 +174,192 @@
                     <span>🎧</span>
                   </div>
                   <div class="dune-mockup-user-info">
-                    <div class="dune-mockup-user-name">AmigoGamer</div>
-                    <div class="dune-mockup-user-tag" style="color: var(--dune-text-dim);">Ouvindo</div>
+                    <div class="dune-mockup-user-name">Amigo 2</div>
+                    <div class="dune-mockup-user-tag">Na escuta</div>
                   </div>
                 </div>
 
-                <div style="margin-top: auto; padding: 12px; background: rgba(0,0,0,0.25); border-radius: 10px; font-size: 0.78rem;">
-                  <div style="font-weight: 700; color: var(--dune-gold); margin-bottom: 4px;">🔊 Soundboard</div>
-                  <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                    <span style="background: #2D241E; padding: 3px 8px; border-radius: 6px; font-size: 0.72rem;">👏 Aplausos</span>
-                    <span style="background: #2D241E; padding: 3px 8px; border-radius: 6px; font-size: 0.72rem;">🎺 Trombeta</span>
-                  </div>
+                <div style="margin-top: auto; padding: 10px; background: rgba(0,0,0,0.25); border-radius: 8px; font-size: 0.74rem; color: var(--dune-text-muted);">
+                  <div style="font-weight: 700; color: var(--dune-gold); margin-bottom: 2px;">Soundboard</div>
+                  Efeitos sonoros e chat de texto integrados
                 </div>
               </div>
 
-              <!-- Palco de vídeo simulado -->
+              <!-- Palco de Gameplay e Transmissão -->
               <div class="dune-mockup-stage">
                 <div class="dune-mockup-video-card">
-                  <div class="dune-mockup-gameplay-bg"></div>
-                  
-                  <div class="dune-mockup-badge-live">
-                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: dune-pulse-ring 1s infinite;"></span>
-                    AO VIVO • 60 FPS
-                  </div>
-
-                  <div class="dune-mockup-badge-coop">
-                    <span>🎮</span> Player 2 Conectado
-                  </div>
-
-                  <div class="dune-mockup-gameplay-center">
-                    <div style="font-size: 3.5rem; margin-bottom: 8px;">⚔️</div>
-                    <div style="font-size: 1.15rem; font-weight: 800; color: #fff; letter-spacing: -0.3px;">
-                      Transmissão de Jogo em Tempo Real
+                  <!-- Selos em linha flexível (sem risco de sobreposição) -->
+                  <div class="dune-mockup-badges-row">
+                    <div class="dune-badge dune-badge-live">
+                      <span style="width: 7px; height: 7px; border-radius: 50%; background: #fff; display: inline-block;"></span>
+                      TRANSMISSÃO ATIVA • ATÉ 60 FPS
                     </div>
-                    <div style="font-size: 0.82rem; color: var(--dune-gold); margin-top: 4px;">
-                      Codec H.264 Acelerado por GPU • Latência Zero
+
+                    <div class="dune-badge dune-badge-coop">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="15" y1="13" x2="15.01" y2="13"/><line x1="18" y1="11" x2="18.01" y2="11"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg>
+                      Player 2 Conectado
                     </div>
                   </div>
 
-                  <div class="dune-mockup-hud">
-                    <span>FPS: <span class="val">60.0</span></span>
-                    <span>PING: <span class="val">8ms</span></span>
-                    <span>BITRATE: <span class="val">8.2 Mbps</span></span>
-                    <span>ÁUDIO: <span class="val">Estéreo 48kHz</span></span>
+                  <div class="dune-mockup-gameplay-content">
+                    <svg class="dune-mockup-gameplay-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21"/><line x1="12" x2="12" y1="17"/>
+                    </svg>
+                    <div style="font-size: 1.1rem; font-weight: 800; color: #fff; margin-bottom: 4px;">
+                      Compartilhamento de Jogo e Janela
+                    </div>
+                    <div style="font-size: 0.82rem; color: var(--dune-text-muted);">
+                      Áudio estéreo do sistema e vídeo de baixa latência ponto a ponto
+                    </div>
                   </div>
+                </div>
+                <div class="dune-mockup-note">
+                  * Visual ilustrativo da experiência na sala do SeeMyGame.
                 </div>
               </div>
             </div>
           </div>
         </div>
+
+        <!-- 4 PASSOS DIDÁTICOS DE COMO FUNCIONA -->
+        <div id="como-funciona" class="dune-steps-container">
+          <div class="dune-step-card">
+            <div class="dune-step-number">1</div>
+            <div class="dune-step-title">Crie a sala</div>
+            <p class="dune-step-desc">Gere uma sala com link amigável em um clique, sem preencher formulários de cadastro.</p>
+          </div>
+
+          <div class="dune-step-card">
+            <div class="dune-step-number">2</div>
+            <div class="dune-step-title">Convide amigos</div>
+            <p class="dune-step-desc">Mande o link direto no WhatsApp ou Discord. Seus amigos entram direto pelo navegador.</p>
+          </div>
+
+          <div class="dune-step-card">
+            <div class="dune-step-number">3</div>
+            <div class="dune-step-title">Transmita o jogo</div>
+            <p class="dune-step-desc">Compartilhe sua tela em até 60 FPS com captura de som estéreo direto da partida.</p>
+          </div>
+
+          <div class="dune-step-card">
+            <div class="dune-step-number">4</div>
+            <div class="dune-step-title">Joguem juntos</div>
+            <p class="dune-step-desc">Libere o Player 2 para seu amigo controlar o jogo à distância como se estivesse no sofá.</p>
+          </div>
+        </div>
       </div>
     </section>
 
-    <!-- SEÇÃO 1: RECURSOS DE VOZ E ENTRADA SEM COMPROMISSO -->
+    <!-- SEÇÃO DE RECURSOS: VOZ E STREAMING -->
     <section id="recursos" class="dune-section alt-bg">
       <div class="dune-container">
         <div class="dune-feature-grid">
           <div class="dune-feature-text">
-            <h2>Conecte na sala primeiro.<br>Transmita quando quiser.</h2>
+            <h2>Conecte primeiro por voz.<br>Transmita quando quiser.</h2>
             <p>
-              Você não precisa ligar câmeras nem transmitir a tela para entrar na resenha. No SeeMyGame, você entra no canal de voz, troca ideia com a galera e, com um simples clique, compartilha sua partida com fluidez absurda.
+              Você não precisa transmitir sua tela logo de início. Entre na sala, converse com seus amigos e inicie a transmissão apenas quando a partida começar.
             </p>
             <ul class="dune-feature-list">
               <li>
-                <span class="icon">🔊</span>
-                <div><strong>Voz WebRTC Cristalina:</strong> Supressão de ruído e cancelamento de eco integrados direto no navegador.</div>
+                <div class="icon-wrapper">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                </div>
+                <div><strong>Voz de baixa latência:</strong> Cancelamento de eco e supressão de ruído nativos do navegador.</div>
               </li>
               <li>
-                <span class="icon">🟢</span>
-                <div><strong>Detecção Visual de Fala (VAD):</strong> Veja instantaneamente com o anel verde quem está falando no canal.</div>
+                <div class="icon-wrapper">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <div><strong>Até 60 FPS com som estéreo:</strong> Otimizado para manter a fluidez de jogos de ação e corrida (sujeito à capacidade de upload e GPU).</div>
               </li>
               <li>
-                <span class="icon">💬</span>
-                <div><strong>Chat de Texto & Soundboard:</strong> Compartilhe links, reaja com emojis e toque efeitos sonoros divertidos durante as partidas.</div>
+                <div class="icon-wrapper">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="6"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/></svg>
+                </div>
+                <div><strong>Co-op Player 2:</strong> Permite que um amigo envie comandos de controle para games locais compartilhados.</div>
               </li>
             </ul>
           </div>
 
           <div class="dune-feature-card">
-            <div style="display: flex; flex-direction: column; gap: 14px;">
-              <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--dune-gold); font-weight: 800;">
-                Detecção Ativa de Voz
-              </div>
-              <div style="display: flex; align-items: center; gap: 14px; background: rgba(0,0,0,0.3); padding: 14px 18px; border-radius: 12px;">
-                <div style="width: 44px; height: 44px; border-radius: 50%; background: #382E27; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; box-shadow: 0 0 0 3px var(--dune-green);">
-                  🎙️
-                </div>
-                <div>
-                  <div style="font-weight: 700; color: #fff;">Microfone Conectado</div>
-                  <div style="font-size: 0.8rem; color: var(--dune-green);">Falando agora • 12ms de latência</div>
-                </div>
-              </div>
-              <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <div style="flex: 1; background: var(--dune-surface-card); border: 1px solid var(--dune-border); padding: 14px; border-radius: 12px; text-align: center;">
-                  <div style="font-size: 1.5rem; margin-bottom: 4px;">⚡</div>
-                  <div style="font-weight: 700; font-size: 0.85rem;">Zero Configuração</div>
-                  <div style="font-size: 0.75rem; color: var(--dune-text-muted);">Abra e jogue</div>
-                </div>
-                <div style="flex: 1; background: var(--dune-surface-card); border: 1px solid var(--dune-border); padding: 14px; border-radius: 12px; text-align: center;">
-                  <div style="font-size: 1.5rem; margin-bottom: 4px;">🛡️</div>
-                  <div style="font-weight: 700; font-size: 0.85rem;">100% P2P Privado</div>
-                  <div style="font-size: 0.75rem; color: var(--dune-text-muted);">Sem servidores vigiando</div>
-                </div>
-              </div>
+            <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Conexão Direta (P2P)
+            </h3>
+            <p style="font-size: 0.92rem; color: var(--dune-text-muted); line-height: 1.6; margin-bottom: 16px;">
+              Todo o áudio e vídeo trafegam diretamente entre os navegadores através da tecnologia WebRTC. Nenhum servidor intermediário armazena ou assiste suas partidas.
+            </p>
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--dune-border-subtle); border-radius: 10px; padding: 12px; font-size: 0.8rem; color: var(--dune-text-dim);">
+              <strong style="color: var(--dune-gold);">Requisitos de Desempenho:</strong> Para transmissões em 60 FPS com estabilidade, recomenda-se conexão cabeada ou Wi-Fi 5GHz com pelo menos 8 Mbps de upload.
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- SEÇÃO 2: 60 FPS CRAVADOS & ÁUDIO ESTÉREO -->
-    <section id="fluidez" class="dune-section">
+    <!-- SEÇÃO: NAVEGADOR VS APLICATIVO WINDOWS -->
+    <section id="plataformas" class="dune-section">
       <div class="dune-container">
-        <div class="dune-feature-grid reverse">
-          <div class="dune-feature-text">
-            <h2>60 FPS cravados e áudio estéreo imersivo.</h2>
-            <p>
-              Cansado de streams borrados e com quedas de quadros nos programas comuns? O motor WebRTC do SeeMyGame é calibrado especialmente para jogos, com política nativa de <em>maintain-framerate</em> que prioriza fluidez contínua.
-            </p>
-            <ul class="dune-feature-list">
-              <li>
-                <span class="icon">🚀</span>
-                <div><strong>Taxa de Quadros Prioritária:</strong> 60 FPS contínuos acelerados por GPU para jogos rápidos de tiro, corrida ou luta.</div>
-              </li>
-              <li>
-                <span class="icon">🎧</span>
-                <div><strong>Áudio Estéreo Real:</strong> Seus amigos escutam passos à esquerda e explosões à direita com a mesma fidelidade do seu fone.</div>
-              </li>
-              <li>
-                <span class="icon">📊</span>
-                <div><strong>Telemetria ao Vivo:</strong> Monitore em tempo real o FPS, taxa de perda de pacotes, ping e bitrate da transmissão.</div>
-              </li>
-            </ul>
-          </div>
+        <div class="dune-section-header">
+          <h2>Navegador vs. Aplicativo Windows</h2>
+          <p>Escolha a forma mais conveniente para jogar: instantâneo pela web ou com recursos avançados no desktop.</p>
+        </div>
 
-          <div class="dune-feature-card">
-            <div style="display: flex; flex-direction: column; gap: 16px;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-size: 0.85rem; font-weight: 800; color: var(--dune-gold); text-transform: uppercase;">Comparativo de Fluidez</span>
-                <span style="background: rgba(74, 222, 128, 0.15); color: var(--dune-green); padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 800;">60 FPS LOCKED</span>
-              </div>
-
-              <div style="background: rgba(0,0,0,0.3); padding: 14px; border-radius: 12px;">
-                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 6px;">
-                  <span>SeeMyGame (P2P Maintain-Framerate)</span>
-                  <span style="color: var(--dune-green); font-weight: 700;">60 FPS estáveis</span>
-                </div>
-                <div style="height: 8px; background: #2A221C; border-radius: 4px; overflow: hidden;">
-                  <div style="height: 100%; width: 100%; background: linear-gradient(90deg, var(--dune-accent), var(--dune-green));"></div>
-                </div>
-              </div>
-
-              <div style="background: rgba(0,0,0,0.3); padding: 14px; border-radius: 12px;">
-                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 6px;">
-                  <span>Outras plataformas convencionais</span>
-                  <span style="color: var(--dune-text-muted);">30 FPS oscilantes</span>
-                </div>
-                <div style="height: 8px; background: #2A221C; border-radius: 4px; overflow: hidden;">
-                  <div style="height: 100%; width: 50%; background: #554439;"></div>
-                </div>
-              </div>
-
-              <div style="font-size: 0.78rem; color: var(--dune-text-dim); text-align: center; margin-top: 4px;">
-                * Conexão ponto a ponto direta sem gargalo em servidores intermediários.
-              </div>
+        <div class="dune-platforms-grid">
+          <!-- Card Navegador -->
+          <div class="dune-platform-card">
+            <div>
+              <span class="dune-platform-badge web">Uso Direto</span>
+              <h3>No Navegador</h3>
+              <p>Ideal para entrar rapidamente na partida sem precisar instalar nada no computador.</p>
+              <ul class="dune-platform-features">
+                <li>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  100% gratuito e sem download
+                </li>
+                <li>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Compatível com Chrome, Edge, Firefox e Brave
+                </li>
+                <li>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Entrada imediata por link de convite
+                </li>
+              </ul>
             </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- SEÇÃO 3: CO-OP PLAYER 2 -->
-    <section id="coop" class="dune-section alt-bg">
-      <div class="dune-container">
-        <div class="dune-feature-grid">
-          <div class="dune-feature-text">
-            <h2>Co-op Player 2: O controle na mão do seu amigo.</h2>
-            <p>
-              O recurso exclusivo que torna o SeeMyGame diferente de tudo: jogue games locais multiplayer pela internet! Passe o controle para o seu amigo te ajudar em um chefe difícil ou joguem juntos como se estivessem lado a lado no mesmo sofá.
-            </p>
-            <ul class="dune-feature-list">
-              <li>
-                <span class="icon">🎮</span>
-                <div><strong>Emulação Virtual de Gamepad:</strong> Seu amigo conecta o controle dele (Xbox, PlayStation ou genérico) e controla o Player 2.</div>
-              </li>
-              <li>
-                <span class="icon">⚡</span>
-                <div><strong>Input de Baixíssima Latência:</strong> Envio de comandos via DataChannel WebRTC sem atrasos perceptíveis.</div>
-              </li>
-              <li>
-                <span class="icon">🔒</span>
-                <div><strong>Segurança do Anfitrião:</strong> Você escolhe quando liberar, pausar ou revogar o controle com apenas um atalho.</div>
-              </li>
-            </ul>
+            <a href="lobby.html" class="dune-btn dune-btn-secondary" style="width: 100%; justify-content: center;">
+              Abrir no Navegador
+            </a>
           </div>
 
-          <div class="dune-feature-card">
-            <div style="text-align: center; padding: 20px 0;">
-              <div style="display: flex; justify-content: center; align-items: center; gap: 24px; margin-bottom: 20px;">
-                <div style="background: rgba(224, 108, 56, 0.15); border: 1px solid var(--dune-accent); padding: 16px 20px; border-radius: 16px;">
-                  <div style="font-size: 2.2rem;">🕹️</div>
-                  <div style="font-weight: 800; font-size: 0.85rem; color: #fff; margin-top: 6px;">Player 1 (Host)</div>
-                </div>
-                <div style="font-size: 1.5rem; color: var(--dune-gold);">⇄</div>
-                <div style="background: rgba(243, 201, 139, 0.15); border: 1px solid var(--dune-gold); padding: 16px 20px; border-radius: 16px;">
-                  <div style="font-size: 2.2rem;">🎮</div>
-                  <div style="font-weight: 800; font-size: 0.85rem; color: var(--dune-gold); margin-top: 6px;">Player 2 (Conectado)</div>
-                </div>
-              </div>
-              <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 10px; font-size: 0.82rem; color: var(--dune-text-muted);">
-                Compatível nativamente com controles via Web Gamepad API e App Desktop
-              </div>
+          <!-- Card Aplicativo Windows -->
+          <div class="dune-platform-card highlight">
+            <div>
+              <span class="dune-platform-badge desktop">Recursos Nativos</span>
+              <h3>Aplicativo para Windows</h3>
+              <p>Desenvolvido para quem transmite jogos frequentemente e quer máxima integração.</p>
+              <ul class="dune-platform-features">
+                <li>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Modo Janela Fixada no Topo (Always-on-Top)
+                </li>
+                <li>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Captura de tela acelerada por GPU sem avisos do navegador
+                </li>
+                <li>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Integração nativa de gamepads para Player 2
+                </li>
+              </ul>
             </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- SEÇÃO 4: DIFERENCIAIS P2P -->
-    <section id="vantagens" class="dune-section">
-      <div class="dune-container">
-        <div style="text-align: center; max-width: 700px; margin: 0 auto 30px;">
-          <h2 style="font-size: 2.3rem; font-weight: 800; color: #fff; margin-bottom: 12px;">
-            Por que escolher o SeeMyGame?
-          </h2>
-          <p style="color: var(--dune-text-muted); font-size: 1.05rem;">
-            Desenhado do zero para quem quer jogar, conversar e se divertir sem complicações, burocracias ou perda de qualidade.
-          </p>
-        </div>
-
-        <div class="dune-cards-grid">
-          <div class="dune-info-card">
-            <div class="dune-info-icon">🛡️</div>
-            <h3>100% P2P e Privado</h3>
-            <p>Seus vídeos e áudios trafegam diretamente entre os navegadores (WebRTC). Nada é gravado, armazenado ou monitorado em nuvem.</p>
-          </div>
-
-          <div class="dune-info-card">
-            <div class="dune-info-icon">⚡</div>
-            <h3>Zero Cadastro ou Senhas</h3>
-            <p>Não perca tempo criando logins. Crie uma sala com link amigável (como <code>brave-dragon</code>), mande no zap e comecem a jogar.</p>
-          </div>
-
-          <div class="dune-info-card">
-            <div class="dune-info-icon">💻</div>
-            <h3>Navegador ou Desktop</h3>
-            <p>Acesse pelo Chrome, Edge, Firefox ou baixe nosso aplicativo desktop leve para Windows com janela fixada (Always-on-Top).</p>
+            <div>
+              <a href="https://github.com/diogo-vaccaro/seemygame/releases" target="_blank" rel="noopener" class="dune-btn dune-btn-primary" style="width: 100%; justify-content: center;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Baixar para Windows
+              </a>
+              <div class="dune-platform-reqs">Requisitos: Windows 10 ou 11 (64-bit).</div>
+            </div>
           </div>
         </div>
       </div>
@@ -427,23 +368,21 @@
     <!-- BIG CALL TO ACTION FINAL -->
     <section class="dune-container">
       <div class="dune-cta-banner">
-        <h2>Pronto para iniciar a jogatina?</h2>
-        <p>
-          Reúna os amigos agora mesmo. Crie uma sala gratuita em menos de 5 segundos direto pelo navegador.
-        </p>
-        <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
+        <h2>Pronto para jogar com seus amigos?</h2>
+        <p>Crie sua sala em poucos segundos direto pelo navegador. Sem cadastros, sem complicação.</p>
+        <div style="display: flex; justify-content: center; gap: 14px; flex-wrap: wrap;">
           <button id="cta-create-btn" class="dune-btn dune-btn-primary dune-btn-lg">
-            <span>✨</span> Criar Sala Instantânea
+            Criar sala
           </button>
           <a href="lobby.html" class="dune-btn dune-btn-secondary dune-btn-lg">
-            <span>🚪</span> Ir para o Lobby
+            Entrar em uma sala
           </a>
         </div>
       </div>
     </section>
   </main>
 
-  <!-- FOOTER ESTILO DISCORD -->
+  <!-- FOOTER -->
   <footer class="dune-footer">
     <div class="dune-container">
       <div class="dune-footer-grid">
@@ -453,40 +392,38 @@
             <div>See<span>MyGame</span></div>
           </a>
           <p>
-            Plataforma de salas de jogos P2P em tempo real com prioridade de fluidez e Co-op Player 2.
+            Salas de jogos ponto a ponto em tempo real com voz, streaming e Co-op Player 2.
           </p>
         </div>
 
         <div class="dune-footer-col">
           <h4>Navegação</h4>
           <ul>
-            <li><a href="lobby.html">Lobby de Entrada</a></li>
-            <li><a href="room.html">Sala Geral Rápida</a></li>
-            <li><a href="streamer.html">Estúdio Clássico</a></li>
+            <li><a href="#como-funciona">Como funciona</a></li>
+            <li><a href="lobby.html">Entrar em uma sala</a></li>
+            <li><a href="room.html">Sala Rápida</a></li>
           </ul>
         </div>
 
         <div class="dune-footer-col">
-          <h4>Recursos</h4>
+          <h4>Plataformas</h4>
           <ul>
-            <li><a href="#recursos">Canais de Voz P2P</a></li>
-            <li><a href="#fluidez">Streaming a 60 FPS</a></li>
-            <li><a href="#coop">Co-op Player 2</a></li>
+            <li><a href="lobby.html">Acesso Web</a></li>
+            <li><a href="https://github.com/diogo-vaccaro/seemygame/releases" target="_blank" rel="noopener">App Windows</a></li>
           </ul>
         </div>
 
         <div class="dune-footer-col">
           <h4>Transparência</h4>
           <ul>
-            <li><a id="open-terms-link" tabindex="0" role="button" style="cursor: pointer;">Termos de Uso</a></li>
-            <li><a href="https://github.com" target="_blank" rel="noopener">Código Aberto</a></li>
+            <li><button id="open-terms-link" style="background: none; border: none; color: inherit; font: inherit; cursor: pointer; padding: 0; text-align: left;">Termos de Uso</button></li>
+            <li><a href="https://github.com/diogo-vaccaro/seemygame" target="_blank" rel="noopener">Código Aberto (GitHub)</a></li>
           </ul>
         </div>
       </div>
 
       <div class="dune-footer-bottom">
-        <div>&copy; SeeMyGame. Conexões Peer-to-Peer sem intermediários.</div>
-        <div style="color: var(--dune-gold);">Tons Cyber Dune & Amber Terracotta</div>
+        <div>&copy; SeeMyGame. Comunicação P2P direta entre navegadores.</div>
       </div>
     </div>
   </footer>
@@ -495,8 +432,7 @@
     import { generateFriendlyRoomCode } from './js/room-codes.js';
     import { isDesktopApp } from './js/desktop.js';
 
-    // Se estiver rodando dentro do aplicativo nativo Desktop (Tauri),
-    // redireciona diretamente para o lobby limpo e focado!
+    // Se estiver no aplicativo nativo Desktop (Tauri), vai direto ao lobby
     if (isDesktopApp()) {
       let basePath = window.location.pathname;
       if (basePath.endsWith('.html')) {
@@ -543,21 +479,36 @@
     if (heroCreateBtn) heroCreateBtn.addEventListener('click', launchInstantRoom);
     if (ctaCreateBtn) ctaCreateBtn.addEventListener('click', launchInstantRoom);
 
-    // Modal de Termos
+    // Modal de Termos com Gerenciamento de Foco e Acessibilidade por Teclado
     const openTermsLink = document.getElementById('open-terms-link');
     const termsModal = document.getElementById('terms-modal');
     const closeTermsBtn = document.getElementById('close-terms-btn');
 
-    if (openTermsLink && termsModal) {
-      openTermsLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        termsModal.style.display = 'flex';
-      });
+    function openModal() {
+      if (!termsModal) return;
+      termsModal.style.display = 'flex';
+      closeTermsBtn?.focus();
+      document.addEventListener('keydown', handleModalKeyDown);
     }
-    if (closeTermsBtn && termsModal) {
-      closeTermsBtn.addEventListener('click', () => {
-        termsModal.style.display = 'none';
-      });
+
+    function closeModal() {
+      if (!termsModal) return;
+      termsModal.style.display = 'none';
+      openTermsLink?.focus();
+      document.removeEventListener('keydown', handleModalKeyDown);
+    }
+
+    function handleModalKeyDown(e) {
+      if (e.key === 'Escape') {
+        closeModal();
+      }
+    }
+
+    if (openTermsLink) {
+      openTermsLink.addEventListener('click', openModal);
+    }
+    if (closeTermsBtn) {
+      closeTermsBtn.addEventListener('click', closeModal);
     }
   </script>
 </body>

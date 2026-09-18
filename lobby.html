@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SeeMyGame - Lobby de Entrada</title>
+  <title>SeeMyGame - Entrar em uma Sala</title>
   
   <!-- Estilos Modulares -->
   <link rel="stylesheet" href="css/main.css">
@@ -39,8 +39,6 @@
         }
       }
 
-      // Se já tiver uma sala no link e o usuário já tiver um nome salvo, pode entrar direto
-      // Caso contrário, o script abaixo preenche o campo da sala no formulário
       window._smgTargetRoom = targetRoom ? decodeURIComponent(targetRoom) : null;
       window._smgTargetWatch = targetWatch ? decodeURIComponent(targetWatch) : null;
     })();
@@ -48,19 +46,19 @@
 </head>
 <body class="lobby-page dune-theme">
 
-  <!-- Modal de Termos de Uso e Idade (Acessível) -->
+  <!-- Modal de Termos de Uso e Responsabilidade (Acessível) -->
   <div id="terms-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="terms-title">
     <div class="modal-content" style="background: var(--dune-surface); border: 1px solid var(--dune-border);">
-      <h3 id="terms-title" style="color: var(--dune-text);">🛡️ Termos de Uso & Responsabilidade</h3>
+      <h3 id="terms-title" style="color: var(--dune-text);">Termos de Uso & Responsabilidade</h3>
       
       <div class="terms-box" style="background: var(--dune-surface-input); border-color: var(--dune-border); color: var(--dune-text-muted);">
         <p><strong>1. Natureza da Aplicação:</strong> O <em>SeeMyGame</em> é uma ferramenta técnica de comunicação direta ponto-a-ponto (Peer-to-Peer - WebRTC). Todo o tráfego audiovisual ocorre exclusivamente entre os navegadores conectados, sem armazenamento, gravação ou moderação em servidores centrais.</p>
-        <p><strong>2. Isenção Total de Responsabilidade do Desenvolvedor:</strong> O desenvolvedor/mantenedor desta aplicação não tem acesso nem controle sobre as telas, transmissões, áudios ou informações compartilhadas. O desenvolvedor <strong>isenta-se integralmente</strong> de qualquer responsabilidade legal, cível ou criminal decorrente de conteúdos ilícitos, direitos autorais violados, dados confidenciais expostos ou condutas inadequadas praticadas pelos usuários.</p>
+        <p><strong>2. Isenção de Responsabilidade do Desenvolvedor:</strong> O desenvolvedor/mantenedor desta aplicação não tem acesso nem controle sobre as telas, transmissões, áudios ou informações compartilhadas. O desenvolvedor isenta-se de qualquer responsabilidade legal, cível ou criminal decorrente de conteúdos ilícitos, direitos autorais violados, dados confidenciais expostos ou condutas inadequadas praticadas pelos usuários.</p>
         <p><strong>3. Responsabilidade do Usuário:</strong> Você é o único e exclusivo responsável por todo o conteúdo que decidir transmitir e pelas conexões que estabelecer.</p>
       </div>
 
       <div class="modal-actions">
-        <button id="close-terms-btn" class="dune-btn dune-btn-primary" style="padding: 9px 20px; font-size: 13.5px;">Entendido</button>
+        <button id="close-terms-btn" class="dune-btn dune-btn-primary" style="padding: 9px 20px;">Entendido</button>
       </div>
     </div>
   </div>
@@ -76,40 +74,40 @@
         <span id="desktop-pin-icon">📌</span> <span id="desktop-pin-text">Fixado</span>
       </button>
       <a href="index.html" class="nav-switch-btn" title="Conhecer recursos do SeeMyGame">
-        <span>✨</span> Sobre
+        Início
       </a>
-      <a href="room.html" class="nav-switch-btn" title="Entrar na Sala Geral Imediatamente">
-        <span>🎧</span> Sala Rápida
+      <a href="room.html" class="nav-switch-btn" title="Entrar na Sala Geral">
+        Sala Rápida
       </a>
     </div>
   </header>
 
   <main class="lobby-center-container">
     <div class="lobby-card">
-      <div style="margin-bottom: 24px;">
-        <h2 style="font-size: 1.55rem; font-weight: 800; color: #fff; margin-bottom: 8px; display: flex; align-items: center; gap: 10px;">
-          <span>🚀</span> Entrar em uma Sala
+      <div style="margin-bottom: 20px;">
+        <h2 style="font-size: 1.45rem; font-weight: 800; color: #fff; margin-bottom: 6px;">
+          Entrar em uma sala
         </h2>
-        <p style="color: var(--dune-text-muted); font-size: 0.92rem; line-height: 1.5; margin: 0;">
-          Conecte-se com seus amigos por voz e vídeo em até 60 FPS com áudio estéreo. Sem login, 100% P2P.
+        <p style="color: var(--dune-text-muted); font-size: 0.9rem; line-height: 1.5; margin: 0;">
+          Defina seu apelido e conecte-se com seus amigos. Sem criar conta e 100% P2P direto no navegador.
         </p>
       </div>
 
       <form id="lobby-form" onsubmit="event.preventDefault();">
         <div class="lobby-field-group">
-          <label for="lobby-user-name" class="lobby-label">Seu Apelido Gamer:</label>
+          <label for="lobby-user-name" class="lobby-label">Seu Apelido:</label>
           <input 
             type="text" 
             id="lobby-user-name" 
             class="lobby-input" 
-            placeholder="Ex: Diogo, Shadow, Gamer123" 
+            placeholder="Ex: Diogo, Gamer123" 
             maxlength="24"
             autocomplete="nickname"
             required>
         </div>
 
         <div class="lobby-field-group">
-          <label for="lobby-room-id" class="lobby-label">Nome ou Código da Sala:</label>
+          <label for="lobby-room-id" class="lobby-label">Nome ou Link da Sala:</label>
           <input 
             type="text" 
             id="lobby-room-id" 
@@ -119,8 +117,8 @@
             autocomplete="off">
         </div>
 
-        <button type="submit" id="lobby-join-btn" class="dune-btn dune-btn-primary" style="width: 100%; font-size: 1.05rem; padding: 14px 20px;">
-          <span>🚪</span> Conectar na Sala
+        <button type="submit" id="lobby-join-btn" class="dune-btn dune-btn-primary" style="width: 100%; font-size: 1rem; padding: 13px 20px;">
+          Entrar na sala
         </button>
 
         <div class="lobby-divider">
@@ -129,8 +127,8 @@
           <div class="lobby-divider-line"></div>
         </div>
 
-        <button type="button" id="lobby-create-random-btn" class="dune-btn dune-btn-gold" style="width: 100%; font-size: 0.98rem; padding: 13px 20px;">
-          <span>✨</span> Criar Nova Sala Instantânea
+        <button type="button" id="lobby-create-random-btn" class="dune-btn dune-btn-gold" style="width: 100%; font-size: 0.95rem; padding: 12px 20px;">
+          Criar sala
         </button>
       </form>
     </div>
@@ -139,8 +137,8 @@
   <div id="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <footer style="text-align: center; font-size: 0.82rem; color: var(--dune-text-dim); padding: 12px 0;">
-    <span>SeeMyGame • Salas de Jogos P2P de Alta Fluidez • </span>
-    <a id="open-terms-link" tabindex="0" role="button" style="color: var(--dune-gold); cursor: pointer; text-decoration: underline;">Termos de Uso</a>
+    <span>SeeMyGame • Salas de Jogos P2P • </span>
+    <button id="open-terms-link" style="background: none; border: none; color: var(--dune-gold); font: inherit; cursor: pointer; text-decoration: underline; padding: 0;">Termos de Uso</button>
   </footer>
 
   <script type="module">
@@ -158,7 +156,6 @@
       if (savedName && userNameInput) userNameInput.value = savedName;
     } catch (e) {}
 
-    // Preenche a sala caso o usuário tenha chegado via link com sala especificada
     if (window._smgTargetRoom && roomIdInput) {
       roomIdInput.value = window._smgTargetRoom;
     }
@@ -238,20 +235,36 @@
       });
     }
 
-    // Modal de Termos
+    // Modal de Termos com Acessibilidade por Teclado
     const openTermsLink = document.getElementById('open-terms-link');
     const termsModal = document.getElementById('terms-modal');
     const closeTermsBtn = document.getElementById('close-terms-btn');
 
-    if (openTermsLink && termsModal) {
-      openTermsLink.addEventListener('click', () => {
-        termsModal.style.display = 'flex';
-      });
+    function openModal() {
+      if (!termsModal) return;
+      termsModal.style.display = 'flex';
+      closeTermsBtn?.focus();
+      document.addEventListener('keydown', handleModalKeyDown);
     }
-    if (closeTermsBtn && termsModal) {
-      closeTermsBtn.addEventListener('click', () => {
-        termsModal.style.display = 'none';
-      });
+
+    function closeModal() {
+      if (!termsModal) return;
+      termsModal.style.display = 'none';
+      openTermsLink?.focus();
+      document.removeEventListener('keydown', handleModalKeyDown);
+    }
+
+    function handleModalKeyDown(e) {
+      if (e.key === 'Escape') {
+        closeModal();
+      }
+    }
+
+    if (openTermsLink) {
+      openTermsLink.addEventListener('click', openModal);
+    }
+    if (closeTermsBtn) {
+      closeTermsBtn.addEventListener('click', closeModal);
     }
   </script>
 
