@@ -1,0 +1,10 @@
+# The GStreamer Rust bindings are built against the local development SDK.
+# The SDK is intentionally ignored and is installed by
+# tools/prepare-native-media.ps1 -IncludeDevelopment; release bundles only
+# native-media/gstreamer (the runtime).
+
+[env]
+GSTREAMER_1_0_ROOT_MSVC_X86_64 = { value = ".native-media-sdk/gstreamer", relative = true }
+GSTREAMER_ROOT_X86_64 = { value = ".native-media-sdk/gstreamer", relative = true }
+PKG_CONFIG = { value = ".native-media-sdk/gstreamer/bin/pkg-config.exe", relative = true }
+PKG_CONFIG_PATH = { value = ".native-media-sdk/gstreamer/lib/pkgconfig", relative = true }

@@ -13,9 +13,12 @@ Dependências:
     pip install websockets pyautogui
 """
 
+import argparse
 import asyncio
 import json
 import sys
+import urllib.parse
+
 
 try:
     import websockets
@@ -25,15 +28,109 @@ except ImportError:
 
 try:
     import pyautogui
-    pyautogui.FAILSAFE = False  # Permite mover para os cantos da tela sem erro
+    # A06: Failsafe ATIVADO - Mover o mouse para qualquer canto da tela aborta o controle imediatamente
+    pyautogui.FAILSAFE = True
     pyautogui.PAUSE = 0.001     # Sem atraso artificial entre comandos
     HAVE_PYAUTOGUI = True
 except ImportError:
     HAVE_PYAUTOGUI = False
-    print("AVISO: 'pyautogui' não encontrado. Execute: pip install pyautogui para suporte completo.")
+    print("AVISO: 'pyautogui' não encontrado. Execute: pip install pyautogui para suporte a teclado/mouse.")
 
-PORT = 9876
-HOST = "127.0.0.1"
+try:
+    import vgamepad as vg
+    HAVE_VGAMEPAD = True
+except ImportError:
+    HAVE_VGAMEPAD = False
+
+class _NoFailsafeException(Exception):
+    pass
+
+PyAutoGUIFailSafe = getattr(globals().get("pyautogui"), "FailSafeException", _NoFailsafeException) if HAVE_PYAUTOGUI else _NoFailsafeException
+
+# Instâncias de gamepads virtuais ativos por slot (1 = P2, 2 = P3, 3 = P4)
+virtual_gamepads = {}
+
+# Rastreamento de teclas e botões pressionados para liberação total em pânico/desconexão (A06)
+pressed_keys = set()
+pressed_mouse_buttons = set()
+
+def _release_input(call, **kwargs):
+    """Release an input even when the pointer is on PyAutoGUI's failsafe corner."""
+    if not HAVE_PYAUTOGUI:
+        return True
+
+    # Failsafe is deliberately enabled during normal input handling. Cleanup
+    # is the exception: refusing keyUp/mouseUp at the corner leaves a real
+    # game input physically stuck. Restore the safety setting immediately.
+    previous_failsafe = getattr(pyautogui, "FAILSAFE", True)
+    try:
+        pyautogui.FAILSAFE = False
+        call(**kwargs)
+        return True
+    except Exception:
+        return False
+    finally:
+        pyautogui.FAILSAFE = previous_failsafe
+
+def release_all():
+    """Liberação total de todas as teclas e botões do mouse (All-Up / Emergency Stop)."""
+    if not HAVE_PYAUTOGUI:
+        return True
+    remaining_keys = set()
+    for k in list(pressed_keys):
+        if not _release_input(pyautogui.keyUp, key=k):
+            remaining_keys.add(k)
+    pressed_keys.clear()
+    pressed_keys.update(remaining_keys)
+
+    remaining_buttons = set()
+    for b in list(pressed_mouse_buttons):
+        if not _release_input(pyautogui.mouseUp, button=b):
+            remaining_buttons.add(b)
+    pressed_mouse_buttons.clear()
+    pressed_mouse_buttons.update(remaining_buttons)
+
+    # Liberação total de todos os gamepads virtuais ativos
+    if HAVE_VGAMEPAD and virtual_gamepads:
+        for slot, gp in list(virtual_gamepads.items()):
+            try:
+                gp.reset()
+                gp.update()
+            except Exception:
+                pass
+
+    return not pressed_keys and not pressed_mouse_buttons
+
+# Mapeamento W3C Standard Gamepad para constantes XUSB do ViGEmBus
+W3C_TO_XUSB = {
+    0: "XUSB_GAMEPAD_A",
+    1: "XUSB_GAMEPAD_B",
+    2: "XUSB_GAMEPAD_X",
+    3: "XUSB_GAMEPAD_Y",
+    4: "XUSB_GAMEPAD_LEFT_SHOULDER",
+    5: "XUSB_GAMEPAD_RIGHT_SHOULDER",
+    8: "XUSB_GAMEPAD_BACK",
+    9: "XUSB_GAMEPAD_START",
+    10: "XUSB_GAMEPAD_LEFT_THUMB",
+    11: "XUSB_GAMEPAD_RIGHT_THUMB",
+    12: "XUSB_GAMEPAD_DPAD_UP",
+    13: "XUSB_GAMEPAD_DPAD_DOWN",
+    14: "XUSB_GAMEPAD_DPAD_LEFT",
+    15: "XUSB_GAMEPAD_DPAD_RIGHT",
+    16: "XUSB_GAMEPAD_GUIDE"
+}
+
+def get_or_create_gamepad(slot=1):
+    if not HAVE_VGAMEPAD:
+        return None
+    if slot not in virtual_gamepads:
+        try:
+            virtual_gamepads[slot] = vg.VX360Gamepad()
+            print(f"[Co-op Agent] Controle virtual Xbox 360 criado para o Slot {slot}!")
+        except Exception as e:
+            print(f"[Co-op Agent] Falha ao criar controle virtual no Slot {slot}: {e}")
+            return None
+    return virtual_gamepads.get(slot)
 
 # Mapeamento de teclas Web (KeyboardEvent.code) para nomes do PyAutoGUI
 KEY_MAP = {
@@ -46,28 +143,136 @@ KEY_MAP = {
     "KeyZ": "z", "KeyX": "x", "KeyC": "c", "KeyV": "v"
 }
 
-async def handle_client(websocket):
-    print(f"[Co-op Agent] Navegador conectado! Player 2 pronto para controlar.")
-    screen_w, screen_h = pyautogui.size() if HAVE_PYAUTOGUI else (1920, 1080)
+ALLOWED_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "tauri.localhost"}
+ALLOWED_PRODUCTION_HOSTS = {"seemygame.vercel.app", "seemygame.com", "www.seemygame.com", "seemygame.pages.dev"}
+SESSION_TIMEOUT_SECONDS = 30
+MAX_MESSAGE_BYTES = 64 * 1024
+
+def agent_capabilities():
+    return {
+        "keyboard": HAVE_PYAUTOGUI,
+        "mouse": HAVE_PYAUTOGUI,
+        "gamepad": HAVE_VGAMEPAD,
+        "mouseCoordinateSpace": "target-rect-or-primary-screen"
+    }
+
+def normalize_target_rect(value):
+    if not isinstance(value, dict):
+        return None
+    try:
+        left = int(round(float(value.get("left", 0))))
+        top = int(round(float(value.get("top", 0))))
+        width = int(round(float(value.get("width", 0))))
+        height = int(round(float(value.get("height", 0))))
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0 or width > 32768 or height > 32768:
+        return None
+    return {"left": left, "top": top, "width": width, "height": height}
+
+def is_valid_origin(origin_header):
+    """Valida a origem da requisição WebSocket (A05)."""
+    if not origin_header:
+        return False
 
     try:
-        async for message in websocket:
+        parsed = urllib.parse.urlparse(origin_header)
+        hostname = (parsed.hostname or "").lower()
+        scheme = (parsed.scheme or "").lower()
+        if scheme in {"http", "https"} and hostname in ALLOWED_LOCAL_HOSTS:
+            return True
+        if origin_header.rstrip("/") == "tauri://localhost":
+            return True
+        if scheme == "https" and hostname in ALLOWED_PRODUCTION_HOSTS:
+            return True
+    except Exception:
+        pass
+    return False
+
+# Token de autenticação obrigatório (A05)
+auth_token = None
+
+async def handle_client(websocket):
+    # 1. Validação de Origem (A05)
+    headers = getattr(websocket, "request_headers", None)
+    if headers is None:
+        headers = getattr(getattr(websocket, "request", None), "headers", None)
+
+    origin = headers.get("Origin") or headers.get("origin") if headers else None
+    if not is_valid_origin(origin):
+        print(f"[Co-op Agent] Conexão rejeitada: Origem não permitida ({origin})")
+        await websocket.close(4003, "Origin not allowed")
+        return
+
+    print(f"[Co-op Agent] Navegador conectado de {origin or 'local'}! Player 2 pronto para controlar.")
+    screen_w, screen_h = pyautogui.size() if HAVE_PYAUTOGUI else (1920, 1080)
+    target_rect = None
+
+    authenticated = False
+
+    try:
+        while True:
             try:
+                message = await asyncio.wait_for(websocket.recv(), timeout=SESSION_TIMEOUT_SECONDS)
+                if isinstance(message, bytes):
+                    if len(message) > MAX_MESSAGE_BYTES:
+                        await websocket.close(4005, "Message too large")
+                        return
+                    message = message.decode("utf-8")
+                elif not isinstance(message, str) or len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
+                    await websocket.close(4005, "Message too large")
+                    return
                 data = json.loads(message)
+                if not isinstance(data, dict):
+                    continue
                 msg_type = data.get("type")
+
+                # Handshake de autenticação se token estiver ativado
+                if not authenticated:
+                    if msg_type == "AUTH" and data.get("token") == auth_token:
+                        authenticated = True
+                        print("[Co-op Agent] Cliente autenticado com token de pareamento!")
+                        await websocket.send(json.dumps({"type": "AUTH_OK", **agent_capabilities()}))
+                        continue
+                    else:
+                        print("[Co-op Agent] Falha de autenticação de token.")
+                        await websocket.send(json.dumps({"type": "AUTH_FAILED", "error": "Token inválido"}))
+                        await websocket.close(4001, "Authentication failed")
+                        return
+
+                # Pânico / Reset de emergência (A06)
+                if msg_type in ("INPUT_RESET", "EMERGENCY_STOP", "COOP_REVOKE"):
+                    if not release_all():
+                        await websocket.close(4002, "Input release failed")
+                        return
+                    continue
+
+                if msg_type == "COOP_TARGET":
+                    target_rect = normalize_target_rect(data.get("targetRect"))
+                    continue
 
                 # 1. Teclado
                 if msg_type == "INPUT_KEY" and HAVE_PYAUTOGUI:
                     code = data.get("code")
                     action = data.get("action")
-                    key = KEY_MAP.get(code, data.get("key", "").lower())
+                    raw_key = data.get("key", "")
+                    key = KEY_MAP.get(code)
+                    if not key and isinstance(raw_key, str) and len(raw_key) <= 32:
+                        candidate = raw_key.lower()
+                        allowed_keys = set(KEY_MAP.values()) | {str(n) for n in range(10)}
+                        if candidate in allowed_keys:
+                            key = candidate
 
-                    if key:
+                    if key and action in {"down", "up"}:
                         try:
                             if action == "down":
+                                pressed_keys.add(key)
                                 pyautogui.keyDown(key)
                             elif action == "up":
                                 pyautogui.keyUp(key)
+                                pressed_keys.discard(key)
+                        except PyAutoGUIFailSafe:
+                            raise
                         except Exception:
                             pass
 
@@ -75,36 +280,135 @@ async def handle_client(websocket):
                 elif msg_type == "INPUT_MOUSE" and HAVE_PYAUTOGUI:
                     action = data.get("action")
                     if action == "move":
-                        target_x = int(data.get("x", 0) * screen_w)
-                        target_y = int(data.get("y", 0) * screen_h)
+                        try:
+                            norm_x = min(1.0, max(0.0, float(data.get("x", 0))))
+                            norm_y = min(1.0, max(0.0, float(data.get("y", 0))))
+                        except (TypeError, ValueError):
+                            continue
+                        incoming_rect = normalize_target_rect(data.get("targetRect"))
+                        rect = incoming_rect or target_rect
+                        if rect:
+                            target_x = rect["left"] + int(norm_x * max(1, rect["width"] - 1))
+                            target_y = rect["top"] + int(norm_y * max(1, rect["height"] - 1))
+                        else:
+                            target_x = int(norm_x * max(1, screen_w - 1))
+                            target_y = int(norm_y * max(1, screen_h - 1))
                         pyautogui.moveTo(target_x, target_y)
-                    elif action == "down":
-                        btn = "left" if data.get("button", 0) == 0 else "right"
-                        pyautogui.mouseDown(button=btn)
-                    elif action == "up":
-                        btn = "left" if data.get("button", 0) == 0 else "right"
-                        pyautogui.mouseUp(button=btn)
+                    elif action in {"down", "up"} and data.get("button") in {0, 1, 2}:
+                        btn = {0: "left", 1: "middle", 2: "right"}[data.get("button")]
+                        if action == "up":
+                            try:
+                                pyautogui.mouseUp(button=btn)
+                            except PyAutoGUIFailSafe:
+                                raise
+                            except Exception:
+                                continue
+                            pressed_mouse_buttons.discard(btn)
+                            continue
+                        pressed_mouse_buttons.add(btn)
+                        try:
+                            pyautogui.mouseDown(button=btn)
+                        except PyAutoGUIFailSafe:
+                            raise
+                        except Exception:
+                            pass
 
-            except Exception as parse_err:
+                # 3. Gamepad Virtual (Xbox 360 XInput via ViGEmBus)
+                elif msg_type == "INPUT_GAMEPAD" and HAVE_VGAMEPAD:
+                    slot = int(data.get("slot", 1))
+                    gp = get_or_create_gamepad(slot)
+                    if gp:
+                        state = data.get("state") if isinstance(data.get("state"), dict) else data
+                        buttons = state.get("buttons") or []
+                        triggers = state.get("triggers") or []
+                        axes = state.get("axes") or []
+
+                        # Botões
+                        for idx, btn_name in W3C_TO_XUSB.items():
+                            attr = getattr(vg.XUSB_BUTTON, btn_name, None)
+                            if attr is not None:
+                                is_pressed = bool(buttons[idx]) if idx < len(buttons) else False
+                                if is_pressed:
+                                    gp.press_button(button=attr)
+                                else:
+                                    gp.release_button(button=attr)
+
+                        # Gatilhos analógicos (0.0 a 1.0)
+                        if len(triggers) >= 2:
+                            gp.left_trigger_float(value_float=float(max(0.0, min(1.0, triggers[0]))))
+                            gp.right_trigger_float(value_float=float(max(0.0, min(1.0, triggers[1]))))
+                        else:
+                            lt = 1.0 if (len(buttons) > 6 and buttons[6]) else 0.0
+                            rt = 1.0 if (len(buttons) > 7 and buttons[7]) else 0.0
+                            gp.left_trigger_float(value_float=lt)
+                            gp.right_trigger_float(value_float=rt)
+
+                        # Analógicos: -1.0 a 1.0 com inversão de eixo Y (DirectX / XInput)
+                        lx = float(axes[0]) if len(axes) > 0 else 0.0
+                        ly = float(axes[1]) if len(axes) > 1 else 0.0
+                        rx = float(axes[2]) if len(axes) > 2 else 0.0
+                        ry = float(axes[3]) if len(axes) > 3 else 0.0
+
+                        gp.left_joystick_float(x_value_float=max(-1.0, min(1.0, lx)), y_value_float=max(-1.0, min(1.0, -ly)))
+                        gp.right_joystick_float(x_value_float=max(-1.0, min(1.0, rx)), y_value_float=max(-1.0, min(1.0, -ry)))
+
+                        gp.update()
+
+            except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
+                raise
+            except PyAutoGUIFailSafe:
+                print("[Co-op Agent] FAILSAFE ACIONADO! Mouse levado ao canto da tela. Liberando todos os inputs.")
+                # A failsafe event revokes the session unconditionally. The
+                # cleanup path temporarily bypasses only the corner guard so
+                # keyUp/mouseUp can actually reach the OS.
+                release_all()
+                await websocket.close(4002, "Failsafe emergency stop")
+                return
+            except Exception:
                 pass
+
+            # A sessão ociosa expira no próximo ciclo de leitura; o timeout de
+            # wait_for garante que nenhuma tecla permaneça pressionada.
+    except asyncio.TimeoutError:
+        print("[Co-op Agent] Sessão ociosa expirada; liberando todos os inputs.")
+        release_all()
+        await websocket.close(4004, "Session timeout")
 
     except websockets.exceptions.ConnectionClosed:
         print("[Co-op Agent] Navegador desconectado.")
+    finally:
+        # A06: Garante que nenhuma tecla ou clique fique travado na desconexão
+        release_all()
 
-async def main():
+async def main(host, port, token):
+    global auth_token
+    if not token:
+        print("ERRO: --token é obrigatório. Gere um token exclusivo para esta sessão.")
+        return
+    auth_token = token
+
     print("=" * 60)
     print("🎮 SeeMyGame - Co-op Companion Agent (Player 2 para PC)")
     print("=" * 60)
-    print(f"Iniciando escuta local em ws://{HOST}:{PORT}")
-    print("Abra o SeeMyGame no navegador para pareamento automático.")
+    print(f"Iniciando escuta local em ws://{host}:{port}")
+    if auth_token:
+        print(f"🔒 Token de pareamento obrigatório: {auth_token}")
+    print("Failsafe: ATIVADO (arraste o mouse para qualquer canto da tela para cancelar)")
     print("Pressione Ctrl + C no terminal para encerrar.")
     print("=" * 60)
 
-    async with websockets.serve(handle_client, HOST, PORT):
+    async with websockets.serve(handle_client, host, port):
         await asyncio.Future()
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="SeeMyGame Co-op Companion Agent")
+    parser.add_argument("--host", default="127.0.0.1", help="Host de escuta (padrão: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=9876, help="Porta WebSocket (padrão: 9876)")
+    parser.add_argument("--token", default=None, help="Token de pareamento obrigatório para conexões")
+    args = parser.parse_args()
+
     try:
-        asyncio.run(main())
+        asyncio.run(main(args.host, args.port, args.token))
     except KeyboardInterrupt:
+        release_all()
         print("\nAgente Co-op encerrado.")
