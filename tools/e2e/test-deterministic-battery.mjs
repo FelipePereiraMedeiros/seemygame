@@ -36,7 +36,7 @@ const hashFile = async filepath => {
   }
 };
 
-// Coleta de proveniência expandida
+// Coleta de proveniência expandida com auditoria completa de artefatos
 const getProvenance = async (samplePage = null) => {
   let gitCommit = 'unknown';
   let gitBranch = 'unknown';
@@ -59,9 +59,13 @@ const getProvenance = async (samplePage = null) => {
     exeSizeBytes = fileStat.size;
   } catch {}
 
+  const fixtureSha256 = await hashFile(path.join(root, 'fixtures/deterministic-60fps.html'));
   const telemetrySha256 = await hashFile(path.join(root, 'tools/e2e/telemetry.mjs'));
   const testScriptSha256 = await hashFile(path.join(root, 'tools/e2e/test-deterministic-battery.mjs'));
   const uiJsSha256 = await hashFile(path.join(root, 'js/ui.js'));
+  const appJsSha256 = await hashFile(path.join(root, 'js/app.js'));
+  const webrtcJsSha256 = await hashFile(path.join(root, 'js/webrtc.js'));
+  const nativeWebrtcJsSha256 = await hashFile(path.join(root, 'js/native-webrtc.js'));
 
   let gpuInfo = { vendor: 'unknown', renderer: 'unknown' };
   let browserUserAgent = 'unknown';
@@ -90,10 +94,14 @@ const getProvenance = async (samplePage = null) => {
     exeSha256,
     exeMtime,
     exeSizeBytes,
-    scriptHashes: {
+    componentHashes: {
+      'fixtures/deterministic-60fps.html': fixtureSha256,
       'telemetry.mjs': telemetrySha256,
       'test-deterministic-battery.mjs': testScriptSha256,
-      'ui.js': uiJsSha256
+      'ui.js': uiJsSha256,
+      'app.js': appJsSha256,
+      'webrtc.js': webrtcJsSha256,
+      'native-webrtc.js': nativeWebrtcJsSha256
     },
     gpuInfo,
     browserUserAgent,
@@ -101,7 +109,7 @@ const getProvenance = async (samplePage = null) => {
     platform: process.platform,
     arch: process.arch,
     browserChannel: channel,
-    sourceType: 'deterministic-60fps',
+    sourceType: 'deterministic-60fps-native1080p',
     startedAt: new Date().toISOString()
   };
 };
@@ -163,22 +171,22 @@ const joinRoom = async (page, url, name) => {
 
 const runIsolationSuite = async () => {
   console.log('=====================================================');
-  console.log('Bateria de Isolamento Científico (Referência Determinística 60 FPS)');
-  console.log('Fonte: HTML5 Canvas 1080p60 + WebAudio Sintetizado 48 kHz');
+  console.log('Bateria de Isolamento Científico (60.0 FPS Monotônico Nativo 1080p)');
+  console.log('Fonte: HTML5 Canvas 1920x1080 @ 60.0 Hz + WebAudio Sintetizado 48 kHz');
   console.log('Diretório de saída:', outputDir);
   console.log('=====================================================\n');
 
   const webOrigin = await serve();
   console.log('Servidor web local ativo em:', webOrigin);
 
-  // 1. Iniciar navegador da fonte com a fixture determinística 60 FPS
-  console.log('\n[Passo 1] Abrindo janela da fonte no Edge com fixture determinística 60 FPS...');
+  // 1. Iniciar navegador da fonte na resolução nativa 1920x1080 com trava 60 Hz
+  console.log('\n[Passo 1] Abrindo janela da fonte no Edge com fixture determinística 1080p60...');
   const sourceBrowser = await chromium.launch({
     channel,
     headless: false,
     args: [
       '--window-position=50,50',
-      '--window-size=1280,720',
+      '--window-size=1920,1080',
       '--autoplay-policy=no-user-gesture-required',
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
@@ -186,47 +194,31 @@ const runIsolationSuite = async () => {
       '--disable-features=CalculateNativeWinOcclusion,msSleepingTabs,msSleepingTabsBlockedForTesting,msQuickFreezing'
     ]
   });
-  const sourceContext = await sourceBrowser.newContext({ viewport: { width: 1280, height: 720 } });
+  const sourceContext = await sourceBrowser.newContext({ viewport: { width: 1920, height: 1080 } });
   const sourcePage = await sourceContext.newPage();
   await sourcePage.goto(`${webOrigin}/fixtures/deterministic-60fps.html`);
   await sleep(1500);
 
-  // Inicia áudio na fonte
-  await sourcePage.evaluate(() => {
-    window.__deterministicSource?.startAudio?.();
-    window.__deterministicSource?.setVolume?.(1.0);
-  });
-  await sleep(500);
-  const sourceTitle = await sourcePage.title();
-  console.log(`Janela da fonte carregada: "${sourceTitle}"`);
-
   const getSourceSceneState = async () => {
     return await sourcePage.evaluate(() => {
       if (window.__deterministicSource) {
-        return {
-          currentTime: Number((window.__deterministicSource.getFrameCount() / 60).toFixed(2)),
-          frameCount: window.__deterministicSource.getFrameCount(),
-          fps: window.__deterministicSource.getFps(),
-          audioActive: window.__deterministicSource.isAudioActive(),
-          paused: false,
-          videoWidth: 1280,
-          videoHeight: 720,
-          readyState: 4,
-          playerState: 1,
-          hasError: false
-        };
+        return window.__deterministicSource.getState();
       }
       return {
-        currentTime: null,
-        frameCount: 0,
+        drawnFrames: 0,
+        plannedFrames: 0,
+        skippedTicks: 0,
         fps: 0,
+        elapsedMs: 0,
+        currentTime: 0,
         audioActive: false,
+        nativeWidth: 0,
+        nativeHeight: 0,
         paused: true,
-        videoWidth: 0,
-        videoHeight: 0,
         readyState: 0,
         playerState: null,
-        hasError: true
+        hasError: true,
+        isReady: false
       };
     });
   };
@@ -235,14 +227,19 @@ const runIsolationSuite = async () => {
     await sourcePage.bringToFront().catch(() => {});
     await sourcePage.evaluate(() => {
       window.focus();
+      window.__deterministicSource?.reset?.();
       window.__deterministicSource?.startAudio?.();
       window.__deterministicSource?.setMuted?.(false);
       window.__deterministicSource?.setVolume?.(1.0);
     });
-    await sleep(400);
+    // Aguarda estabilizar a janela deslizante de 60 frames da fonte
+    await sleep(1200);
   };
 
   await prepareSourceScene();
+  const initialProbe = await getSourceSceneState();
+  const sourceTitle = await sourcePage.title();
+  console.log(`Janela da fonte carregada: "${sourceTitle}" | res=${initialProbe.nativeWidth}x${initialProbe.nativeHeight} | fps=${initialProbe.fps}`);
 
   // 2. Iniciar aplicativo desktop nativo
   console.log('\n[Passo 2] Iniciando aplicativo desktop nativo (seemygame.exe)...');
@@ -280,8 +277,8 @@ const runIsolationSuite = async () => {
   }).catch(() => {});
   console.log('Conectado ao WebView2 desktop. URL:', hostPage.url());
 
-  // 3. Iniciar navegador espectador
-  console.log('\n[Passo 3] Iniciando navegador espectador (Edge)...');
+  // 3. Iniciar navegador espectador (com --mute-audio para evitar realimentação acústica no endpoint WASAPI padrão da mesma máquina)
+  console.log('\n[Passo 3] Iniciando navegador espectador (Edge com isolamento de áudio local)...');
   const viewerBrowser = await chromium.launch({
     channel,
     headless: false,
@@ -289,6 +286,7 @@ const runIsolationSuite = async () => {
       '--window-position=600,100',
       '--window-size=1280,720',
       '--autoplay-policy=no-user-gesture-required',
+      '--mute-audio', // Previne retroalimentação / loopback acústico do espectador no endpoint WASAPI padrão
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
       '--disable-renderer-backgrounding'
@@ -302,6 +300,7 @@ const runIsolationSuite = async () => {
   const provenance = await getProvenance(viewerPage);
   console.log(`[Proveniência] Git Commit: ${provenance.gitCommit} (dirty: ${provenance.gitDirty})`);
   console.log(`[Proveniência] Exe SHA256: ${provenance.exeSha256?.slice(0, 16)}...`);
+  console.log(`[Proveniência] Fixture SHA256: ${provenance.componentHashes['fixtures/deterministic-60fps.html']?.slice(0, 16)}...`);
   console.log(`[Proveniência] GPU Renderer: ${provenance.gpuInfo.renderer}`);
 
   // 4. Ambos entram na mesma sala
@@ -452,7 +451,7 @@ const runIsolationSuite = async () => {
 
     const unmetInvariants = [];
 
-    // 1. Garante a fonte ativa e com áudio sintetizado
+    // 1. Reset e fixação determinística de estado inicial da fonte
     await prepareSourceScene();
 
     // 2. Inicia captura nativa
@@ -516,10 +515,16 @@ const runIsolationSuite = async () => {
     await sleep(warmupSec * 1000);
 
     const initialSourceState = await getSourceSceneState();
-    console.log(`[Fonte] Estado no início da medição steady: frames=${initialSourceState.frameCount} | fps=${initialSourceState.fps?.toFixed(1)} | res=${initialSourceState.videoWidth}x${initialSourceState.videoHeight} | audio=${initialSourceState.audioActive}`);
+    console.log(`[Fonte] Início da medição steady: frames=${initialSourceState.drawnFrames} | fps=${initialSourceState.fps?.toFixed(2)} | res=${initialSourceState.nativeWidth}x${initialSourceState.nativeHeight} | audio=${initialSourceState.audioActive} | ready=${initialSourceState.isReady}`);
 
-    if (initialSourceState.paused || initialSourceState.readyState < 3 || initialSourceState.videoWidth === 0 || initialSourceState.hasError) {
-      unmetInvariants.push(`initial_source_invalid: paused=${initialSourceState.paused}, readyState=${initialSourceState.readyState}, res=${initialSourceState.videoWidth}x${initialSourceState.videoHeight}, err=${initialSourceState.hasError}`);
+    if (!initialSourceState.isReady || initialSourceState.fps < 57.0 || initialSourceState.fps > 63.0) {
+      unmetInvariants.push(`source_initial_cadence_invalid: fps=${initialSourceState.fps}, ready=${initialSourceState.isReady}`);
+    }
+    if (initialSourceState.nativeWidth !== 1920 || initialSourceState.nativeHeight !== 1080) {
+      unmetInvariants.push(`source_resolution_mismatch: got ${initialSourceState.nativeWidth}x${initialSourceState.nativeHeight}, expected 1920x1080`);
+    }
+    if (expectAudible && !initialSourceState.audioActive) {
+      unmetInvariants.push('source_audio_not_active');
     }
 
     // 7. Zeramento estrito de contadores de apresentação e baselines WebRTC
@@ -634,10 +639,16 @@ const runIsolationSuite = async () => {
 
     const totalDurationMs = Date.now() - startTime;
     const finalSourceState = await getSourceSceneState();
-    console.log(`[Fonte] Estado no encerramento: frames=${finalSourceState.frameCount} | fps=${finalSourceState.fps?.toFixed(1)} | paused=${finalSourceState.paused} | readyState=${finalSourceState.readyState} | err=${finalSourceState.hasError}`);
+    const elapsedSourceSec = (finalSourceState.elapsedMs - initialSourceState.elapsedMs) / 1000.0;
+    const framesAdvanced = finalSourceState.drawnFrames - initialSourceState.drawnFrames;
+    const effectiveSourceFps = elapsedSourceSec > 0 ? Number((framesAdvanced / elapsedSourceSec).toFixed(2)) : 0;
+    console.log(`[Fonte] Encerramento steady: frames=${finalSourceState.drawnFrames} | fps=${finalSourceState.fps?.toFixed(2)} | cadência efetiva=${effectiveSourceFps} FPS (${framesAdvanced} frames em ${elapsedSourceSec.toFixed(2)}s) | skippedTicks=${finalSourceState.skippedTicks}`);
 
-    if (finalSourceState.paused || finalSourceState.readyState < 3 || finalSourceState.videoWidth === 0 || finalSourceState.hasError) {
-      unmetInvariants.push(`final_source_invalid: paused=${finalSourceState.paused}, readyState=${finalSourceState.readyState}, res=${finalSourceState.videoWidth}x${finalSourceState.videoHeight}, err=${finalSourceState.hasError}`);
+    if (effectiveSourceFps < 57.0 || effectiveSourceFps > 63.0) {
+      unmetInvariants.push(`source_steady_cadence_drift: measured ${effectiveSourceFps} FPS (expected 57-63 FPS)`);
+    }
+    if (finalSourceState.fps < 57.0 || finalSourceState.fps > 63.0) {
+      unmetInvariants.push(`source_final_cadence_invalid: fps=${finalSourceState.fps}`);
     }
 
     // Verificação de progressão de áudio para cenários audíveis
@@ -670,7 +681,8 @@ const runIsolationSuite = async () => {
       unmetInvariants.push(`insufficient_valid_samples: got ${validFpsSamples}, required >= ${requiredSamples}`);
     }
 
-    const status = unmetInvariants.length === 0 ? 'COMPLETED' : 'INCONCLUSIVE';
+    const executionStatus = 'COMPLETED';
+    const validityStatus = unmetInvariants.length === 0 ? 'VALID' : 'INCONCLUSIVE';
 
     // Captura screenshot da fase
     const shotPrefix = id;
@@ -681,10 +693,18 @@ const runIsolationSuite = async () => {
 
     return {
       name,
-      status,
+      executionStatus,
+      validityStatus,
       unmetInvariants,
       validFpsSamples,
       totalDurationMs,
+      sourceValidation: {
+        initialSourceState,
+        finalSourceState,
+        effectiveSourceFps,
+        elapsedSourceSec,
+        framesAdvanced
+      },
       fpsMean: avg(fpsList),
       fpsMedian: median(fpsList),
       fpsP10: p10(fpsList),
@@ -703,10 +723,6 @@ const runIsolationSuite = async () => {
         audioSamplesProgressed: (totalAudioSamplesEnd ?? 0) - (totalAudioSamplesStart ?? 0),
         audioBytesProgressed: (totalAudioBytesEnd ?? 0) - (totalAudioBytesStart ?? 0)
       },
-      sourceValidation: {
-        initialSourceState,
-        finalSourceState
-      },
       effectiveReceivers,
       timeline
     };
@@ -718,7 +734,7 @@ const runIsolationSuite = async () => {
   };
 
   // ==========================================
-  // CENÁRIO 1: CONTROLE BASE A/V (Audível, Prévia ON)
+  // CENÁRIO 1: CONTROLE BASE A/V (Audível, Prévia ON, Áudio de Sistema)
   // ==========================================
   results.scenarios.cenario1_controleBase = await runScenarioExecution({
     id: 'c1',
@@ -748,7 +764,7 @@ const runIsolationSuite = async () => {
   });
 
   // ==========================================
-  // CENÁRIO 3: ISOLAMENTO DA SAÍDA DE ÁUDIO (Áudio Capturado/RTP, Saída MUTADA)
+  // CENÁRIO 3: ISOLAMENTO DA SAÍDA DE ÁUDIO (Áudio Capturado/RTP, Saída MUTADA no Player)
   // ==========================================
   results.scenarios.cenario3_audioMutado = await runScenarioExecution({
     id: 'c3',
@@ -763,7 +779,7 @@ const runIsolationSuite = async () => {
   });
 
   // ==========================================
-  // CENÁRIO 4: BASELINE VÍDEO PURO (Sem Trilha de Áudio)
+  // CENÁRIO 4: BASELINE VÍDEO PURO (Sem Trilha de Áudio no Pipeline)
   // ==========================================
   results.scenarios.cenario4_videoPuro = await runScenarioExecution({
     id: 'c4',
@@ -839,14 +855,16 @@ const runIsolationSuite = async () => {
 
   // Exibir resumo executivo no console
   console.log('\n=====================================================');
-  console.log('RESUMO COMPARATIVO DOS TESTES DE ISOLAMENTO CIENTÍFICO (60 FPS DETERMINÍSTICO)');
+  console.log('RESUMO COMPARATIVO DOS TESTES DE ISOLAMENTO CIENTÍFICO (1080p @ 60.0 Hz)');
   console.log('=====================================================');
   const summaryTable = {};
   for (const [key, sc] of Object.entries(results.scenarios)) {
     summaryTable[key] = {
-      'Status': sc.status,
+      'Execução': sc.executionStatus,
+      'Validade': sc.validityStatus,
       'Invariantes': sc.unmetInvariants.length ? sc.unmetInvariants.join('; ') : '100% OK',
-      'FPS Médio': sc.fpsMean,
+      'FPS Fonte Real': sc.sourceValidation?.effectiveSourceFps ?? 'N/A',
+      'FPS Médio Recv': sc.fpsMean,
       'FPS p10': sc.fpsP10,
       'Decode (ms)': sc.decodeTimeMeanMs,
       'Jitter (ms)': sc.jitterBufferMeanMs,

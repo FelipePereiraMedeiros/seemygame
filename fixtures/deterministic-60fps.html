@@ -18,8 +18,11 @@
       width: 100vw;
     }
     #canvas-60fps {
-      width: 1280px;
-      height: 720px;
+      width: 100vw;
+      height: 100vh;
+      max-width: 1920px;
+      max-height: 1080px;
+      aspect-ratio: 16 / 9;
       background: #000;
       border: 2px solid #00ffcc;
       box-shadow: 0 0 20px rgba(0, 255, 204, 0.4);
@@ -32,16 +35,33 @@
   </style>
 </head>
 <body>
-  <canvas id="canvas-60fps" width="1280" height="720"></canvas>
-  <div id="info-bar">FONTE DETERMINÍSTICA: 60.0 FPS | ÁUDIO 48kHz ATIVO</div>
+  <canvas id="canvas-60fps" width="1920" height="1080"></canvas>
+  <div id="info-bar">FONTE DETERMINÍSTICA: 60.0 FPS REAL (1920x1080) | ÁUDIO 48kHz ATIVO</div>
 
   <script>
     const canvas = document.getElementById('canvas-60fps');
-    const ctx = canvas.getContext('2d');
-    let frameCount = 0;
-    let startTime = performance.now();
-    let lastTime = startTime;
-    let currentFps = 60.0;
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+
+    const TARGET_FPS = 60.0;
+    const FRAME_DURATION_MS = 1000.0 / TARGET_FPS; // 16.666666666666668 ms
+
+    let sessionStartTime = performance.now();
+    let nextFrameTargetTime = sessionStartTime;
+    let drawnFrames = 0;
+    let plannedFrames = 0;
+    let skippedTicks = 0;
+
+    // Janela deslizante para medição estrita de FPS (últimos 60 frames)
+    const frameTimestamps = [];
+
+    function getSlidingWindowFps() {
+      if (frameTimestamps.length < 2) return TARGET_FPS;
+      const oldest = frameTimestamps[0];
+      const newest = frameTimestamps[frameTimestamps.length - 1];
+      const durationSec = (newest - oldest) / 1000.0;
+      if (durationSec <= 0) return TARGET_FPS;
+      return (frameTimestamps.length - 1) / durationSec;
+    }
 
     // WebAudio sintetizador contínuo
     let audioCtx = null;
@@ -49,7 +69,10 @@
     let gain = null;
 
     function startAudio() {
-      if (audioCtx) return;
+      if (audioCtx) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return;
+      }
       audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
       osc = audioCtx.createOscillator();
       gain = audioCtx.createGain();
@@ -61,79 +84,119 @@
       osc.start();
     }
 
-    // Auto-iniciar áudio no primeiro gesto ou imediatamente
     window.addEventListener('click', startAudio);
     window.addEventListener('keydown', startAudio);
-    // Tenta iniciar automaticamente
     startAudio();
 
-    // Loop de renderização 60 FPS
+    // Loop com trava temporal estrita a 60.0 Hz
     function render(now) {
-      frameCount++;
-      const dt = now - lastTime;
-      lastTime = now;
-      if (frameCount % 30 === 0 && dt > 0) {
-        currentFps = 1000 / dt;
+      requestAnimationFrame(render);
+
+      // Descarta tiques extras de monitores de 120Hz, 144Hz, 165Hz ou 240Hz
+      // Tolerância de 1.0ms para jitter de timer do rAF
+      if (now < nextFrameTargetTime - 1.0) {
+        skippedTicks++;
+        return;
       }
 
-      // Alterna tom a cada 500ms para verificar modulação sonora
+      // Previne rajadas (bursts) em caso de travamento do sistema ou suspensão de aba
+      if (now - nextFrameTargetTime > 100.0) {
+        nextFrameTargetTime = now;
+      }
+      nextFrameTargetTime += FRAME_DURATION_MS;
+      plannedFrames++;
+
+      drawnFrames++;
+      frameTimestamps.push(now);
+      if (frameTimestamps.length > 60) frameTimestamps.shift();
+
+      const currentFps = getSlidingWindowFps();
+      const elapsedMs = now - sessionStartTime;
+
+      // Alterna tom a cada 500ms para verificação de modulação sonora contínua
       if (audioCtx && osc) {
-        const tone = (Math.floor(now / 500) % 2 === 0) ? 440 : 880;
+        const tone = (Math.floor(elapsedMs / 500) % 2 === 0) ? 440 : 880;
         osc.frequency.setValueAtTime(tone, audioCtx.currentTime);
       }
 
-      // Fundo limpo
+      // 1. Fundo limpo
       ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, 1280, 720);
+      ctx.fillRect(0, 0, 1920, 1080);
 
-      // Elemento móvel contínuo (bouncing box / rotating spinner)
-      const angle = (now / 1000) * Math.PI * 2; // 1 rotação por segundo
-      const cx = 640 + Math.sin(angle) * 350;
-      const cy = 360 + Math.cos(angle * 1.5) * 180;
+      // 2. Elemento móvel contínuo (bouncing/rotating box)
+      const angle = (elapsedMs / 1000.0) * Math.PI * 2; // 1 rotação por segundo
+      const cx = 960 + Math.sin(angle) * 550;
+      const cy = 540 + Math.cos(angle * 1.5) * 280;
 
-      // Trilhas e gradientes
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(angle * 2);
-      ctx.fillStyle = `hsl(${(frameCount * 3) % 360}, 90%, 55%)`;
-      ctx.fillRect(-60, -60, 120, 120);
+      ctx.fillStyle = `hsl(${(drawnFrames * 3) % 360}, 90%, 55%)`;
+      ctx.fillRect(-90, -90, 180, 180);
       ctx.restore();
 
-      // Círculo central pulsante
+      // 3. Círculo central pulsante
       ctx.beginPath();
-      ctx.arc(640, 360, 80 + Math.sin(now / 200) * 20, 0, Math.PI * 2);
+      ctx.arc(960, 540, 120 + Math.sin(elapsedMs / 200.0) * 30, 0, Math.PI * 2);
       ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 6;
+      ctx.lineWidth = 8;
       ctx.stroke();
 
-      // Marcador óptico no topo para detecção precisa
-      const barX = (frameCount * 10) % 1200;
+      // 4. Marcador óptico no topo para auditoria visual de fluidez
+      const barX = (drawnFrames * 16) % 1800;
       ctx.fillStyle = '#22c55e';
-      ctx.fillRect(barX, 20, 80, 20);
+      ctx.fillRect(barX, 30, 120, 30);
 
-      // Textos de auditoria em alta visibilidade
+      // 5. Textos de auditoria em alta visibilidade e resolução nativa 1080p
       ctx.fillStyle = '#f8fafc';
-      ctx.font = 'bold 36px monospace';
-      ctx.fillText(`FRAME: ${String(frameCount).padStart(6, '0')}`, 50, 100);
-      ctx.fillText(`TIME: ${(now - startTime).toFixed(1)} ms`, 50, 150);
-      ctx.fillText(`CADÊNCIA: ${currentFps.toFixed(1)} FPS`, 50, 200);
+      ctx.font = 'bold 44px monospace';
+      ctx.fillText(`FRAME: ${String(drawnFrames).padStart(6, '0')} (Planejado: ${plannedFrames})`, 80, 140);
+      ctx.fillText(`TEMPO REAL: ${elapsedMs.toFixed(1)} ms`, 80, 200);
+      ctx.fillText(`CADÊNCIA: ${currentFps.toFixed(2)} FPS (Trava 60.0 Hz)`, 80, 260);
 
-      ctx.font = '22px monospace';
+      ctx.font = '28px monospace';
       ctx.fillStyle = '#94a3b8';
-      ctx.fillText(`FONTE: REFERÊNCIA DETERMINÍSTICA LOCAL (1080p60)`, 50, 650);
-      ctx.fillText(`ÁUDIO: 48 kHz ESTÉREO (SINE 440Hz / 880Hz MODULADO)`, 50, 680);
-
-      requestAnimationFrame(render);
+      ctx.fillText(`FONTE: REFERÊNCIA DETERMINÍSTICA NATIVA (1920x1080 @ 60.0Hz)`, 80, 960);
+      ctx.fillText(`ÁUDIO: 48 kHz ESTÉREO (SINE 440Hz / 880Hz ALTERNADO)`, 80, 1000);
+      ctx.fillText(`TICKS SKIPPED (DESCARTE ALTA TAXA): ${skippedTicks}`, 80, 1040);
     }
 
     requestAnimationFrame(render);
 
-    // Expõe API para automação Playwright
+    // Expõe API para automação Playwright rigorosa
     window.__deterministicSource = {
-      isReady: () => frameCount > 30,
-      getFrameCount: () => frameCount,
-      getFps: () => currentFps,
-      isAudioActive: () => audioCtx?.state === 'running',
+      reset: () => {
+        sessionStartTime = performance.now();
+        nextFrameTargetTime = sessionStartTime;
+        drawnFrames = 0;
+        plannedFrames = 0;
+        skippedTicks = 0;
+        frameTimestamps.length = 0;
+        if (audioCtx && osc) {
+          osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+        }
+      },
+      getState: () => {
+        const now = performance.now();
+        const elapsed = now - sessionStartTime;
+        const fps = getSlidingWindowFps();
+        return {
+          drawnFrames,
+          plannedFrames,
+          skippedTicks,
+          fps: Number(fps.toFixed(2)),
+          elapsedMs: Number(elapsed.toFixed(1)),
+          currentTime: Number((elapsed / 1000.0).toFixed(2)),
+          audioActive: audioCtx?.state === 'running',
+          nativeWidth: 1920,
+          nativeHeight: 1080,
+          paused: false,
+          readyState: 4,
+          playerState: 1,
+          hasError: false,
+          isReady: drawnFrames >= 30 && fps >= 58.0 && fps <= 62.0
+        };
+      },
       startAudio,
       setMuted: (muted) => {
         if (!gain || !audioCtx) return;

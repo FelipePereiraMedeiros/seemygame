@@ -2519,7 +2519,7 @@ export async function startLocalStream(options = {}) {
   let audioFailedReason = null;
 
   try {
-    const wantSystemAudio = (audioMode === 'system');
+    const wantSystemAudio = (audioMode === 'system' || audioMode === 'process');
 
     if (isDesktopApp() && (options.sourceId || options.sourceType)) {
       showToast('Iniciando captura nativa Direct3D 11...', 'info', 2500);
@@ -2527,7 +2527,7 @@ export async function startLocalStream(options = {}) {
       const result = await nativeProvider.start({
         sourceId: options.sourceId,
         sourceType: options.sourceType || 'window',
-        audioMode: wantSystemAudio ? 'system' : 'none',
+        audioMode: wantSystemAudio ? audioMode : 'none',
         width: selectedProfile.width,
         height: selectedProfile.height,
         fps: selectedProfile.fps || 60,
