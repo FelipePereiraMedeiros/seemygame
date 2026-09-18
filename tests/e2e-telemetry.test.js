@@ -15,22 +15,58 @@ it('E2E: calcula deltas sem confundir cumulativos com fila e expõe atraso obser
     framesDecoded: 60,
     totalDecodeTime: 0.12,
     jitterBufferEmittedCount: 60,
-    jitterBufferDelay: 3
+    jitterBufferDelay: 3,
+    framesDropped: 2,
+    framesReceived: 62,
+    freezeCount: 1,
+    totalFreezesDuration: 0.15,
+    nackCount: 5,
+    pliCount: 1,
+    packetsLost: 0,
+    packetsReceived: 300,
+    concealedSamples: 480,
+    silentConcealedSamples: 240,
+    insertedSamplesForDeceleration: 120,
+    removedSamplesForAcceleration: 60
   };
   const curr = {
     timestamp: 2000,
     framesDecoded: 120,
     totalDecodeTime: 0.24,
     jitterBufferEmittedCount: 120,
-    jitterBufferDelay: 6
+    jitterBufferDelay: 6,
+    framesDropped: 5,
+    framesReceived: 125,
+    freezeCount: 2,
+    totalFreezesDuration: 0.35,
+    nackCount: 8,
+    pliCount: 2,
+    packetsLost: 0,
+    packetsReceived: 620,
+    concealedSamples: 960,
+    silentConcealedSamples: 480,
+    insertedSamplesForDeceleration: 240,
+    removedSamplesForAcceleration: 120
   };
   const result = deltaMetrics(prev, curr);
   expect(result).toMatchObject({
     decodedFps: 60,
     decodeTimeMs: 2,
     jitterBufferMs: 50,
-    bridgeObservableMs: 52
+    bridgeObservableMs: 52,
+    rawDeltaFramesDropped: 3,
+    rawDeltaFramesReceived: 63,
+    rawDeltaFreezeCount: 1,
+    rawDeltaNackCount: 3,
+    rawDeltaPliCount: 1,
+    rawDeltaPacketsLost: 0,
+    rawDeltaPacketsReceived: 320,
+    rawDeltaConcealedSamples: 480,
+    rawDeltaSilentConcealedSamples: 240,
+    rawDeltaInsertedSamplesForDeceleration: 120,
+    rawDeltaRemovedSamplesForAcceleration: 60
   });
+  expect(result.rawDeltaTotalFreezesDuration).toBeCloseTo(0.2, 5);
 });
 
 it('E2E: campos ausentes, reset e denominador zero não viram zero de sucesso', () => {

@@ -541,7 +541,19 @@ export function deltaMetrics(previous, current) {
     rawDeltaTotalEncodeTime: delta('totalEncodeTime'),
     rawDeltaFramesEncoded: delta('framesEncoded'),
     rawDeltaJitterBufferDelay: delta('jitterBufferDelay'),
-    rawDeltaJitterBufferEmittedCount: delta('jitterBufferEmittedCount')
+    rawDeltaJitterBufferEmittedCount: delta('jitterBufferEmittedCount'),
+    rawDeltaFramesDropped: delta('framesDropped'),
+    rawDeltaFramesReceived: delta('framesReceived'),
+    rawDeltaFreezeCount: delta('freezeCount'),
+    rawDeltaTotalFreezesDuration: delta('totalFreezesDuration'),
+    rawDeltaNackCount: delta('nackCount'),
+    rawDeltaPliCount: delta('pliCount'),
+    rawDeltaPacketsLost: delta('packetsLost'),
+    rawDeltaPacketsReceived: delta('packetsReceived'),
+    rawDeltaConcealedSamples: delta('concealedSamples'),
+    rawDeltaSilentConcealedSamples: delta('silentConcealedSamples'),
+    rawDeltaInsertedSamplesForDeceleration: delta('insertedSamplesForDeceleration'),
+    rawDeltaRemovedSamplesForAcceleration: delta('removedSamplesForAcceleration')
   };
 }
 

@@ -37,14 +37,17 @@ const hashFile = async filepath => {
   }
 };
 
-// Orçamento explícito de qualidade (Quality Budget)
+// Orçamento explícito de qualidade normalizado por duração (Quality Budget)
 const evaluateQualityBudget = ({
   fpsMean,
   fpsP10,
   maxPauseMs,
   totalGapsCount,
-  totalPacketsLost,
-  videoJitterMeanMs
+  durationSec = 25,
+  totalPacketsLost = null,
+  videoJitterMeanMs = null,
+  freezeCount = null,
+  totalFreezesDuration = null
 }) => {
   const violations = [];
   const warnings = [];
@@ -69,19 +72,31 @@ const evaluateQualityBudget = ({
     warnings.push(`moderate_pause: maxPause=${maxPauseMs}ms > 250ms`);
   }
 
-  // 3. Frequência de gaps (>100ms)
-  if (totalGapsCount > 10) {
-    violations.push(`excessive_gaps: count=${totalGapsCount} > 10`);
-  } else if (totalGapsCount > 3) {
-    warnings.push(`frequent_gaps: count=${totalGapsCount} > 3`);
+  // 3. Frequência temporal de gaps (>100ms) normalizada por minuto
+  const gapsPerMinute = durationSec > 0 ? Number(((totalGapsCount / durationSec) * 60).toFixed(1)) : 0;
+  if (gapsPerMinute > 24.0) {
+    violations.push(`excessive_gaps_rate: ${gapsPerMinute} gaps/min (count=${totalGapsCount} em ${durationSec}s) > 24.0/min`);
+  } else if (gapsPerMinute > 8.0) {
+    warnings.push(`frequent_gaps_rate: ${gapsPerMinute} gaps/min (count=${totalGapsCount} em ${durationSec}s) > 8.0/min`);
   }
 
-  // 4. Perda de pacotes WebRTC
-  if (totalPacketsLost > 0) {
-    violations.push(`packet_loss_detected: lost=${totalPacketsLost}`);
+  // 4. Freezes reportados pelo WebRTC (Inbound RTP)
+  if (freezeCount != null && freezeCount > 0) {
+    if (totalFreezesDuration != null && totalFreezesDuration > 0.5) {
+      violations.push(`webrtc_freezes_detected: count=${freezeCount}, duration=${totalFreezesDuration.toFixed(2)}s > 0.5s`);
+    } else if (freezeCount > 2 || (totalFreezesDuration != null && totalFreezesDuration > 0.2)) {
+      warnings.push(`webrtc_freezes_elevated: count=${freezeCount}, duration=${totalFreezesDuration?.toFixed(2) ?? 'null'}s`);
+    }
   }
 
-  // 5. Jitter buffer de vídeo
+  // 5. Perda de pacotes WebRTC (preserva null se desconhecido)
+  if (totalPacketsLost !== null && totalPacketsLost !== undefined) {
+    if (totalPacketsLost > 0) {
+      violations.push(`packet_loss_detected: lost=${totalPacketsLost}`);
+    }
+  }
+
+  // 6. Jitter buffer de vídeo
   if (videoJitterMeanMs != null && videoJitterMeanMs > 50) {
     violations.push(`excessive_jitter_buffer: jitter=${videoJitterMeanMs}ms > 50ms`);
   } else if (videoJitterMeanMs != null && videoJitterMeanMs > 20) {
@@ -99,12 +114,14 @@ const evaluateQualityBudget = ({
     status,
     violations,
     warnings,
+    gapsPerMinute,
     budgetRules: {
       fpsMean: '>= 55.0 (PASS) / >= 45.0 (DEGRADED)',
       fpsP10: '>= 50.0 (PASS) / >= 40.0 (DEGRADED)',
       maxPauseMs: '<= 250ms (PASS) / <= 500ms (DEGRADED)',
-      gapsCount: '<= 3 (PASS) / <= 10 (DEGRADED)',
-      packetLoss: '0 (PASS)'
+      gapsPerMinute: '<= 8.0/min (PASS) / <= 24.0/min (DEGRADED)',
+      webrtcFreezes: '0 or duration <= 0.2s (PASS) / <= 0.5s (DEGRADED)',
+      packetLoss: '0 (PASS, null=desconhecido)'
     }
   };
 };
@@ -454,7 +471,7 @@ const runIsolationSuite = async () => {
     let ready = false;
     let lastDiagTime = 0;
     while (Date.now() < deadline) {
-      ready = await viewerPage.evaluate(({ hId, prevTrackId }) => {
+      ready = await currentTargetViewerPage.evaluate(({ hId, prevTrackId }) => {
         const unmute = document.querySelector('.audio-unmute-overlay button');
         if (unmute) unmute.click();
         const card = document.getElementById(`card-${hId}`);
@@ -484,7 +501,7 @@ const runIsolationSuite = async () => {
             capState: capState?.state
           };
         }).catch(err => ({ err: err.message }));
-        const viewerDiag = await viewerPage.evaluate(({ hId }) => {
+        const viewerDiag = await currentTargetViewerPage.evaluate(({ hId }) => {
           const card = document.getElementById(`card-${hId}`);
           const v = card?.querySelector('video');
           const stream = v?.srcObject;
@@ -500,6 +517,21 @@ const runIsolationSuite = async () => {
           };
         }, { hId: hostId }).catch(err => ({ err: err.message }));
         console.log(`  [Aguardando stream] Host: ${JSON.stringify(hostDiag)} | Viewer: ${JSON.stringify(viewerDiag)}`);
+
+        if (hostDiag?.capState === 'error') {
+          console.warn('Detectado capState: error no host. Aguardando 4s para reciclagem de handles e tentando reiniciar captura...');
+          await sleep(4000);
+          await hostPage.locator('#dock-stream-btn').click().catch(() => {});
+          await sleep(1500);
+          await hostPage.locator('#dock-stream-btn').click().catch(() => {});
+          await hostPage.locator('.window-item').first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+          const actionBtnRetry = targetWindow.locator('.window-action-btn');
+          if ((await actionBtnRetry.count()) > 0) {
+            await actionBtnRetry.first().click({ force: true }).catch(() => {});
+          } else {
+            await targetWindow.click({ force: true }).catch(() => {});
+          }
+        }
       }
 
       await sleep(1000);
@@ -511,18 +543,21 @@ const runIsolationSuite = async () => {
     await sleep(1500);
   };
 
+  let currentTargetViewerPage = viewerPage;
+
   const stopNativeCapture = async () => {
     console.log('Parando captura nativa...');
-    await hostPage.locator('#dock-stream-btn').click();
+    await hostPage.locator('#dock-stream-btn').click().catch(() => {});
     await waitApp(hostPage, async () => {
       const d = await import('/js/desktop.js');
       return (await d.getNativeCaptureState()).state === 'idle';
     }, null, 15000).catch(() => {});
-    await sleep(1500);
+    // Pausa preventiva de 3.5s para drenagem de drivers D3D11 e WASAPI no Windows
+    await sleep(3500);
   };
 
-  const inspectViewerStream = async () => {
-    return await viewerPage.evaluate(hId => {
+  const inspectViewerStream = async (targetPage = currentTargetViewerPage) => {
+    return await targetPage.evaluate(hId => {
       const card = document.getElementById(`card-${hId}`);
       const video = card?.querySelector('video');
       const stream = video?.srcObject;
@@ -544,8 +579,8 @@ const runIsolationSuite = async () => {
     }, hostId);
   };
 
-  const configureAndInspectJitter = async (playoutDelaySec, jitterTargetMs) => {
-    return await viewerPage.evaluate(async ({ pDelay, jTarget }) => {
+  const configureAndInspectJitter = async (playoutDelaySec, jitterTargetMs, targetPage = currentTargetViewerPage) => {
+    return await targetPage.evaluate(async ({ pDelay, jTarget }) => {
       const receivers = [];
       if (window.RTCPeerConnection && window.__smgPeers) {
         for (const pc of window.__smgPeers) {
@@ -579,360 +614,478 @@ const runIsolationSuite = async () => {
       targetPlayoutDelayHint = undefined,
       targetJitterBufferTarget = undefined,
       warmupSec = 3,
-      durationSec = 25
+      durationSec = 20
     } = scenarioConfig;
 
     console.log(`\n-----------------------------------------------------`);
     console.log(`EXECUTANDO: ${name}`);
-    console.log(`Configuração: audioMode=${audioMode} | expectAudible=${expectAudible} | muted=${expectedElementMuted} | volume=${expectedElementVolume} | previewSuspended=${expectHostPreviewSuspended}`);
+    console.log(`Configuração: audioMode=${audioMode} | expectAudible=${expectAudible} | muted=${expectedElementMuted} | volume=${expectedElementVolume} | previewSuspended=${expectHostPreviewSuspended} | dur=${durationSec}s`);
     console.log(`-----------------------------------------------------`);
 
     const unmetInvariants = [];
+    let activeViewerPage = viewerPage;
+    let dedicatedUnmutedBrowser = null;
+    let dedicatedUnmutedContext = null;
 
-    // 1. Reset e fixação determinística de estado inicial da fonte
-    await prepareSourceScene();
-
-    // 2. Inicia captura nativa
-    await startNativeCapture(audioMode, 'Determinística');
-
-    // 3. Configura estado de áudio do elemento do espectador
-    await viewerPage.evaluate(({ hId, muted, volume }) => {
-      const unmute = document.querySelector('.audio-unmute-overlay button');
-      if (unmute) unmute.click();
-      const card = document.getElementById(`card-${hId}`);
-      const v = card?.querySelector('video');
-      if (v) {
-        v.muted = muted;
-        v.volume = volume;
-        if (!muted && volume > 0 && v.paused) v.play().catch(() => {});
+    try {
+      // Caso o cenário exija saída de áudio desmutada real no navegador (Áudio por Processo)
+      if (scenarioConfig.browserGloballyMuted === false) {
+        console.log('[Áudio por Processo] Abrindo instância dedicada do navegador SEM --mute-audio...');
+        const unmutedViewerLaunchArgs = [
+          '--window-position=600,100',
+          '--window-size=1280,720',
+          '--autoplay-policy=no-user-gesture-required',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding'
+        ];
+        dedicatedUnmutedBrowser = await chromium.launch({
+          channel,
+          headless: false,
+          args: unmutedViewerLaunchArgs
+        });
+        dedicatedUnmutedContext = await dedicatedUnmutedBrowser.newContext();
+        await setupContext(dedicatedUnmutedContext);
+        activeViewerPage = await dedicatedUnmutedContext.newPage();
+        await activeViewerPage.goto(`http://127.0.0.1:${port}/index.html${roomHash}`);
+        await activeViewerPage.waitForSelector('#app', { state: 'visible', timeout: 15000 });
+        currentTargetViewerPage = activeViewerPage;
+      } else {
+        currentTargetViewerPage = viewerPage;
       }
-    }, { hId: hostId, muted: expectedElementMuted, volume: expectedElementVolume });
 
-    // 4. Se a prévia local precisa ser suspensa, suspende e verifica
-    let hostPreviewSuspended = false;
-    if (expectHostPreviewSuspended) {
-      await hostPage.locator('#toggle-local-preview-btn').waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
-      await hostPage.locator('#toggle-local-preview-btn').click().catch(() => {});
-      hostPreviewSuspended = await hostPage.evaluate(() => {
-        const v = document.querySelector('.video-card[data-is-local="true"] video')
-               || document.querySelector('#card-local-me video');
-        return v ? v.srcObject === null : false;
+      // 1. Reset e fixação determinística de estado inicial da fonte
+      await prepareSourceScene();
+
+      // 2. Inicia captura nativa
+      await startNativeCapture(audioMode, 'Determinística', activeViewerPage);
+
+      // 3. Configura estado de áudio do elemento do espectador
+      await activeViewerPage.evaluate(({ hId, muted, volume }) => {
+        const unmute = document.querySelector('.audio-unmute-overlay button');
+        if (unmute) unmute.click();
+        const card = document.getElementById(`card-${hId}`);
+        const v = card?.querySelector('video');
+        if (v) {
+          v.muted = muted;
+          v.volume = volume;
+          if (!muted && volume > 0 && v.paused) v.play().catch(() => {});
+        }
+      }, { hId: hostId, muted: expectedElementMuted, volume: expectedElementVolume });
+
+      // 4. Se a prévia local precisa ser suspensa, suspende e verifica
+      let hostPreviewSuspended = false;
+      if (expectHostPreviewSuspended) {
+        await hostPage.locator('#toggle-local-preview-btn').waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+        await hostPage.locator('#toggle-local-preview-btn').click().catch(() => {});
+        hostPreviewSuspended = await hostPage.evaluate(() => {
+          const v = document.querySelector('.video-card[data-is-local="true"] video')
+                 || document.querySelector('#card-local-me video');
+          return v ? v.srcObject === null : false;
+        });
+        console.log(`[Host] Prévia local suspensa: ${hostPreviewSuspended}`);
+        if (!hostPreviewSuspended) {
+          unmetInvariants.push('host_preview_suspension_failed');
+        }
+      } else {
+        // Garante prévia ativa
+        await hostPage.evaluate(() => {
+          const btn = document.getElementById('toggle-local-preview-btn');
+          const v = document.querySelector('.video-card[data-is-local="true"] video')
+                 || document.querySelector('#card-local-me video');
+          if (v && v.srcObject === null && btn) {
+            btn.click();
+          }
+        }).catch(() => {});
+      }
+
+      // 5. Configura jitter buffer se especificado
+      let effectiveReceivers = [];
+      if (targetPlayoutDelayHint !== undefined || targetJitterBufferTarget !== undefined) {
+        effectiveReceivers = await configureAndInspectJitter(targetPlayoutDelayHint, targetJitterBufferTarget, activeViewerPage);
+        console.log(`[Receptores] Configurados:`, JSON.stringify(effectiveReceivers));
+        const videoRecv = effectiveReceivers.find(r => r.kind === 'video');
+        if (targetPlayoutDelayHint !== undefined && videoRecv?.effectivePlayoutDelayHint !== targetPlayoutDelayHint) {
+          unmetInvariants.push(`targetPlayoutDelayHint_mismatch: expected ${targetPlayoutDelayHint}, got ${videoRecv?.effectivePlayoutDelayHint}`);
+        }
+        if (targetJitterBufferTarget !== undefined && videoRecv?.effectiveJitterBufferTarget !== targetJitterBufferTarget) {
+          unmetInvariants.push(`targetJitterBufferTarget_mismatch: expected ${targetJitterBufferTarget}, got ${videoRecv?.effectiveJitterBufferTarget}`);
+        }
+      }
+
+      // 6. Warm-up da captura
+      console.log(`[${name}] Aguardando estabilização warm-up (${warmupSec}s)...`);
+      await sleep(warmupSec * 1000);
+
+      // Inicia rastreamento estrito da fase steady na fonte isolando completamente o warmup
+      await sourcePage.evaluate(() => window.__deterministicSource?.startSteadyTracking?.()).catch(() => {});
+
+      const initialSourceState = await getSourceSceneState();
+      console.log(`[Fonte] Início da medição steady: frames=${initialSourceState.drawnFrames} | fps=${initialSourceState.fps?.toFixed(2)} | res=${initialSourceState.nativeWidth}x${initialSourceState.nativeHeight} | audio=${initialSourceState.audioActive} | ready=${initialSourceState.isReady}`);
+
+      if (!initialSourceState.isReady || initialSourceState.fps < 57.0 || initialSourceState.fps > 63.0) {
+        unmetInvariants.push(`source_initial_cadence_invalid: fps=${initialSourceState.fps}, ready=${initialSourceState.isReady}`);
+      }
+      if (initialSourceState.nativeWidth !== 1920 || initialSourceState.nativeHeight !== 1080) {
+        unmetInvariants.push(`source_resolution_mismatch: got ${initialSourceState.nativeWidth}x${initialSourceState.nativeHeight}, expected 1920x1080`);
+      }
+      if (expectAudible && !initialSourceState.audioActive) {
+        unmetInvariants.push('source_audio_not_active');
+      }
+
+      // 7. Zeramento estrito de contadores de apresentação e baselines WebRTC
+      await activeViewerPage.evaluate(() => window.__smgE2E?.resetSession());
+      previousMap.clear();
+
+      const initialStreamInfo = await inspectViewerStream(activeViewerPage);
+      const activeVideoTrackId = initialStreamInfo.videoTrackId;
+      const activeAudioTrackId = initialStreamInfo.audioTrackId;
+
+      if (!activeVideoTrackId) unmetInvariants.push('no_initial_video_track');
+      if (expectAudible && !activeAudioTrackId) unmetInvariants.push('no_initial_audio_track');
+      if (!expectAudible && audioMode === 'none' && activeAudioTrackId) unmetInvariants.push('unexpected_audio_track_in_pure_video');
+
+      console.log(`[${name}] Coletando telemetria em regime steady por ${durationSec}s...`);
+      const timeline = [];
+      const startTime = Date.now();
+      const endTime = startTime + (durationSec * 1000);
+
+      let sec = 0;
+      let totalAudioSamplesStart = null;
+      let totalAudioSamplesEnd = null;
+      let totalAudioBytesStart = null;
+      let totalAudioBytesEnd = null;
+      let latestVideoRow = null;
+      let latestAudioRow = null;
+      let latestVideoCodecRow = null;
+      let latestAudioCodecRow = null;
+
+      while (Date.now() < endTime) {
+        await sleep(1000);
+        sec++;
+        const sample = await activeViewerPage.evaluate(() => window.__smgE2E?.sample()).catch(() => null);
+        if (!sample) continue;
+
+        const currentStreamInfo = await inspectViewerStream(activeViewerPage);
+
+        // Invariantes por amostra
+        if (currentStreamInfo.videoTrackId !== activeVideoTrackId) {
+          unmetInvariants.push(`video_track_renegotiated: was ${activeVideoTrackId}, now ${currentStreamInfo.videoTrackId}`);
+        }
+        if (expectAudible && currentStreamInfo.audioTrackId !== activeAudioTrackId) {
+          unmetInvariants.push(`audio_track_renegotiated: was ${activeAudioTrackId}, now ${currentStreamInfo.audioTrackId}`);
+        }
+        if (currentStreamInfo.videoMuted !== expectedElementMuted) {
+          unmetInvariants.push(`video_element_muted_drift: expected ${expectedElementMuted}, got ${currentStreamInfo.videoMuted}`);
+        }
+        if (Math.abs((currentStreamInfo.videoVolume ?? 0) - expectedElementVolume) > 0.05) {
+          unmetInvariants.push(`video_element_volume_drift: expected ${expectedElementVolume}, got ${currentStreamInfo.videoVolume}`);
+        }
+
+        // Cálculo de deltas
+        for (const row of sample.rows) {
+          const rowId = `${row.pcId}:${row.id}`;
+          if (previousMap.has(rowId)) row.delta = deltaMetrics(previousMap.get(rowId), row);
+          previousMap.set(rowId, row);
+        }
+
+        // Localiza linha estrita de vídeo SEM fallback silencioso
+        const videoRow = sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'video' && r.trackIdentifier === activeVideoTrackId);
+        if (!videoRow) {
+          unmetInvariants.push(`missing_inbound_video_rtp_track: expected trackId ${activeVideoTrackId}`);
+        }
+
+        // Localiza linha estrita de áudio SEM fallback silencioso
+        let audioRow = null;
+        if (activeAudioTrackId) {
+          audioRow = sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'audio' && r.trackIdentifier === activeAudioTrackId);
+          if (!audioRow && expectAudible) {
+            unmetInvariants.push(`missing_inbound_audio_rtp_track: expected trackId ${activeAudioTrackId}`);
+          }
+        }
+
+        // Vinculação composta estrita de codec por pcId E codecId
+        const videoCodecRow = (videoRow?.codecId != null && videoRow.pcId != null)
+          ? sample.rows.find(r => r.pcId === videoRow.pcId && r.id === videoRow.codecId)
+          : null;
+        const audioCodecRow = (audioRow?.codecId != null && audioRow.pcId != null)
+          ? sample.rows.find(r => r.pcId === audioRow.pcId && r.id === audioRow.codecId)
+          : null;
+
+        if (videoRow) latestVideoRow = videoRow;
+        if (audioRow) latestAudioRow = audioRow;
+        if (videoCodecRow) latestVideoCodecRow = videoCodecRow;
+        if (audioCodecRow) latestAudioCodecRow = audioCodecRow;
+
+        if (audioRow) {
+          if (totalAudioSamplesStart === null && typeof audioRow.totalSamplesReceived === 'number') {
+            totalAudioSamplesStart = audioRow.totalSamplesReceived;
+          }
+          if (typeof audioRow.totalSamplesReceived === 'number') {
+            totalAudioSamplesEnd = audioRow.totalSamplesReceived;
+          }
+          if (totalAudioBytesStart === null && typeof audioRow.bytesReceived === 'number') {
+            totalAudioBytesStart = audioRow.bytesReceived;
+          }
+          if (typeof audioRow.bytesReceived === 'number') {
+            totalAudioBytesEnd = audioRow.bytesReceived;
+          }
+        }
+
+        const vid = sample.videos?.find(v => v.id === `card-${hostId}`)
+                 || sample.videos?.find(v => !v.isLocal && v.width > 0);
+        const pres = vid?.presentation;
+
+        const decodedFps = videoRow?.delta?.decodedFps ?? null;
+        const decodeTimeMs = videoRow?.delta?.decodeTimeMs ?? null;
+        const videoJitterMs = videoRow?.delta?.jitterBufferMs ?? null;
+        const packetsLost = videoRow?.packetsLost !== undefined ? videoRow.packetsLost : null;
+        const packetsReceived = videoRow?.packetsReceived !== undefined ? videoRow.packetsReceived : null;
+        const framesDropped = videoRow?.framesDropped !== undefined ? videoRow.framesDropped : null;
+        const framesReceived = videoRow?.framesReceived !== undefined ? videoRow.framesReceived : null;
+        const freezeCount = videoRow?.freezeCount !== undefined ? videoRow.freezeCount : null;
+        const totalFreezesDuration = videoRow?.totalFreezesDuration !== undefined ? videoRow.totalFreezesDuration : null;
+        const nackCount = videoRow?.nackCount !== undefined ? videoRow.nackCount : null;
+        const pliCount = videoRow?.pliCount !== undefined ? videoRow.pliCount : null;
+
+        const audioJitterMs = audioRow?.delta?.jitterBufferMs ?? null;
+        const audioLevel = audioRow?.audioLevel ?? null;
+        const audioSamplesDelta = audioRow?.delta?.audioSamplesDelta ?? null;
+        const maxPauseMs = pres?.intervalMaxPauseMs ?? 0;
+        const gapsCount = pres?.gapsCount ?? 0;
+
+        timeline.push({
+          second: sec,
+          elapsedMs: Date.now() - startTime,
+          decodedFps,
+          decodeTimeMs,
+          videoJitterMs,
+          packetsLost,
+          packetsReceived,
+          framesDropped,
+          framesReceived,
+          freezeCount,
+          totalFreezesDuration,
+          nackCount,
+          pliCount,
+          audioJitterMs,
+          audioLevel,
+          audioSamplesDelta,
+          maxPauseMs,
+          gapsCount,
+          streamInfo: currentStreamInfo,
+          rawStats: {
+            videoPcId: videoRow?.pcId ?? null,
+            videoSsrc: videoRow?.ssrc ?? null,
+            videoTrackId: videoRow?.trackIdentifier ?? null,
+            decoderImplementation: videoRow?.decoderImplementation ?? null,
+            powerEfficientDecoder: videoRow?.powerEfficientDecoder ?? null,
+            totalDecodeTime: videoRow?.totalDecodeTime ?? null,
+            framesDecoded: videoRow?.framesDecoded ?? null,
+            framesReceived: videoRow?.framesReceived ?? null,
+            framesDropped: videoRow?.framesDropped ?? null,
+            keyFramesDecoded: videoRow?.keyFramesDecoded ?? null,
+            freezeCount: videoRow?.freezeCount ?? null,
+            totalFreezesDuration: videoRow?.totalFreezesDuration ?? null,
+            nackCount: videoRow?.nackCount ?? null,
+            pliCount: videoRow?.pliCount ?? null,
+            packetsReceived: videoRow?.packetsReceived ?? null,
+            packetsLost: videoRow?.packetsLost ?? null,
+            rawDeltaTotalDecodeTime: videoRow?.delta?.rawDeltaTotalDecodeTime ?? null,
+            rawDeltaFramesDecoded: videoRow?.delta?.rawDeltaFramesDecoded ?? null,
+            rawDeltaFramesDropped: videoRow?.delta?.rawDeltaFramesDropped ?? null,
+            rawDeltaFramesReceived: videoRow?.delta?.rawDeltaFramesReceived ?? null,
+            rawDeltaFreezeCount: videoRow?.delta?.rawDeltaFreezeCount ?? null,
+            rawDeltaTotalFreezesDuration: videoRow?.delta?.rawDeltaTotalFreezesDuration ?? null,
+            rawDeltaNackCount: videoRow?.delta?.rawDeltaNackCount ?? null,
+            rawDeltaPliCount: videoRow?.delta?.rawDeltaPliCount ?? null,
+            rawDeltaPacketsLost: videoRow?.delta?.rawDeltaPacketsLost ?? null,
+            rawDeltaPacketsReceived: videoRow?.delta?.rawDeltaPacketsReceived ?? null,
+            audioPcId: audioRow?.pcId ?? null,
+            audioSsrc: audioRow?.ssrc ?? null,
+            audioTotalSamplesReceived: audioRow?.totalSamplesReceived ?? null,
+            audioConcealedSamples: audioRow?.concealedSamples ?? null,
+            audioSilentConcealedSamples: audioRow?.silentConcealedSamples ?? null,
+            audioInsertedSamplesForDeceleration: audioRow?.insertedSamplesForDeceleration ?? null,
+            audioRemovedSamplesForAcceleration: audioRow?.removedSamplesForAcceleration ?? null,
+            audioBytesReceived: audioRow?.bytesReceived ?? null,
+            rawDeltaAudioSamples: audioRow?.delta?.audioSamplesDelta ?? null,
+            rawDeltaConcealedSamples: audioRow?.delta?.rawDeltaConcealedSamples ?? null,
+            rawDeltaSilentConcealedSamples: audioRow?.delta?.rawDeltaSilentConcealedSamples ?? null,
+            rawDeltaInsertedSamplesForDeceleration: audioRow?.delta?.rawDeltaInsertedSamplesForDeceleration ?? null,
+            rawDeltaRemovedSamplesForAcceleration: audioRow?.delta?.rawDeltaRemovedSamplesForAcceleration ?? null
+          }
+        });
+
+        if (sec % 5 === 0 || Date.now() >= endTime - 500) {
+          console.log(`  [s=${sec}] FPS=${decodedFps?.toFixed(1) ?? 'N/A'} | decode=${decodeTimeMs?.toFixed(1) ?? 'N/A'}ms | jitter=${videoJitterMs?.toFixed(1) ?? 'N/A'}ms | aSamples=${audioSamplesDelta ?? 0} | lost=${packetsLost ?? 'null'} | maxPause=${maxPauseMs}ms | gaps=${gapsCount}`);
+        }
+      }
+
+      const totalDurationMs = Date.now() - startTime;
+      const finalSourceState = await getSourceSceneState();
+      const elapsedSourceSec = (finalSourceState.elapsedMs - initialSourceState.elapsedMs) / 1000.0;
+      const framesAdvanced = finalSourceState.drawnFrames - initialSourceState.drawnFrames;
+      const effectiveSourceFps = elapsedSourceSec > 0 ? Number((framesAdvanced / elapsedSourceSec).toFixed(2)) : 0;
+      const steadySlotsSlipped = finalSourceState.steadyStats?.slotsSlipped ?? 0;
+      console.log(`[Fonte] Encerramento steady: frames=${finalSourceState.drawnFrames} | fps=${finalSourceState.fps?.toFixed(2)} | cadência efetiva=${effectiveSourceFps} FPS (${framesAdvanced} frames em ${elapsedSourceSec.toFixed(2)}s) | skippedTicks=${finalSourceState.skippedTicks} | steadySlotsSlipped=${steadySlotsSlipped}`);
+
+      if (effectiveSourceFps < 57.0 || effectiveSourceFps > 63.0) {
+        unmetInvariants.push(`source_steady_cadence_drift: measured ${effectiveSourceFps} FPS (expected 57-63 FPS)`);
+      }
+      if (finalSourceState.fps < 57.0 || finalSourceState.fps > 63.0) {
+        unmetInvariants.push(`source_final_cadence_invalid: fps=${finalSourceState.fps}`);
+      }
+      if (steadySlotsSlipped > 0) {
+        unmetInvariants.push(`source_steady_slots_slipped: ${steadySlotsSlipped} slots lost during steady tracking`);
+      }
+
+      // Verificação de progressão de áudio para cenários audíveis
+      if (expectAudible) {
+        const samplesDiff = (totalAudioSamplesEnd ?? 0) - (totalAudioSamplesStart ?? 0);
+        const bytesDiff = (totalAudioBytesEnd ?? 0) - (totalAudioBytesStart ?? 0);
+        if (samplesDiff <= 0 && bytesDiff <= 0) {
+          unmetInvariants.push('audio_not_progressing: no new samples or bytes received in audible scenario');
+        }
+      }
+
+      // Processamento estatístico
+      const steady = timeline.slice(1);
+      const fpsList = steady.map(t => t.decodedFps).filter(n => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
+      const decodeList = steady.map(t => t.decodeTimeMs).filter(n => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
+      const videoJitterList = steady.map(t => t.videoJitterMs).filter(n => typeof n === 'number' && Number.isFinite(n));
+      const audioJitterList = steady.map(t => t.audioJitterMs).filter(n => typeof n === 'number' && Number.isFinite(n));
+      const lastLost = steady.length && steady[steady.length - 1].packetsLost !== undefined ? steady[steady.length - 1].packetsLost : null;
+      const lastFreezes = steady.length && steady[steady.length - 1].freezeCount !== undefined ? steady[steady.length - 1].freezeCount : null;
+      const lastFreezesDur = steady.length && steady[steady.length - 1].totalFreezesDuration !== undefined ? steady[steady.length - 1].totalFreezesDuration : null;
+      const lastDropped = steady.length && steady[steady.length - 1].framesDropped !== undefined ? steady[steady.length - 1].framesDropped : null;
+      const lastReceived = steady.length && steady[steady.length - 1].framesReceived !== undefined ? steady[steady.length - 1].framesReceived : null;
+      const maxPause = Math.max(0, ...steady.map(t => t.maxPauseMs || 0));
+      const totalGaps = steady.length ? steady[steady.length - 1].gapsCount : 0;
+
+      const avg = arr => arr.length ? Number((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1)) : null;
+      const p10 = arr => arr.length ? Number(arr[Math.floor(arr.length * 0.1)].toFixed(1)) : null;
+      const median = arr => arr.length ? Number(arr[Math.floor(arr.length * 0.5)].toFixed(1)) : null;
+
+      const validFpsSamples = fpsList.length;
+      const requiredSamples = Math.floor(durationSec * 0.7);
+      const hasEnoughSamples = validFpsSamples >= requiredSamples;
+
+      if (!hasEnoughSamples) {
+        unmetInvariants.push(`insufficient_valid_samples: got ${validFpsSamples}, required >= ${requiredSamples}`);
+      }
+
+      const executionStatus = 'COMPLETED';
+      const validityStatus = unmetInvariants.length === 0 ? 'VALID' : 'INCONCLUSIVE';
+
+      const qualityBudget = evaluateQualityBudget({
+        fpsMean: avg(fpsList),
+        fpsP10: p10(fpsList),
+        maxPauseMs: maxPause,
+        totalGapsCount: totalGaps,
+        durationSec,
+        totalPacketsLost: lastLost,
+        videoJitterMeanMs: avg(videoJitterList),
+        freezeCount: lastFreezes,
+        totalFreezesDuration: lastFreezesDur
       });
-      console.log(`[Host] Prévia local suspensa: ${hostPreviewSuspended}`);
-      if (!hostPreviewSuspended) {
-        unmetInvariants.push('host_preview_suspension_failed');
-      }
-    } else {
-      // Garante prévia ativa
-      await hostPage.evaluate(() => {
-        const btn = document.getElementById('toggle-local-preview-btn');
-        const v = document.querySelector('.video-card[data-is-local="true"] video')
-               || document.querySelector('#card-local-me video');
-        if (v && v.srcObject === null && btn) {
-          btn.click();
-        }
-      }).catch(() => {});
-    }
+      const qualityStatus = qualityBudget.status;
 
-    // 5. Configura jitter buffer se especificado
-    let effectiveReceivers = [];
-    if (targetPlayoutDelayHint !== undefined || targetJitterBufferTarget !== undefined) {
-      effectiveReceivers = await configureAndInspectJitter(targetPlayoutDelayHint, targetJitterBufferTarget);
-      console.log(`[Receptores] Configurados:`, JSON.stringify(effectiveReceivers));
-      const videoRecv = effectiveReceivers.find(r => r.kind === 'video');
-      if (targetPlayoutDelayHint !== undefined && videoRecv?.effectivePlayoutDelayHint !== targetPlayoutDelayHint) {
-        unmetInvariants.push(`targetPlayoutDelayHint_mismatch: expected ${targetPlayoutDelayHint}, got ${videoRecv?.effectivePlayoutDelayHint}`);
-      }
-      if (targetJitterBufferTarget !== undefined && videoRecv?.effectiveJitterBufferTarget !== targetJitterBufferTarget) {
-        unmetInvariants.push(`targetJitterBufferTarget_mismatch: expected ${targetJitterBufferTarget}, got ${videoRecv?.effectiveJitterBufferTarget}`);
-      }
-    }
+      // Captura screenshot da fase
+      const shotPrefix = id;
+      await hostPage.screenshot({ path: path.join(outputDir, `${shotPrefix}-host.png`) }).catch(() => {});
+      await activeViewerPage.screenshot({ path: path.join(outputDir, `${shotPrefix}-viewer.png`) }).catch(() => {});
 
-    // 6. Warm-up da captura
-    console.log(`[${name}] Aguardando estabilização warm-up (${warmupSec}s)...`);
-    await sleep(warmupSec * 1000);
+      await stopNativeCapture();
 
-    const initialSourceState = await getSourceSceneState();
-    console.log(`[Fonte] Início da medição steady: frames=${initialSourceState.drawnFrames} | fps=${initialSourceState.fps?.toFixed(2)} | res=${initialSourceState.nativeWidth}x${initialSourceState.nativeHeight} | audio=${initialSourceState.audioActive} | ready=${initialSourceState.isReady}`);
-
-    if (!initialSourceState.isReady || initialSourceState.fps < 57.0 || initialSourceState.fps > 63.0) {
-      unmetInvariants.push(`source_initial_cadence_invalid: fps=${initialSourceState.fps}, ready=${initialSourceState.isReady}`);
-    }
-    if (initialSourceState.nativeWidth !== 1920 || initialSourceState.nativeHeight !== 1080) {
-      unmetInvariants.push(`source_resolution_mismatch: got ${initialSourceState.nativeWidth}x${initialSourceState.nativeHeight}, expected 1920x1080`);
-    }
-    if (expectAudible && !initialSourceState.audioActive) {
-      unmetInvariants.push('source_audio_not_active');
-    }
-
-    // 7. Zeramento estrito de contadores de apresentação e baselines WebRTC
-    await viewerPage.evaluate(() => window.__smgE2E?.resetSession());
-    previousMap.clear();
-
-    const initialStreamInfo = await inspectViewerStream();
-    const activeVideoTrackId = initialStreamInfo.videoTrackId;
-    const activeAudioTrackId = initialStreamInfo.audioTrackId;
-
-    if (!activeVideoTrackId) unmetInvariants.push('no_initial_video_track');
-    if (expectAudible && !activeAudioTrackId) unmetInvariants.push('no_initial_audio_track');
-    if (!expectAudible && audioMode === 'none' && activeAudioTrackId) unmetInvariants.push('unexpected_audio_track_in_pure_video');
-
-    console.log(`[${name}] Coletando telemetria em regime steady por ${durationSec}s...`);
-    const timeline = [];
-    const startTime = Date.now();
-    const endTime = startTime + (durationSec * 1000);
-
-    let sec = 0;
-    let totalAudioSamplesStart = null;
-    let totalAudioSamplesEnd = null;
-    let totalAudioBytesStart = null;
-    let totalAudioBytesEnd = null;
-    let latestVideoRow = null;
-    let latestAudioRow = null;
-    let latestVideoCodecRow = null;
-    let latestAudioCodecRow = null;
-
-    while (Date.now() < endTime) {
-      await sleep(1000);
-      sec++;
-      const sample = await viewerPage.evaluate(() => window.__smgE2E?.sample()).catch(() => null);
-      if (!sample) continue;
-
-      const currentStreamInfo = await inspectViewerStream();
-
-      // Invariantes por amostra
-      if (currentStreamInfo.videoTrackId !== activeVideoTrackId) {
-        unmetInvariants.push(`video_track_renegotiated: was ${activeVideoTrackId}, now ${currentStreamInfo.videoTrackId}`);
-      }
-      if (expectAudible && currentStreamInfo.audioTrackId !== activeAudioTrackId) {
-        unmetInvariants.push(`audio_track_renegotiated: was ${activeAudioTrackId}, now ${currentStreamInfo.audioTrackId}`);
-      }
-      if (currentStreamInfo.videoMuted !== expectedElementMuted) {
-        unmetInvariants.push(`video_element_muted_drift: expected ${expectedElementMuted}, got ${currentStreamInfo.videoMuted}`);
-      }
-      if (Math.abs((currentStreamInfo.videoVolume ?? 0) - expectedElementVolume) > 0.05) {
-        unmetInvariants.push(`video_element_volume_drift: expected ${expectedElementVolume}, got ${currentStreamInfo.videoVolume}`);
-      }
-
-      // Cálculo de deltas
-      for (const row of sample.rows) {
-        const rowId = `${row.pcId}:${row.id}`;
-        if (previousMap.has(rowId)) row.delta = deltaMetrics(previousMap.get(rowId), row);
-        previousMap.set(rowId, row);
-      }
-
-      // Localiza linha estrita de vídeo SEM fallback silencioso
-      const videoRow = sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'video' && r.trackIdentifier === activeVideoTrackId);
-      if (!videoRow) {
-        unmetInvariants.push(`missing_inbound_video_rtp_track: expected trackId ${activeVideoTrackId}`);
-      }
-
-      // Localiza linha estrita de áudio SEM fallback silencioso
-      let audioRow = null;
-      if (activeAudioTrackId) {
-        audioRow = sample.rows.find(r => r.type === 'inbound-rtp' && r.kind === 'audio' && r.trackIdentifier === activeAudioTrackId);
-        if (!audioRow && expectAudible) {
-          unmetInvariants.push(`missing_inbound_audio_rtp_track: expected trackId ${activeAudioTrackId}`);
-        }
-      }
-
-      const videoCodecRow = videoRow?.codecId ? sample.rows.find(r => r.id === videoRow.codecId) : null;
-      const audioCodecRow = audioRow?.codecId ? sample.rows.find(r => r.id === audioRow.codecId) : null;
-
-      if (videoRow) latestVideoRow = videoRow;
-      if (audioRow) latestAudioRow = audioRow;
-      if (videoCodecRow) latestVideoCodecRow = videoCodecRow;
-      if (audioCodecRow) latestAudioCodecRow = audioCodecRow;
-
-      if (audioRow) {
-        if (totalAudioSamplesStart === null && typeof audioRow.totalSamplesReceived === 'number') {
-          totalAudioSamplesStart = audioRow.totalSamplesReceived;
-        }
-        if (typeof audioRow.totalSamplesReceived === 'number') {
-          totalAudioSamplesEnd = audioRow.totalSamplesReceived;
-        }
-        if (totalAudioBytesStart === null && typeof audioRow.bytesReceived === 'number') {
-          totalAudioBytesStart = audioRow.bytesReceived;
-        }
-        if (typeof audioRow.bytesReceived === 'number') {
-          totalAudioBytesEnd = audioRow.bytesReceived;
-        }
-      }
-
-      const vid = sample.videos?.find(v => v.id === `card-${hostId}`)
-               || sample.videos?.find(v => !v.isLocal && v.width > 0);
-      const pres = vid?.presentation;
-
-      const decodedFps = videoRow?.delta?.decodedFps ?? null;
-      const decodeTimeMs = videoRow?.delta?.decodeTimeMs ?? null;
-      const videoJitterMs = videoRow?.delta?.jitterBufferMs ?? null;
-      const packetsLost = videoRow?.packetsLost ?? 0;
-      const audioJitterMs = audioRow?.delta?.jitterBufferMs ?? null;
-      const audioLevel = audioRow?.audioLevel ?? null;
-      const audioSamplesDelta = audioRow?.delta?.audioSamplesDelta ?? null;
-      const maxPauseMs = pres?.intervalMaxPauseMs ?? 0;
-      const gapsCount = pres?.gapsCount ?? 0;
-
-      timeline.push({
-        second: sec,
-        elapsedMs: Date.now() - startTime,
-        decodedFps,
-        decodeTimeMs,
-        videoJitterMs,
-        packetsLost,
-        audioJitterMs,
-        audioLevel,
-        audioSamplesDelta,
-        maxPauseMs,
-        gapsCount,
-        streamInfo: currentStreamInfo,
-        rawStats: {
-          videoSsrc: videoRow?.ssrc ?? null,
-          videoTrackId: videoRow?.trackIdentifier ?? null,
-          decoderImplementation: videoRow?.decoderImplementation ?? null,
-          powerEfficientDecoder: videoRow?.powerEfficientDecoder ?? null,
-          totalDecodeTime: videoRow?.totalDecodeTime ?? null,
-          framesDecoded: videoRow?.framesDecoded ?? null,
-          keyFramesDecoded: videoRow?.keyFramesDecoded ?? null,
-          rawDeltaTotalDecodeTime: videoRow?.delta?.rawDeltaTotalDecodeTime ?? null,
-          rawDeltaFramesDecoded: videoRow?.delta?.rawDeltaFramesDecoded ?? null,
-          audioSsrc: audioRow?.ssrc ?? null,
-          audioTotalSamplesReceived: audioRow?.totalSamplesReceived ?? null,
-          audioBytesReceived: audioRow?.bytesReceived ?? null
-        }
-      });
-
-      if (sec % 5 === 0 || Date.now() >= endTime - 500) {
-        console.log(`  [s=${sec}] FPS=${decodedFps?.toFixed(1) ?? 'N/A'} | decode=${decodeTimeMs?.toFixed(1) ?? 'N/A'}ms | jitter=${videoJitterMs?.toFixed(1) ?? 'N/A'}ms | aSamples=${audioSamplesDelta ?? 0} | lost=${packetsLost} | maxPause=${maxPauseMs}ms | gaps=${gapsCount}`);
+      return {
+        name,
+        executionStatus,
+        validityStatus,
+        qualityStatus,
+        qualityBudget,
+        unmetInvariants,
+        audioIsolation: scenarioConfig.audioIsolation || (audioMode === 'none' ? 'none' : 'os_system_loopback_viewer_globally_muted'),
+        browserGloballyMuted: scenarioConfig.browserGloballyMuted ?? true,
+        validFpsSamples,
+        totalDurationMs,
+        sourceValidation: {
+          initialSourceState,
+          finalSourceState,
+          effectiveSourceFps,
+          elapsedSourceSec,
+          framesAdvanced,
+          intervalStats: finalSourceState.intervalStats ?? null,
+          steadyStats: finalSourceState.steadyStats ?? null,
+          layoutDimensions: {
+            actualCanvasWidth: finalSourceState.actualCanvasWidth ?? null,
+            actualCanvasHeight: finalSourceState.actualCanvasHeight ?? null,
+            windowInnerWidth: finalSourceState.windowInnerWidth ?? null,
+            windowInnerHeight: finalSourceState.windowInnerHeight ?? null,
+            devicePixelRatio: finalSourceState.devicePixelRatio ?? null
+          }
+        },
+        fpsMean: avg(fpsList),
+        fpsMedian: median(fpsList),
+        fpsP10: p10(fpsList),
+        fpsMin: fpsList.length ? Number(fpsList[0].toFixed(1)) : null,
+        fpsMax: fpsList.length ? Number(fpsList[fpsList.length - 1].toFixed(1)) : null,
+        decodeTimeMeanMs: avg(decodeList),
+        decodeTimeP95Ms: decodeList.length ? Number(decodeList[Math.floor(decodeList.length * 0.95)].toFixed(1)) : null,
+        jitterBufferMeanMs: avg(videoJitterList),
+        audioJitterBufferMeanMs: avg(audioJitterList),
+        totalPacketsLost: lastLost,
+        freezeCount: lastFreezes,
+        totalFreezesDurationSec: lastFreezesDur,
+        framesDropped: lastDropped,
+        framesReceived: lastReceived,
+        maxPauseMs: maxPause,
+        totalGapsCount: totalGaps,
+        gapsPerMinute: qualityBudget.gapsPerMinute,
+        decoderInfo: {
+          implementation: latestVideoRow?.decoderImplementation ?? 'unknown',
+          powerEfficient: latestVideoRow?.powerEfficientDecoder ?? null,
+          codec: latestVideoCodecRow?.mimeType ?? 'unknown',
+          ssrc: latestVideoRow?.ssrc ?? null
+        },
+        rawTotals: {
+          totalFramesDecoded: latestVideoRow?.framesDecoded ?? null,
+          totalFramesReceived: latestVideoRow?.framesReceived ?? null,
+          totalFramesDropped: latestVideoRow?.framesDropped ?? null,
+          totalKeyFramesDecoded: latestVideoRow?.keyFramesDecoded ?? null,
+          totalDecodeTimeSec: latestVideoRow?.totalDecodeTime ?? null,
+          freezeCount: latestVideoRow?.freezeCount ?? null,
+          totalFreezesDurationSec: latestVideoRow?.totalFreezesDuration ?? null,
+          nackCount: latestVideoRow?.nackCount ?? null,
+          pliCount: latestVideoRow?.pliCount ?? null,
+          packetsReceived: latestVideoRow?.packetsReceived ?? null,
+          packetsLost: latestVideoRow?.packetsLost ?? null,
+          audioTotalSamplesReceived: latestAudioRow?.totalSamplesReceived ?? null,
+          audioConcealedSamples: latestAudioRow?.concealedSamples ?? null,
+          audioSilentConcealedSamples: latestAudioRow?.silentConcealedSamples ?? null,
+          audioInsertedSamplesForDeceleration: latestAudioRow?.insertedSamplesForDeceleration ?? null,
+          audioRemovedSamplesForAcceleration: latestAudioRow?.removedSamplesForAcceleration ?? null,
+          audioBytesReceived: latestAudioRow?.bytesReceived ?? null
+        },
+        audioValidation: {
+          expectAudible,
+          totalAudioSamplesStart,
+          totalAudioSamplesEnd,
+          audioSamplesProgressed: (totalAudioSamplesEnd ?? 0) - (totalAudioSamplesStart ?? 0),
+          audioBytesProgressed: (totalAudioBytesEnd ?? 0) - (totalAudioBytesStart ?? 0),
+          audioCodec: latestAudioCodecRow?.mimeType ?? 'unknown',
+          audioSsrc: latestAudioRow?.ssrc ?? null
+        },
+        effectiveReceivers,
+        timeline
+      };
+    } finally {
+      if (dedicatedUnmutedBrowser) {
+        console.log('[Áudio por Processo] Fechando instância dedicada de navegador desmutado...');
+        await dedicatedUnmutedBrowser.close().catch(() => {});
+        currentTargetViewerPage = viewerPage;
       }
     }
-
-    const totalDurationMs = Date.now() - startTime;
-    const finalSourceState = await getSourceSceneState();
-    const elapsedSourceSec = (finalSourceState.elapsedMs - initialSourceState.elapsedMs) / 1000.0;
-    const framesAdvanced = finalSourceState.drawnFrames - initialSourceState.drawnFrames;
-    const effectiveSourceFps = elapsedSourceSec > 0 ? Number((framesAdvanced / elapsedSourceSec).toFixed(2)) : 0;
-    console.log(`[Fonte] Encerramento steady: frames=${finalSourceState.drawnFrames} | fps=${finalSourceState.fps?.toFixed(2)} | cadência efetiva=${effectiveSourceFps} FPS (${framesAdvanced} frames em ${elapsedSourceSec.toFixed(2)}s) | skippedTicks=${finalSourceState.skippedTicks}`);
-
-    if (effectiveSourceFps < 57.0 || effectiveSourceFps > 63.0) {
-      unmetInvariants.push(`source_steady_cadence_drift: measured ${effectiveSourceFps} FPS (expected 57-63 FPS)`);
-    }
-    if (finalSourceState.fps < 57.0 || finalSourceState.fps > 63.0) {
-      unmetInvariants.push(`source_final_cadence_invalid: fps=${finalSourceState.fps}`);
-    }
-
-    // Verificação de progressão de áudio para cenários audíveis
-    if (expectAudible) {
-      const samplesDiff = (totalAudioSamplesEnd ?? 0) - (totalAudioSamplesStart ?? 0);
-      const bytesDiff = (totalAudioBytesEnd ?? 0) - (totalAudioBytesStart ?? 0);
-      if (samplesDiff <= 0 && bytesDiff <= 0) {
-        unmetInvariants.push('audio_not_progressing: no new samples or bytes received in audible scenario');
-      }
-    }
-
-    // Processamento estatístico
-    const steady = timeline.slice(1);
-    const fpsList = steady.map(t => t.decodedFps).filter(n => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
-    const decodeList = steady.map(t => t.decodeTimeMs).filter(n => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
-    const videoJitterList = steady.map(t => t.videoJitterMs).filter(n => typeof n === 'number' && Number.isFinite(n));
-    const audioJitterList = steady.map(t => t.audioJitterMs).filter(n => typeof n === 'number' && Number.isFinite(n));
-    const lastLost = steady.length ? steady[steady.length - 1].packetsLost : 0;
-    const maxPause = Math.max(0, ...steady.map(t => t.maxPauseMs || 0));
-    const totalGaps = steady.length ? steady[steady.length - 1].gapsCount : 0;
-
-    const avg = arr => arr.length ? Number((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1)) : null;
-    const p10 = arr => arr.length ? Number(arr[Math.floor(arr.length * 0.1)].toFixed(1)) : null;
-    const median = arr => arr.length ? Number(arr[Math.floor(arr.length * 0.5)].toFixed(1)) : null;
-
-    const validFpsSamples = fpsList.length;
-    const requiredSamples = Math.floor(durationSec * 0.7);
-    const hasEnoughSamples = validFpsSamples >= requiredSamples;
-
-    if (!hasEnoughSamples) {
-      unmetInvariants.push(`insufficient_valid_samples: got ${validFpsSamples}, required >= ${requiredSamples}`);
-    }
-
-    const executionStatus = 'COMPLETED';
-    const validityStatus = unmetInvariants.length === 0 ? 'VALID' : 'INCONCLUSIVE';
-
-    const qualityBudget = evaluateQualityBudget({
-      fpsMean: avg(fpsList),
-      fpsP10: p10(fpsList),
-      maxPauseMs: maxPause,
-      totalGapsCount: totalGaps,
-      totalPacketsLost: lastLost,
-      videoJitterMeanMs: avg(videoJitterList)
-    });
-    const qualityStatus = qualityBudget.status;
-
-    // Captura screenshot da fase
-    const shotPrefix = id;
-    await hostPage.screenshot({ path: path.join(outputDir, `${shotPrefix}-host.png`) }).catch(() => {});
-    await viewerPage.screenshot({ path: path.join(outputDir, `${shotPrefix}-viewer.png`) }).catch(() => {});
-
-    await stopNativeCapture();
-
-    return {
-      name,
-      executionStatus,
-      validityStatus,
-      qualityStatus,
-      qualityBudget,
-      unmetInvariants,
-      audioIsolation: scenarioConfig.audioIsolation || (audioMode === 'none' ? 'none' : 'os_system_loopback_viewer_globally_muted'),
-      browserGloballyMuted: scenarioConfig.browserGloballyMuted ?? true,
-      validFpsSamples,
-      totalDurationMs,
-      sourceValidation: {
-        initialSourceState,
-        finalSourceState,
-        effectiveSourceFps,
-        elapsedSourceSec,
-        framesAdvanced,
-        intervalStats: finalSourceState.intervalStats ?? null,
-        layoutDimensions: {
-          actualCanvasWidth: finalSourceState.actualCanvasWidth ?? null,
-          actualCanvasHeight: finalSourceState.actualCanvasHeight ?? null,
-          windowInnerWidth: finalSourceState.windowInnerWidth ?? null,
-          windowInnerHeight: finalSourceState.windowInnerHeight ?? null,
-          devicePixelRatio: finalSourceState.devicePixelRatio ?? null
-        }
-      },
-      fpsMean: avg(fpsList),
-      fpsMedian: median(fpsList),
-      fpsP10: p10(fpsList),
-      fpsMin: fpsList.length ? Number(fpsList[0].toFixed(1)) : null,
-      fpsMax: fpsList.length ? Number(fpsList[fpsList.length - 1].toFixed(1)) : null,
-      decodeTimeMeanMs: avg(decodeList),
-      decodeTimeP95Ms: decodeList.length ? Number(decodeList[Math.floor(decodeList.length * 0.95)].toFixed(1)) : null,
-      jitterBufferMeanMs: avg(videoJitterList),
-      audioJitterBufferMeanMs: avg(audioJitterList),
-      totalPacketsLost: lastLost,
-      maxPauseMs: maxPause,
-      totalGapsCount: totalGaps,
-      decoderInfo: {
-        implementation: latestVideoRow?.decoderImplementation ?? 'unknown',
-        powerEfficient: latestVideoRow?.powerEfficientDecoder ?? null,
-        codec: latestVideoCodecRow?.mimeType ?? 'unknown',
-        ssrc: latestVideoRow?.ssrc ?? null
-      },
-      rawTotals: {
-        totalFramesDecoded: latestVideoRow?.framesDecoded ?? null,
-        totalKeyFramesDecoded: latestVideoRow?.keyFramesDecoded ?? null,
-        totalDecodeTimeSec: latestVideoRow?.totalDecodeTime ?? null
-      },
-      audioValidation: {
-        expectAudible,
-        totalAudioSamplesStart,
-        totalAudioSamplesEnd,
-        audioSamplesProgressed: (totalAudioSamplesEnd ?? 0) - (totalAudioSamplesStart ?? 0),
-        audioBytesProgressed: (totalAudioBytesEnd ?? 0) - (totalAudioBytesStart ?? 0),
-        audioCodec: latestAudioCodecRow?.mimeType ?? 'unknown',
-        audioSsrc: latestAudioRow?.ssrc ?? null
-      },
-      effectiveReceivers,
-      timeline
-    };
   };
 
   const results = {
@@ -940,12 +1093,48 @@ const runIsolationSuite = async () => {
     scenarios: {}
   };
 
-  // ==========================================
-  // CENÁRIO 1: CONTROLE BASE A/V (Áudio de Sistema, Receptor com Mute no SO)
-  // ==========================================
-  results.scenarios.cenario1_controleBase = await runScenarioExecution({
-    id: 'c1',
-    name: 'Cenário 1: Controle Base (A/V Completo, Áudio de Sistema, Receptor com Mute no SO)',
+  const saveReportProgressive = async () => {
+    try {
+      results.provenance.updatedAt = new Date().toISOString();
+      const reportJsonPath = path.join(outputDir, 'isolation-report.json');
+      await writeFile(reportJsonPath, JSON.stringify(results, null, 2));
+    } catch {}
+  };
+
+  const executeScenarioSafely = async (scenarioConfig) => {
+    try {
+      const res = await runScenarioExecution(scenarioConfig);
+      await saveReportProgressive();
+      return res;
+    } catch (err) {
+      console.error(`\n[${scenarioConfig.name}] Falha na execução:`, err.message);
+      const failedRes = {
+        id: scenarioConfig.id,
+        name: scenarioConfig.name,
+        executionStatus: 'FAILED',
+        validityStatus: 'INCONCLUSIVE',
+        qualityStatus: 'FAILED',
+        error: err.message,
+        unmetInvariants: [`execution_error: ${err.message}`]
+      };
+      await saveReportProgressive();
+      return failedRes;
+    }
+  };
+
+  const durationCoreSec = parseInt(process.env.CORE_DURATION_SEC || '20', 10);
+  const durationJitterSec = parseInt(process.env.JITTER_DURATION_SEC || '20', 10);
+
+  // =============================================================
+  // BLOCO 1: REPETIÇÃO ALTERNADA 1 (ORDEM DIRETA: C1 -> C2 -> C4)
+  // =============================================================
+  console.log('\n=============================================================');
+  console.log('BLOCO 1: REPETIÇÃO ALTERNADA 1 (ORDEM DIRETA: C1 -> C2 -> C4)');
+  console.log('=============================================================');
+
+  results.scenarios.c1_rep1_controleBase = await executeScenarioSafely({
+    id: 'c1_rep1',
+    name: 'Cenário 1 (Rep 1): Controle Base (A/V Completo, Prévia Ativa, Receptor Mute SO)',
     audioMode: 'system',
     audioIsolation: 'os_system_loopback_viewer_globally_muted',
     browserGloballyMuted: true,
@@ -954,15 +1143,12 @@ const runIsolationSuite = async () => {
     expectedElementVolume: 1.0,
     expectHostPreviewSuspended: false,
     warmupSec: 3,
-    durationSec: 25
+    durationSec: durationCoreSec
   });
 
-  // ==========================================
-  // CENÁRIO 2: ISOLAMENTO DA PRÉVIA LOCAL (A/V Completo, Prévia Suspensa, Receptor com Mute no SO)
-  // ==========================================
-  results.scenarios.cenario2_previaSuspensa = await runScenarioExecution({
-    id: 'c2',
-    name: 'Cenário 2: Isolamento de Prévia (A/V Completo, Prévia Suspensa, Receptor com Mute no SO)',
+  results.scenarios.c2_rep1_previaSuspensa = await executeScenarioSafely({
+    id: 'c2_rep1',
+    name: 'Cenário 2 (Rep 1): Isolamento de Prévia (A/V Completo, Prévia Suspensa, Receptor Mute SO)',
     audioMode: 'system',
     audioIsolation: 'os_system_loopback_viewer_globally_muted',
     browserGloballyMuted: true,
@@ -971,15 +1157,82 @@ const runIsolationSuite = async () => {
     expectedElementVolume: 1.0,
     expectHostPreviewSuspended: true,
     warmupSec: 3,
-    durationSec: 25
+    durationSec: durationCoreSec
   });
 
-  // ==========================================
-  // CENÁRIO 3: ISOLAMENTO DA SAÍDA NO PLAYER (Áudio Capturado/RTP, Player Mutado no DOM, Receptor com Mute no SO)
-  // ==========================================
-  results.scenarios.cenario3_audioMutado = await runScenarioExecution({
+  results.scenarios.c4_rep1_videoPuro = await executeScenarioSafely({
+    id: 'c4_rep1',
+    name: 'Cenário 4 (Rep 1): Baseline Vídeo Puro (Sem Trilha Áudio, Receptor Mute SO)',
+    audioMode: 'none',
+    audioIsolation: 'none',
+    browserGloballyMuted: true,
+    expectAudible: false,
+    expectedElementMuted: false,
+    expectedElementVolume: 1.0,
+    expectHostPreviewSuspended: false,
+    warmupSec: 3,
+    durationSec: durationCoreSec
+  });
+
+  // =============================================================
+  // BLOCO 2: REPETIÇÃO ALTERNADA 2 (ORDEM INVERTIDA: C4 -> C2 -> C1)
+  // =============================================================
+  console.log('\n=============================================================');
+  console.log('BLOCO 2: REPETIÇÃO ALTERNADA 2 (ORDEM INVERTIDA: C4 -> C2 -> C1)');
+  console.log('=============================================================');
+
+  results.scenarios.c4_rep2_videoPuro = await executeScenarioSafely({
+    id: 'c4_rep2',
+    name: 'Cenário 4 (Rep 2): Baseline Vídeo Puro (Sem Trilha Áudio, Receptor Mute SO)',
+    audioMode: 'none',
+    audioIsolation: 'none',
+    browserGloballyMuted: true,
+    expectAudible: false,
+    expectedElementMuted: false,
+    expectedElementVolume: 1.0,
+    expectHostPreviewSuspended: false,
+    warmupSec: 3,
+    durationSec: durationCoreSec
+  });
+
+  results.scenarios.c2_rep2_previaSuspensa = await executeScenarioSafely({
+    id: 'c2_rep2',
+    name: 'Cenário 2 (Rep 2): Isolamento de Prévia (A/V Completo, Prévia Suspensa, Receptor Mute SO)',
+    audioMode: 'system',
+    audioIsolation: 'os_system_loopback_viewer_globally_muted',
+    browserGloballyMuted: true,
+    expectAudible: true,
+    expectedElementMuted: false,
+    expectedElementVolume: 1.0,
+    expectHostPreviewSuspended: true,
+    warmupSec: 3,
+    durationSec: durationCoreSec
+  });
+
+  results.scenarios.c1_rep2_controleBase = await executeScenarioSafely({
+    id: 'c1_rep2',
+    name: 'Cenário 1 (Rep 2): Controle Base (A/V Completo, Prévia Ativa, Receptor Mute SO)',
+    audioMode: 'system',
+    audioIsolation: 'os_system_loopback_viewer_globally_muted',
+    browserGloballyMuted: true,
+    expectAudible: true,
+    expectedElementMuted: false,
+    expectedElementVolume: 1.0,
+    expectHostPreviewSuspended: false,
+    warmupSec: 3,
+    durationSec: durationCoreSec
+  });
+
+  // =============================================================
+  // BLOCO 3: CENÁRIOS ESPECÍFICOS (PLAYER MUTADO, ÁUDIO POR PROCESSO, JITTER)
+  // =============================================================
+  console.log('\n=============================================================');
+  console.log('BLOCO 3: CENÁRIOS ESPECÍFICOS (PLAYER MUTADO, ÁUDIO POR PROCESSO, JITTER)');
+  console.log('=============================================================');
+
+  results.scenarios.c3_audioMutado = await executeScenarioSafely({
     id: 'c3',
-    name: 'Cenário 3: Isolamento de Saída no Player (Áudio Capturado/RTP, Player Mutado no DOM, Receptor com Mute no SO)',
+    name: 'Cenário 3: Isolamento de Saída no Player (Áudio Capturado/RTP, Player Mutado no DOM, Receptor Mute SO)',
     audioMode: 'system',
     audioIsolation: 'os_system_loopback_viewer_globally_muted',
     browserGloballyMuted: true,
@@ -988,33 +1241,14 @@ const runIsolationSuite = async () => {
     expectedElementVolume: 0,
     expectHostPreviewSuspended: false,
     warmupSec: 3,
-    durationSec: 25
+    durationSec: durationCoreSec
   });
 
-  // ==========================================
-  // CENÁRIO 4: BASELINE VÍDEO PURO (Sem Trilha de Áudio no Pipeline)
-  // ==========================================
-  results.scenarios.cenario4_videoPuro = await runScenarioExecution({
-    id: 'c4',
-    name: 'Cenário 4: Baseline Vídeo Puro (Sem Trilha de Áudio)',
-    audioMode: 'none',
-    audioIsolation: 'none',
-    browserGloballyMuted: true,
-    expectAudible: false,
-    expectedElementMuted: false,
-    expectedElementVolume: 1.0,
-    expectHostPreviewSuspended: false,
-    warmupSec: 4,
-    durationSec: 25
-  });
-
-  // ==========================================
   // CENÁRIO 5: ÁUDIO POR PROCESSO (Isolamento WASAPI por PID)
-  // ==========================================
   if (nativeCaps?.supports_process_audio) {
-    results.scenarios.cenario5_audioProcesso = await runScenarioExecution({
+    results.scenarios.c5_audioProcesso = await executeScenarioSafely({
       id: 'c5',
-      name: 'Cenário 5: Áudio por Processo (Isolamento WASAPI por PID, Sem Loopback de Sistema)',
+      name: 'Cenário 5: Áudio por Processo (Isolamento WASAPI por PID, Instância de Navegador Desmutada)',
       audioMode: 'process',
       audioIsolation: 'wasapi_process_tree',
       browserGloballyMuted: false,
@@ -1023,11 +1257,11 @@ const runIsolationSuite = async () => {
       expectedElementVolume: 1.0,
       expectHostPreviewSuspended: false,
       warmupSec: 3,
-      durationSec: 25
+      durationSec: durationCoreSec
     });
   } else {
     console.log('\n[Cenário 5] Áudio por Processo NÃO suportado no SO atual (requer Windows 11 / Server 2022 build >= 20348).');
-    results.scenarios.cenario5_audioProcesso = {
+    results.scenarios.c5_audioProcesso = {
       id: 'c5',
       name: 'Cenário 5: Áudio por Processo (Isolamento WASAPI por PID)',
       executionStatus: 'SKIPPED_UNSUPPORTED_OS',
@@ -1036,14 +1270,13 @@ const runIsolationSuite = async () => {
       reason: `Host está executando Windows 10 Build ${os.release()} (sem AUDIOCLIENT_ACTIVATION_PARAMS). Requer Windows 11 ou Server 2022 build >= 20348.`,
       capabilities: nativeCaps
     };
+    await saveReportProgressive();
   }
 
-  // ==========================================
   // CENÁRIOS 6A, 6B, 6C: POLÍTICAS DE JITTER INDEPENDENTES
-  // ==========================================
-  results.scenarios.cenario6a_jitter0ms = await runScenarioExecution({
+  results.scenarios.c6a_jitter0ms = await executeScenarioSafely({
     id: 'c6a',
-    name: 'Cenário 6A: Jitter Buffer Target 0ms (Ultra-Low Playout, Receptor com Mute no SO)',
+    name: 'Cenário 6A: Jitter Buffer Target 0ms (Ultra-Low Playout, Receptor Mute SO)',
     audioMode: 'system',
     audioIsolation: 'os_system_loopback_viewer_globally_muted',
     browserGloballyMuted: true,
@@ -1054,12 +1287,12 @@ const runIsolationSuite = async () => {
     targetPlayoutDelayHint: 0,
     targetJitterBufferTarget: 0,
     warmupSec: 3,
-    durationSec: 20
+    durationSec: durationJitterSec
   });
 
-  results.scenarios.cenario6b_jitter25ms = await runScenarioExecution({
+  results.scenarios.c6b_jitter25ms = await executeScenarioSafely({
     id: 'c6b',
-    name: 'Cenário 6B: Jitter Buffer Target 25ms (Buffer Estático, Receptor com Mute no SO)',
+    name: 'Cenário 6B: Jitter Buffer Target 25ms (Buffer Estático, Receptor Mute SO)',
     audioMode: 'system',
     audioIsolation: 'os_system_loopback_viewer_globally_muted',
     browserGloballyMuted: true,
@@ -1070,12 +1303,12 @@ const runIsolationSuite = async () => {
     targetPlayoutDelayHint: 0.025,
     targetJitterBufferTarget: 25,
     warmupSec: 3,
-    durationSec: 20
+    durationSec: durationJitterSec
   });
 
-  results.scenarios.cenario6c_jitterDefault = await runScenarioExecution({
+  results.scenarios.c6c_jitterDefault = await executeScenarioSafely({
     id: 'c6c',
-    name: 'Cenário 6C: Jitter Buffer Default (Padrão WebRTC, Receptor com Mute no SO)',
+    name: 'Cenário 6C: Jitter Buffer Default (Padrão WebRTC, Receptor Mute SO)',
     audioMode: 'system',
     audioIsolation: 'os_system_loopback_viewer_globally_muted',
     browserGloballyMuted: true,
@@ -1086,7 +1319,7 @@ const runIsolationSuite = async () => {
     targetPlayoutDelayHint: null,
     targetJitterBufferTarget: null,
     warmupSec: 3,
-    durationSec: 20
+    durationSec: durationJitterSec
   });
 
   // Encerramento ordenado
@@ -1117,12 +1350,15 @@ const runIsolationSuite = async () => {
       'Problemas Qualidade': sc.qualityBudget?.violations?.length ? sc.qualityBudget.violations.join('; ') : (sc.qualityBudget?.warnings?.length ? sc.qualityBudget.warnings.join('; ') : 'OK'),
       'Invariantes': sc.unmetInvariants?.length ? sc.unmetInvariants.join('; ') : '100% OK',
       'FPS Fonte Real': sc.sourceValidation?.effectiveSourceFps ?? 'N/A',
+      'Slots Slipped': sc.sourceValidation?.steadyStats?.slotsSlipped ?? 'N/A',
       'FPS Médio Recv': sc.fpsMean ?? 'N/A',
       'FPS p10': sc.fpsP10 ?? 'N/A',
       'Decode (ms)': sc.decodeTimeMeanMs ?? 'N/A',
       'Jitter V/A (ms)': `${sc.jitterBufferMeanMs ?? 'N/A'} / ${sc.audioJitterBufferMeanMs ?? 'N/A'}`,
       'Max Pausa (ms)': sc.maxPauseMs ?? 'N/A',
+      'Gaps Rate (/min)': sc.gapsPerMinute ?? 'N/A',
       'Gaps >100ms': sc.totalGapsCount ?? 'N/A',
+      'Freezes': sc.freezeCount != null ? `${sc.freezeCount} (${sc.totalFreezesDurationSec ?? 0}s)` : 'N/A',
       'Perda Pkts': sc.totalPacketsLost ?? 'N/A',
       'Decoder': sc.decoderInfo?.implementation ?? 'N/A'
     };

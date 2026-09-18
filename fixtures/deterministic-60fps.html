@@ -51,7 +51,17 @@
     let drawnFrames = 0;
     let skippedTicks = 0;
     let missedDeadlines = 0;
+    let slotsSlipped = 0;
     let maxDrawIntervalMs = 0;
+
+    // Rastreamento separado para a fase steady
+    let steadyTrackingActive = false;
+    let steadyStartTime = 0;
+    let steadyDrawnFrames = 0;
+    let steadyMissedDeadlines = 0;
+    let steadySlotsSlipped = 0;
+    let steadyMaxDrawIntervalMs = 0;
+    const steadyDrawIntervals = [];
 
     // Janela deslizante para medição de intervalos reais entre desenhos (últimos 120 frames)
     const drawIntervals = [];
@@ -66,11 +76,12 @@
       return (frameTimestamps.length - 1) / durationSec;
     }
 
-    function getIntervalStats() {
-      if (drawIntervals.length < 2) return { mean: 16.67, p95: 16.67, p99: 16.67, min: 16.67, max: 16.67, stdDev: 0 };
-      const sorted = [...drawIntervals].sort((a, b) => a - b);
+    function computeStatsForArray(arr) {
+      if (!arr || arr.length < 2) return { count: arr?.length || 0, mean: 16.67, p50: 16.67, p95: 16.67, p99: 16.67, min: 16.67, max: 16.67, stdDev: 0 };
+      const sorted = [...arr].sort((a, b) => a - b);
       const sum = sorted.reduce((a, b) => a + b, 0);
       const mean = sum / sorted.length;
+      const p50 = sorted[Math.floor(sorted.length * 0.5)];
       const p95 = sorted[Math.floor(sorted.length * 0.95)];
       const p99 = sorted[Math.floor(sorted.length * 0.99)];
       const min = sorted[0];
@@ -78,13 +89,19 @@
       const variance = sorted.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / sorted.length;
       const stdDev = Math.sqrt(variance);
       return {
+        count: sorted.length,
         mean: Number(mean.toFixed(2)),
+        p50: Number(p50.toFixed(2)),
         p95: Number(p95.toFixed(2)),
         p99: Number(p99.toFixed(2)),
         min: Number(min.toFixed(2)),
         max: Number(max.toFixed(2)),
         stdDev: Number(stdDev.toFixed(2))
       };
+    }
+
+    function getIntervalStats() {
+      return computeStatsForArray(drawIntervals);
     }
 
     // WebAudio sintetizador contínuo
@@ -128,6 +145,12 @@
       // desenhar frames atrasados em rajada
       if (now >= nextFrameTargetTime + FRAME_DURATION_MS) {
         missedDeadlines++;
+        const slipped = Math.floor((now - nextFrameTargetTime) / FRAME_DURATION_MS);
+        slotsSlipped += slipped;
+        if (steadyTrackingActive) {
+          steadyMissedDeadlines++;
+          steadySlotsSlipped += slipped;
+        }
         nextFrameTargetTime = now + FRAME_DURATION_MS;
       } else {
         nextFrameTargetTime += FRAME_DURATION_MS;
@@ -140,6 +163,14 @@
         drawIntervals.push(currentInterval);
         if (drawIntervals.length > 120) drawIntervals.shift();
         if (currentInterval > maxDrawIntervalMs) maxDrawIntervalMs = currentInterval;
+      }
+
+      if (steadyTrackingActive) {
+        steadyDrawnFrames++;
+        if (steadyDrawnFrames > 1) {
+          steadyDrawIntervals.push(currentInterval);
+          if (currentInterval > steadyMaxDrawIntervalMs) steadyMaxDrawIntervalMs = currentInterval;
+        }
       }
 
       frameTimestamps.push(now);
@@ -196,7 +227,7 @@
       ctx.fillText(`FONTE: REFERÊNCIA DETERMINÍSTICA NATIVA (1920x1080 @ 60.0Hz)`, 80, 920);
       ctx.fillText(`ESPACAMENTO: p95=${intervalStats.p95}ms | p99=${intervalStats.p99}ms | max=${intervalStats.max}ms | stdDev=${intervalStats.stdDev}ms`, 80, 960);
       ctx.fillText(`ÁUDIO: 48 kHz ESTÉREO (SINE 440Hz / 880Hz ALTERNADO)`, 80, 1000);
-      ctx.fillText(`SLOTS: TICKS DESCARTADOS=${skippedTicks} | DEADLINES PERDIDOS=${missedDeadlines}`, 80, 1040);
+      ctx.fillText(`SLOTS: TICKS DESCARTADOS=${skippedTicks} | DEADLINES PERDIDOS=${missedDeadlines} (SLOTS SLIPPED=${slotsSlipped})`, 80, 1040);
     }
 
     requestAnimationFrame(render);
@@ -210,12 +241,30 @@
         drawnFrames = 0;
         skippedTicks = 0;
         missedDeadlines = 0;
+        slotsSlipped = 0;
         maxDrawIntervalMs = 0;
+        steadyTrackingActive = false;
+        steadyStartTime = 0;
+        steadyDrawnFrames = 0;
+        steadyMissedDeadlines = 0;
+        steadySlotsSlipped = 0;
+        steadyMaxDrawIntervalMs = 0;
+        steadyDrawIntervals.length = 0;
         drawIntervals.length = 0;
         frameTimestamps.length = 0;
         if (audioCtx && osc) {
           osc.frequency.setValueAtTime(440, audioCtx.currentTime);
         }
+      },
+      startSteadyTracking: () => {
+        steadyTrackingActive = true;
+        steadyStartTime = performance.now();
+        steadyDrawnFrames = 0;
+        steadyMissedDeadlines = 0;
+        steadySlotsSlipped = 0;
+        steadyMaxDrawIntervalMs = 0;
+        steadyDrawIntervals.length = 0;
+        return true;
       },
       getState: () => {
         const now = performance.now();
@@ -228,8 +277,17 @@
           plannedFrames,
           skippedTicks,
           missedDeadlines,
+          slotsSlipped,
           maxDrawIntervalMs: Number(maxDrawIntervalMs.toFixed(2)),
           intervalStats: getIntervalStats(),
+          steadyStats: {
+            active: steadyTrackingActive,
+            drawnFrames: steadyDrawnFrames,
+            missedDeadlines: steadyMissedDeadlines,
+            slotsSlipped: steadySlotsSlipped,
+            maxDrawIntervalMs: Number(steadyMaxDrawIntervalMs.toFixed(2)),
+            intervalStats: computeStatsForArray(steadyDrawIntervals)
+          },
           fps: Number(fps.toFixed(2)),
           elapsedMs: Number(elapsed.toFixed(1)),
           currentTime: Number((elapsed / 1000.0).toFixed(2)),
