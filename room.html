@@ -409,6 +409,19 @@
           </select>
         </div>
 
+        <div id="h264-encoder-group">
+          <label for="h264-encoder-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Acelerador / Encoder H.264:</label>
+          <select id="h264-encoder-select" class="custom-id-field">
+            <option value="auto" selected>🎮 Automático (GPU prioritária: NVENC / Media Foundation)</option>
+            <option value="cpu">🧠 CPU Software (x264enc - Recomendado se GPU em 100%)</option>
+            <option value="nvenc">🚀 NVIDIA NVENC (Hardware Dedicado)</option>
+            <option value="mf">🖥️ Media Foundation (Hardware Intel / AMD / Windows)</option>
+          </select>
+          <div id="h264-encoder-note" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+            A aceleração por CPU alivia a GPU caso o jogo esteja exigindo 100% de processamento gráfico.
+          </div>
+        </div>
+
         <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
           <input type="checkbox" id="capture-cursor-toggle" checked style="accent-color: var(--accent-purple); width: 16px; height: 16px; cursor: pointer;">
           <label for="capture-cursor-toggle" style="font-size: 12.5px; color: var(--text-color); cursor: pointer;">Capturar cursor do mouse na transmissão</label>

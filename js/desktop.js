@@ -95,6 +95,7 @@ export function normalizeNativeCaptureState(state = {}) {
         height: state.height == null ? null : Number(state.height),
         dpi: state.dpi == null ? null : Number(state.dpi),
         videoCodec: state.videoCodec || state.video_codec || null,
+        h264Encoder: state.h264Encoder || state.h264_encoder || null,
         videoRtpPort: state.videoRtpPort == null && state.video_rtp_port == null
             ? null
             : Number(state.videoRtpPort ?? state.video_rtp_port),
@@ -157,7 +158,7 @@ export async function getNativeCaptureState() {
     return normalizeNativeCaptureState(await invokeDesktopCommand('get_native_capture_state'));
 }
 
-export async function startNativeCapture({ sourceId, audioMode = 'none', videoCodec = null, showCursor = undefined, width, height, fps, bitrateKbps } = {}) {
+export async function startNativeCapture({ sourceId, audioMode = 'none', videoCodec = null, h264Encoder = null, showCursor = undefined, width, height, fps, bitrateKbps } = {}) {
     if (!isDesktopApp()) throw new Error('Captura nativa só está disponível no app desktop');
     const args = {
         sourceId: requireSourceId(sourceId),
@@ -165,6 +166,7 @@ export async function startNativeCapture({ sourceId, audioMode = 'none', videoCo
     };
     if (showCursor !== undefined) args.showCursor = Boolean(showCursor);
     if (videoCodec) args.videoCodec = String(videoCodec);
+    if (h264Encoder) args.h264Encoder = String(h264Encoder);
     if (width != null) args.width = Number(width);
     if (height != null) args.height = Number(height);
     if (fps != null) args.fps = Number(fps);

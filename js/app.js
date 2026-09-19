@@ -163,6 +163,30 @@ const audioTipBanner = document.getElementById('audio-tip-banner');
 const closeBannerBtn = document.getElementById('close-banner-btn');
 const viewerCountBadge = document.getElementById('viewer-count');
 const coopModeSelect = document.getElementById('coop-mode-select');
+const videoCodecSelect = document.getElementById('video-codec-select');
+const h264EncoderSelect = document.getElementById('h264-encoder-select');
+const h264EncoderGroup = document.getElementById('h264-encoder-group');
+
+try {
+  const savedCodec = localStorage.getItem('seemygame_video_codec');
+  if (savedCodec && videoCodecSelect) {
+    videoCodecSelect.value = savedCodec;
+  }
+  const savedEncoder = localStorage.getItem('seemygame_h264_encoder');
+  if (savedEncoder && h264EncoderSelect) {
+    h264EncoderSelect.value = savedEncoder;
+  }
+} catch (e) {}
+
+function syncH264EncoderVisibility() {
+  if (h264EncoderGroup && videoCodecSelect) {
+    h264EncoderGroup.style.display = videoCodecSelect.value === 'h264' ? 'block' : 'none';
+  }
+}
+if (videoCodecSelect) {
+  videoCodecSelect.addEventListener('change', syncH264EncoderVisibility);
+  syncH264EncoderVisibility();
+}
 
 // Espectadores autorizados (após verificação de PIN se houver)
 export const authenticatedViewers = new Set();
@@ -1486,6 +1510,12 @@ export function initDiscordFeatures() {
         saveAudioPreference('output', speakerSelect.value);
         if (voiceManager) await voiceManager.setAudioOutputDevice(speakerSelect.value).catch(() => {});
       }
+      if (videoCodecSelect) {
+        try { localStorage.setItem('seemygame_video_codec', videoCodecSelect.value); } catch (e) {}
+      }
+      if (h264EncoderSelect) {
+        try { localStorage.setItem('seemygame_h264_encoder', h264EncoderSelect.value); } catch (e) {}
+      }
       tuningModal.style.display = 'none';
       showToast('Configurações atualizadas!', 'success');
     });
@@ -2524,10 +2554,14 @@ export async function startLocalStream(options = {}) {
     if (isDesktopApp() && (options.sourceId || options.sourceType)) {
       showToast('Iniciando captura nativa Direct3D 11...', 'info', 2500);
       const nativeProvider = new NativeCaptureProvider();
+      const chosenCodec = videoCodecSelect ? videoCodecSelect.value : (options.videoCodec || null);
+      const chosenEncoder = h264EncoderSelect ? h264EncoderSelect.value : (options.h264Encoder || null);
       const result = await nativeProvider.start({
         sourceId: options.sourceId,
         sourceType: options.sourceType || 'window',
         audioMode: wantSystemAudio ? audioMode : 'none',
+        videoCodec: chosenCodec,
+        h264Encoder: chosenEncoder,
         width: selectedProfile.width,
         height: selectedProfile.height,
         fps: selectedProfile.fps || 60,

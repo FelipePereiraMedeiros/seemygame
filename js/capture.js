@@ -119,13 +119,13 @@ export class NativeCaptureProvider {
     this._operationId = 0;
   }
 
-  async start({ sourceId, audioMode = 'none', videoCodec = null, showCursor = undefined, sourceType = null, source = null, width, height, fps, bitrateKbps } = {}) {
+  async start({ sourceId, audioMode = 'none', videoCodec = null, h264Encoder = null, showCursor = undefined, sourceType = null, source = null, width, height, fps, bitrateKbps } = {}) {
     if (!sourceId) throw new Error('Selecione uma janela ou monitor antes de iniciar');
 
     const operationId = ++this._operationId;
     let nativeState;
     try {
-      nativeState = await startNativeCapture({ sourceId, audioMode, videoCodec, showCursor, width, height, fps, bitrateKbps });
+      nativeState = await startNativeCapture({ sourceId, audioMode, videoCodec, h264Encoder, showCursor, width, height, fps, bitrateKbps });
     } catch (error) {
       throw normalizeCaptureError(error, 'Falha ao iniciar o worker nativo');
     }
