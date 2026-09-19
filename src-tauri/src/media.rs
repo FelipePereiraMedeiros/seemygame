@@ -31,11 +31,12 @@ const DEFAULT_BITRATE_KBPS: u32 = 8_000;
 const MIN_BITRATE_KBPS: u32 = 256;
 const MAX_BITRATE_KBPS: u32 = 50_000;
 
-const REQUIRED_ELEMENTS: [&str; 7] = [
+const REQUIRED_ELEMENTS: [&str; 8] = [
     "d3d11screencapturesrc",
     "d3d11convert",
     "wasapi2src",
     "opusenc",
+    "rtpjitterbuffer",
     "webrtcbin",
     "mfh264enc",
     "mfh265enc",

@@ -23,9 +23,9 @@ $env:PATH = "$(Join-Path $rootPath 'bin');$(Join-Path $rootPath 'lib');$env:PATH
 
 $requiredElements = @(
     'd3d11screencapturesrc', 'd3d11convert', 'mfh264enc', 'mfh265enc',
-    'wasapi2src', 'opusenc', 'webrtcbin'
+    'wasapi2src', 'opusenc', 'rtpjitterbuffer', 'webrtcbin'
 )
-$optionalElements = @('nvd3d11h264enc', 'svtav1enc')
+$optionalElements = @('nvd3d11h264enc', 'x264enc', 'svtav1enc')
 $allElements = $requiredElements + $optionalElements
 
 $results = foreach ($element in $allElements) {
@@ -79,6 +79,16 @@ if ($SmokeTest) {
             'video/x-raw(memory:D3D11Memory),format=NV12', '!',
             'nvd3d11h264enc', 'bitrate=8000', 'gop-size=60', 'rc-mode=cbr',
             'tune=ultra-low-latency', 'zerolatency=true', 'repeat-sequence-header=true', '!',
+            'video/x-h264,profile=constrained-baseline', '!',
+            'h264parse', '!', 'fakesink'
+        )
+    }
+    if ($report.elements | Where-Object { $_.element -eq 'x264enc' -and $_.available }) {
+        $pipelines['x264'] = @(
+            '-e', 'videotestsrc', 'num-buffers=60', '!',
+            'video/x-raw,format=I420,width=1280,height=720,framerate=60/1', '!',
+            'x264enc', 'bitrate=8000', 'tune=zerolatency', 'speed-preset=ultrafast',
+            'key-int-max=60', 'bframes=0', 'ref=1', '!',
             'video/x-h264,profile=constrained-baseline', '!',
             'h264parse', '!', 'fakesink'
         )
