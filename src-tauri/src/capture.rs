@@ -91,6 +91,7 @@ pub struct NativeCaptureState {
     pub height: Option<u32>,
     pub dpi: Option<u32>,
     pub video_codec: Option<String>,
+    pub h264_encoder: Option<String>,
     pub video_rtp_port: Option<u16>,
     pub audio_rtp_port: Option<u16>,
     pub error: Option<String>,
@@ -381,6 +382,7 @@ pub fn get_native_capture_state() -> Result<NativeCaptureState, String> {
             height: None,
             dpi: None,
             video_codec: None,
+            h264_encoder: None,
             video_rtp_port: None,
             audio_rtp_port: None,
             error: None,
@@ -394,6 +396,7 @@ pub fn start_native_capture(
     source_id: String,
     audio_mode: Option<String>,
     video_codec: Option<String>,
+    h264_encoder: Option<String>,
     show_cursor: Option<bool>,
     width: Option<u32>,
     height: Option<u32>,
@@ -434,6 +437,7 @@ pub fn start_native_capture(
         height: Some(target_height),
         dpi: Some(validated.dpi),
         video_codec: None,
+        h264_encoder: None,
         video_rtp_port: None,
         audio_rtp_port: None,
         error: None,
@@ -459,14 +463,23 @@ pub fn start_native_capture(
     emit_state(&app, &starting_state);
 
     crate::system::write_debug_log(&format!(
-        "[Capture] start_native_capture: source_id={}, audio_mode={}, video_codec={:?}, width={:?}, height={:?}, fps={:?}, bitrate_kbps={:?}",
-        source_id, audio_mode, video_codec, width, height, fps, bitrate_kbps
+        "[Capture] start_native_capture: source_id={}, audio_mode={}, video_codec={:?}, h264_encoder={:?}, width={:?}, height={:?}, fps={:?}, bitrate_kbps={:?}",
+        source_id, audio_mode, video_codec, h264_encoder, width, height, fps, bitrate_kbps
     ));
     let mut config =
         match media::MediaWorkerConfig::from_environment(&audio_mode, video_codec.as_deref()) {
             Ok(config) => config,
             Err(error) => return fail_start(&app, &starting_state, &error),
         };
+    if let Some(enc) = h264_encoder.as_deref() {
+        let trimmed = enc.trim();
+        if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("auto") {
+            config.h264_encoder = match media::H264EncoderBackend::parse(trimmed) {
+                Ok(backend) => backend,
+                Err(error) => return fail_start(&app, &starting_state, &error),
+            };
+        }
+    }
     if let Some(show) = show_cursor {
         config.show_cursor = show;
     }
@@ -503,6 +516,7 @@ pub fn start_native_capture(
     let live_state = NativeCaptureState {
         state: "live".to_string(),
         video_codec: Some(worker.config.codec.as_str().to_string()),
+        h264_encoder: Some(worker.config.h264_encoder.as_str().to_string()),
         video_rtp_port: Some(worker.video_rtp_port),
         audio_rtp_port: worker.audio_rtp_port,
         ..starting_state
@@ -686,6 +700,7 @@ pub fn stop_native_capture(
         height: previous.as_ref().and_then(|s| s.state.height),
         dpi: previous.as_ref().and_then(|s| s.state.dpi),
         video_codec: previous.as_ref().and_then(|s| s.state.video_codec.clone()),
+        h264_encoder: previous.as_ref().and_then(|s| s.state.h264_encoder.clone()),
         video_rtp_port: previous.as_ref().and_then(|s| s.state.video_rtp_port),
         audio_rtp_port: previous.as_ref().and_then(|s| s.state.audio_rtp_port),
         error: None,
