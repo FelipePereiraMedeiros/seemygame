@@ -99,6 +99,7 @@ pub enum H264EncoderBackend {
     Auto,
     Nvenc,
     MediaFoundation,
+    Cpu,
 }
 
 impl H264EncoderBackend {
@@ -107,8 +108,9 @@ impl H264EncoderBackend {
             "auto" => Ok(Self::Auto),
             "nvenc" | "nvd3d11" | "nvd3d11h264enc" | "nvidia" => Ok(Self::Nvenc),
             "mf" | "mediafoundation" | "mfh264enc" => Ok(Self::MediaFoundation),
+            "cpu" | "x264" | "x264enc" | "software" => Ok(Self::Cpu),
             _ => Err(format!(
-                "Backend de encoder H.264 inválido: {value}; use auto, nvenc ou mf"
+                "Backend de encoder H.264 inválido: {value}; use auto, nvenc, mf ou cpu"
             )),
         }
     }
@@ -118,6 +120,7 @@ impl H264EncoderBackend {
             Self::Auto => "auto",
             Self::Nvenc => "nvenc",
             Self::MediaFoundation => "mf",
+            Self::Cpu => "cpu",
         }
     }
 }
@@ -230,6 +233,7 @@ pub struct MediaCapabilities {
     pub process_audio_available: bool,
     pub h264_available: bool,
     pub nvenc_h264_available: bool,
+    pub x264_available: bool,
     pub hevc_available: bool,
     pub av1_available: bool,
     pub webrtc_available: bool,
@@ -246,6 +250,7 @@ impl MediaCapabilities {
             process_audio_available: false,
             h264_available: false,
             nvenc_h264_available: false,
+            x264_available: false,
             hevc_available: false,
             av1_available: false,
             webrtc_available: false,
@@ -321,13 +326,14 @@ impl GStreamerRuntime {
         let has = |element: &str| available.contains(&element);
         let h264_available = has("mfh264enc");
         let nvenc_h264_available = self.inspect_element("nvd3d11h264enc");
+        let x264_available = self.inspect_element("x264enc");
         let hevc_available = has("mfh265enc");
         let av1_available = self.inspect_element("svtav1enc")
             && self.inspect_element("av1parse")
             && self.inspect_element("rtpav1pay");
         let video_available = has("d3d11screencapturesrc")
             && has("d3d11convert")
-            && (h264_available || nvenc_h264_available || hevc_available || av1_available);
+            && (h264_available || nvenc_h264_available || x264_available || hevc_available || av1_available);
         let system_audio_available = has("wasapi2src") && has("opusenc");
         let process_audio_available = system_audio_available && process_loopback_supported();
         let webrtc_available = has("webrtcbin");
@@ -347,6 +353,7 @@ impl GStreamerRuntime {
             process_audio_available,
             h264_available,
             nvenc_h264_available,
+            x264_available,
             hevc_available,
             av1_available,
             webrtc_available,
@@ -437,8 +444,13 @@ impl NativeMediaWorker {
                         #[cfg(not(test))]
                         crate::system::write_debug_log("[Capture] Encoder H.264 selecionado: Media Foundation (mfh264enc)");
                         H264EncoderBackend::MediaFoundation
+                    } else if capabilities.x264_available {
+                        log::info!("[Capture] Encoder H.264 selecionado: CPU (x264enc)");
+                        #[cfg(not(test))]
+                        crate::system::write_debug_log("[Capture] Encoder H.264 selecionado: CPU (x264enc)");
+                        H264EncoderBackend::Cpu
                     } else {
-                        return Err("Nenhum encoder H.264 (nvd3d11h264enc ou mfh264enc) disponível".to_string());
+                        return Err("Nenhum encoder H.264 (nvd3d11h264enc, mfh264enc ou x264enc) disponível".to_string());
                     }
                 }
                 H264EncoderBackend::Nvenc => {
@@ -456,6 +468,14 @@ impl NativeMediaWorker {
                     #[cfg(not(test))]
                     crate::system::write_debug_log("[Capture] Encoder H.264 forçado: Media Foundation (mfh264enc)");
                     H264EncoderBackend::MediaFoundation
+                }
+                H264EncoderBackend::Cpu => {
+                    if !capabilities.x264_available {
+                        return Err("Encoder CPU (x264enc) foi requisitado mas não está disponível".to_string());
+                    }
+                    #[cfg(not(test))]
+                    crate::system::write_debug_log("[Capture] Encoder H.264 forçado: CPU (x264enc)");
+                    H264EncoderBackend::Cpu
                 }
             };
         } else if resolved_config.codec == VideoCodec::Hevc && !capabilities.hevc_available {
@@ -851,7 +871,9 @@ fn build_pipeline(
         (None, None) => String::new(),
     };
 
-    let convert_format = if config.codec == VideoCodec::Av1 {
+    let convert_format = if config.codec == VideoCodec::Av1
+        || config.h264_encoder == H264EncoderBackend::Cpu
+    {
         "I420"
     } else {
         "NV12"
@@ -882,11 +904,37 @@ fn build_pipeline(
 
     match config.codec {
         VideoCodec::H264 => {
-            if config.h264_encoder == H264EncoderBackend::Nvenc {
+            if config.h264_encoder == H264EncoderBackend::Cpu {
+                args.extend([
+                    "d3d11download".to_string(),
+                    "!".to_string(),
+                    format!(
+                        "video/x-raw,format=I420,framerate={}/1{resolution_caps}",
+                        config.fps
+                    ),
+                    "!".to_string(),
+                    "x264enc".to_string(),
+                    format!("bitrate={}", config.bitrate_kbps),
+                    "tune=zerolatency".to_string(),
+                    "speed-preset=ultrafast".to_string(),
+                    format!("key-int-max={}", config.fps.clamp(15, 60)),
+                    "bframes=0".to_string(),
+                    "ref=1".to_string(),
+                    "!".to_string(),
+                    "video/x-h264,profile=constrained-baseline".to_string(),
+                    "!".to_string(),
+                    "h264parse".to_string(),
+                    "config-interval=-1".to_string(),
+                    "!".to_string(),
+                    "rtph264pay".to_string(),
+                    "pt=96".to_string(),
+                    "config-interval=-1".to_string(),
+                ]);
+            } else if config.h264_encoder == H264EncoderBackend::Nvenc {
                 args.extend([
                     "nvd3d11h264enc".to_string(),
                     format!("bitrate={}", config.bitrate_kbps),
-                    format!("gop-size={}", (config.fps * 2).clamp(30, 240)),
+                    format!("gop-size={}", config.fps.clamp(15, 60)),
                     "rc-mode=cbr".to_string(),
                     "tune=ultra-low-latency".to_string(),
                     "zerolatency=true".to_string(),
@@ -905,7 +953,7 @@ fn build_pipeline(
                 args.extend([
                     "mfh264enc".to_string(),
                     format!("bitrate={}", config.bitrate_kbps),
-                    format!("gop-size={}", (config.fps * 2).clamp(30, 240)),
+                    format!("gop-size={}", config.fps.clamp(15, 60)),
                     "low-latency=true".to_string(),
                     "rc-mode=cbr".to_string(),
                     "quality-vs-speed=0".to_string(),
@@ -928,7 +976,7 @@ fn build_pipeline(
         VideoCodec::Hevc => args.extend([
             "mfh265enc".to_string(),
             format!("bitrate={}", config.bitrate_kbps),
-            format!("gop-size={}", (config.fps * 2).clamp(30, 240)),
+            format!("gop-size={}", config.fps.clamp(15, 60)),
             "low-latency=true".to_string(),
             "rc-mode=cbr".to_string(),
             "quality-vs-speed=0".to_string(),
@@ -1233,6 +1281,31 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "perfect-timestamp=true"));
         assert!(args.iter().all(|arg| arg != "hard-resync=true"));
         assert!(args.iter().any(|arg| arg == "rtph265pay"));
+    }
+
+    #[test]
+    fn builds_h264_window_pipeline_with_cpu_x264() {
+        let args = build_pipeline(
+            &source("window"),
+            &MediaWorkerConfig {
+                codec: VideoCodec::H264,
+                h264_encoder: H264EncoderBackend::Cpu,
+                ..MediaWorkerConfig::default()
+            },
+            5000,
+            None,
+        )
+        .unwrap();
+        assert!(args.iter().any(|arg| arg == "d3d11download"));
+        assert!(args.iter().any(|arg| arg == "x264enc"));
+        assert!(args.iter().any(|arg| arg == "tune=zerolatency"));
+        assert!(args.iter().any(|arg| arg == "speed-preset=ultrafast"));
+        assert!(args.iter().any(|arg| arg == "key-int-max=60"));
+        assert!(args.iter().any(|arg| arg == "bframes=0"));
+        assert!(args.iter().any(|arg| arg == "window-handle=1234"));
+        assert!(args.iter().any(|arg| arg == "video/x-h264,profile=constrained-baseline"));
+        assert!(args.iter().any(|arg| arg == "rtph264pay"));
+        assert!(args.iter().all(|arg| !arg.contains('"')));
     }
 
     #[test]
