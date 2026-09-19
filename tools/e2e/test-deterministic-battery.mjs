@@ -19,6 +19,34 @@ const runTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
 const outputDir = path.join(root, 'output/isolation-battery', runTimestamp);
 await mkdir(outputDir, { recursive: true });
 
+// Suporte a filtro de cenários via CLI (--scenario, --focus, -s) ou variável de ambiente (SCENARIOS, SCENARIO)
+const args = process.argv.slice(2);
+let scenarioFilter = process.env.SCENARIOS || process.env.SCENARIO || null;
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  if (arg.startsWith('--scenario=') || arg.startsWith('--focus=')) {
+    scenarioFilter = arg.split('=')[1];
+  } else if (arg === '--scenario' || arg === '--focus' || arg === '-s') {
+    scenarioFilter = args[i + 1];
+    i++;
+  }
+}
+
+const targetScenarios = scenarioFilter
+  ? scenarioFilter.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  : null;
+
+const shouldRunScenario = (key, id) => {
+  if (!targetScenarios || targetScenarios.length === 0) return true;
+  const k = key.toLowerCase();
+  const i = id.toLowerCase();
+  return targetScenarios.some(t => k.includes(t) || i === t || k === t);
+};
+
+if (targetScenarios) {
+  console.log(`[Filtro Ativo] Executando apenas cenários correspondentes a: ${targetScenarios.join(', ')}`);
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const freePort = async () => {
   const s = createTcpServer();
@@ -341,7 +369,18 @@ const runIsolationSuite = async () => {
 
   const hostId = await hostPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
   const viewerId = await viewerPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
-  console.log(`Membros autenticados: Host=${hostId}, Espectador=${viewerId}`);
+  if (!hostId || !viewerId || hostId === viewerId) throw new Error('Identidades dos clientes na sala são inválidas');
+  console.log(`Membros na sala: Host=${hostId}, Espectador=${viewerId}. Aguardando admissão mútua autenticada...`);
+
+  for (const [page, expected, label] of [[hostPage, viewerId, 'Host'], [viewerPage, hostId, 'Espectador']]) {
+    await waitApp(page, async id => {
+      const r = (await import('/js/app.js')).roomManager;
+      return r?.members?.has(id) && r.isPeerAuthorized(id);
+    }, expected, 30000).catch(err => {
+      throw new Error(`Falha na autorização mútua da sala (${label} esperando ${expected}): ${err.message}`);
+    });
+  }
+  console.log(`Membros devidamente autenticados e autorizados na malha da sala!`);
 
   let lastSeenVideoTrackId = null;
 
@@ -1081,6 +1120,76 @@ const runIsolationSuite = async () => {
         effectiveReceivers,
         timeline
       };
+    } catch (err) {
+      console.error(`\n[${name}] Erro capturado durante a execução do cenário:`, err.message);
+
+      // Captura screenshots de erro IMEDIATAMENTE (antes que o teardown encerre o stream nativo)
+      const errorShotPrefix = `${id}-error`;
+      await hostPage.screenshot({ path: path.join(outputDir, `${errorShotPrefix}-host.png`) }).catch(() => {});
+      if (currentTargetViewerPage) {
+        await currentTargetViewerPage.screenshot({ path: path.join(outputDir, `${errorShotPrefix}-viewer.png`) }).catch(() => {});
+      }
+
+      // Diagnósticos imediatos enquanto o pipeline e os elementos de vídeo ainda estão intactos
+      try {
+        const hostDiagnostics = await hostPage.evaluate(async () => {
+          const app = await import('/js/app.js').catch(() => null);
+          const desktop = await import('/js/desktop.js').catch(() => null);
+          const captureState = desktop?.getNativeCaptureState ? await desktop.getNativeCaptureState().catch(() => null) : null;
+          const peers = (window.__smgPeers || []).map(p => ({
+            signalingState: p.signalingState,
+            iceConnectionState: p.iceConnectionState,
+            connectionState: p.connectionState,
+            sendersCount: p.getSenders ? p.getSenders().length : 0,
+            receiversCount: p.getReceivers ? p.getReceivers().length : 0
+          }));
+          return {
+            isInRoom: app?.roomManager?.isInRoom,
+            myPeerId: app?.roomManager?.myPeerId,
+            isStartingStream: app?.isStartingStream,
+            hasLocalStream: !!app?.localStream,
+            captureState,
+            peers
+          };
+        }).catch(e => ({ evalError: e.message }));
+
+        const viewerDiagnostics = currentTargetViewerPage ? await currentTargetViewerPage.evaluate(async ({ hId }) => {
+          const app = await import('/js/app.js').catch(() => null);
+          const card = document.getElementById(`card-${hId}`);
+          const video = card?.querySelector('video');
+          const stream = video?.srcObject;
+          const peers = (window.__smgPeers || []).map(p => ({
+            signalingState: p.signalingState,
+            iceConnectionState: p.iceConnectionState,
+            connectionState: p.connectionState,
+            sendersCount: p.getSenders ? p.getSenders().length : 0,
+            receiversCount: p.getReceivers ? p.getReceivers().length : 0
+          }));
+          return {
+            isInRoom: app?.roomManager?.isInRoom,
+            myPeerId: app?.roomManager?.myPeerId,
+            cardFound: !!card,
+            videoFound: !!video,
+            videoWidth: video?.videoWidth,
+            videoHeight: video?.videoHeight,
+            videoReadyState: video?.readyState,
+            videoPaused: video?.paused,
+            hasStream: !!stream,
+            videoTracks: stream?.getVideoTracks ? stream.getVideoTracks().map(t => ({ id: t.id, readyState: t.readyState })) : [],
+            audioTracks: stream?.getAudioTracks ? stream.getAudioTracks().map(t => ({ id: t.id, readyState: t.readyState })) : [],
+            peers
+          };
+        }, { hId: hostId }).catch(e => ({ evalError: e.message })) : null;
+
+        err.collectedDiagnostics = {
+          host: hostDiagnostics,
+          viewer: viewerDiagnostics
+        };
+      } catch (diagErr) {
+        console.warn(`[Diagnóstico Pré-Teardown] Falha ao coletar estado: ${diagErr.message}`);
+      }
+
+      throw err;
     } finally {
       console.log(`[Teardown] Garantindo parada de captura nativa para ${name}...`);
       await stopNativeCapture().catch(err => {
@@ -1114,13 +1223,8 @@ const runIsolationSuite = async () => {
     } catch (err) {
       console.error(`\n[${scenarioConfig.name}] Falha na execução:`, err.message);
 
-      // Captura screenshots de erro
-      const errorShotPrefix = `${scenarioConfig.id}-error`;
-      await hostPage.screenshot({ path: path.join(outputDir, `${errorShotPrefix}-host.png`) }).catch(() => {});
-      await currentTargetViewerPage.screenshot({ path: path.join(outputDir, `${errorShotPrefix}-viewer.png`) }).catch(() => {});
-
-      // Diagnósticos de sinalização/ICE/DTLS/worker em erro
-      const hostDiagnostics = await hostPage.evaluate(async () => {
+      // Usa diagnósticos coletados antes do teardown (ou faz fallback se necessário)
+      const hostDiagnostics = err.collectedDiagnostics?.host || await hostPage.evaluate(async () => {
         const app = await import('/js/app.js').catch(() => null);
         const desktop = await import('/js/desktop.js').catch(() => null);
         const captureState = desktop?.getNativeCaptureState ? await desktop.getNativeCaptureState().catch(() => null) : null;
@@ -1141,7 +1245,7 @@ const runIsolationSuite = async () => {
         };
       }).catch(e => ({ evalError: e.message }));
 
-      const viewerDiagnostics = await currentTargetViewerPage.evaluate(async ({ hId }) => {
+      const viewerDiagnostics = err.collectedDiagnostics?.viewer || await currentTargetViewerPage.evaluate(async ({ hId }) => {
         const app = await import('/js/app.js').catch(() => null);
         const card = document.getElementById(`card-${hId}`);
         const video = card?.querySelector('video');
@@ -1187,6 +1291,10 @@ const runIsolationSuite = async () => {
   };
 
   const runScenarioAndRecord = async (scenarioKey, scenarioConfig) => {
+    if (!shouldRunScenario(scenarioKey, scenarioConfig.id)) {
+      console.log(`\n[Filtro] Pulando cenário ${scenarioKey} (${scenarioConfig.id}) por filtro de execução.`);
+      return null;
+    }
     const res = await executeScenarioSafely(scenarioConfig);
     results.scenarios[scenarioKey] = res;
     await saveReportProgressive();
