@@ -187,6 +187,10 @@ impl NativeWebRtcBridge {
                 .unwrap_or(audio_worker_payload);
             let audio_caps = audio_rtp_caps(audio_worker_payload);
             let audio_src = make_udp_source("seemygame-audio", audio_rtp_port, &audio_caps)?;
+            let audio_jitter = make_element("rtpjitterbuffer", "seemygame-audio-jitter")?;
+            audio_jitter.set_property("latency", 20u32);
+            audio_jitter.set_property("do-lost", true);
+            audio_jitter.set_property("drop-on-latency", true);
             let audio_depay = make_element("rtpopusdepay", "seemygame-audio-depay")?;
             let audio_pay = make_element("rtpopuspay", "seemygame-audio-pay")?;
             audio_pay.set_property("pt", audio_payload as u32);
@@ -197,9 +201,19 @@ impl NativeWebRtcBridge {
             audio_queue.set_property("max-size-time", 100_000_000u64);
             audio_queue.set_property("max-size-bytes", 0u32);
             pipeline
-                .add_many([&audio_src, &audio_depay, &audio_pay, &audio_capsfilter, &audio_queue])
+                .add_many([
+                    &audio_src,
+                    &audio_jitter,
+                    &audio_depay,
+                    &audio_pay,
+                    &audio_capsfilter,
+                    &audio_queue,
+                ])
                 .map_err(|error| format!("Falha ao adicionar entrada de áudio: {error}"))?;
             audio_src
+                .link(&audio_jitter)
+                .map_err(|error| format!("Falha ao ligar jitter buffer de áudio: {error}"))?;
+            audio_jitter
                 .link(&audio_depay)
                 .map_err(|error| format!("Falha ao ligar depayloader de áudio: {error}"))?;
             audio_depay

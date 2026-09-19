@@ -1002,8 +1002,7 @@ fn build_pipeline(
             "opusenc".to_string(),
             "bitrate=128000".to_string(),
             "audio-type=restricted-lowdelay".to_string(),
-            "perfect-timestamp=false".to_string(),
-            "hard-resync=true".to_string(),
+            "perfect-timestamp=true".to_string(),
             "inband-fec=true".to_string(),
             "packet-loss-percentage=10".to_string(),
             "!".to_string(),
@@ -1231,8 +1230,8 @@ mod tests {
             .any(|arg| arg == "loopback-mode=include-process-tree"));
         assert!(args.iter().any(|arg| arg == "loopback-target-pid=42"));
         assert!(args.iter().any(|arg| arg == "audio-type=restricted-lowdelay"));
-        assert!(args.iter().any(|arg| arg == "perfect-timestamp=false"));
-        assert!(args.iter().any(|arg| arg == "hard-resync=true"));
+        assert!(args.iter().any(|arg| arg == "perfect-timestamp=true"));
+        assert!(args.iter().all(|arg| arg != "hard-resync=true"));
         assert!(args.iter().any(|arg| arg == "rtph265pay"));
     }
 
