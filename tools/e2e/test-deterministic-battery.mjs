@@ -22,6 +22,7 @@ await mkdir(outputDir, { recursive: true });
 // Suporte a filtro de cenários via CLI (--scenario, --focus, -s) ou variável de ambiente (SCENARIOS, SCENARIO)
 const args = process.argv.slice(2);
 let scenarioFilter = process.env.SCENARIOS || process.env.SCENARIO || null;
+let encoderOverride = process.env.SEEMYGAME_NATIVE_H264_ENCODER || null;
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (arg.startsWith('--scenario=') || arg.startsWith('--focus=')) {
@@ -29,7 +30,17 @@ for (let i = 0; i < args.length; i++) {
   } else if (arg === '--scenario' || arg === '--focus' || arg === '-s') {
     scenarioFilter = args[i + 1];
     i++;
+  } else if (arg.startsWith('--encoder=')) {
+    encoderOverride = arg.split('=')[1];
+  } else if (arg === '--encoder') {
+    encoderOverride = args[i + 1];
+    i++;
   }
+}
+
+if (encoderOverride) {
+  process.env.SEEMYGAME_NATIVE_H264_ENCODER = encoderOverride;
+  console.log(`[Encoder Ativo] Forçando backend H.264: ${encoderOverride}`);
 }
 
 const targetScenarios = scenarioFilter
@@ -384,9 +395,20 @@ const runIsolationSuite = async () => {
 
   let lastSeenVideoTrackId = null;
 
-  const startNativeCapture = async (audioMode = 'system', windowTitleFilter = 'Determinística') => {
+  const startNativeCapture = async (audioMode = 'system', windowTitleFilter = 'Determinística', encoderChoice = null) => {
     console.log(`Configurando captura nativa: audioMode=${audioMode} | filtro=${windowTitleFilter}`);
     await hostPage.locator('#audio-mode-select').selectOption(audioMode, { force: true });
+    const targetEncoder = encoderChoice || encoderOverride;
+    if (targetEncoder) {
+      await hostPage.evaluate((enc) => {
+        const sel = document.getElementById('h264-encoder-select');
+        if (sel) {
+          sel.value = enc;
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        try { localStorage.setItem('seemygame_h264_encoder', enc); } catch (e) {}
+      }, targetEncoder).catch(() => {});
+    }
     await hostPage.locator('#dock-stream-btn').click();
     await hostPage.locator('.window-item').first().waitFor({ state: 'visible', timeout: 30000 });
 
@@ -970,6 +992,12 @@ const runIsolationSuite = async () => {
         }
       }
 
+      // Coleta estado de captura nativa antes de qualquer teardown
+      const hostCaptureState = await hostPage.evaluate(async () => {
+        const d = await import('/js/desktop.js').catch(() => null);
+        return d?.getNativeCaptureState ? await d.getNativeCaptureState().catch(() => null) : null;
+      }).catch(() => null);
+
       // Processamento estatístico
       const steady = timeline.slice(1);
       const fpsList = steady.map(t => t.decodedFps).filter(n => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
@@ -1070,6 +1098,13 @@ const runIsolationSuite = async () => {
         maxPauseMs: maxPause,
         totalGapsCount: totalGaps,
         gapsPerMinute: qualityBudget.gapsPerMinute,
+        encoderInfo: {
+          requestedEncoder: encoderOverride || 'auto',
+          resolvedH264Encoder: hostCaptureState?.h264Encoder || hostCaptureState?.h264_encoder || 'unknown',
+          videoCodec: hostCaptureState?.videoCodec || hostCaptureState?.video_codec || 'h264',
+          width: hostCaptureState?.width ?? null,
+          height: hostCaptureState?.height ?? null
+        },
         decoderInfo: {
           implementation: latestVideoRow?.decoderImplementation ?? 'unknown',
           powerEfficient: latestVideoRow?.powerEfficientDecoder ?? null,
@@ -1541,6 +1576,7 @@ const runIsolationSuite = async () => {
       'Startup Freezes': sc.startupDynamics ? `${sc.startupDynamics.startupFreezes} (${sc.startupDynamics.startupFreezeDurationSec}s)` : 'N/A',
       'Perda Pkts V/A': sc.steadyQuality ? `${sc.steadyQuality.packetsLost} / ${sc.steadyQuality.audioPacketsLost}` : 'N/A',
       'Audio Conceal %': sc.audioValidation?.audioConcealmentRatio != null ? `${sc.audioValidation.audioConcealmentRatio}%` : 'N/A',
+      'Encoder': sc.encoderInfo?.resolvedH264Encoder ?? 'N/A',
       'Decoder': sc.decoderInfo?.implementation ?? 'N/A'
     };
   }
