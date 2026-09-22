@@ -93,6 +93,7 @@ impl NativeWebRtcBridge {
             .build()
             .map_err(|error| format!("Falha ao criar webrtcbin: {error}"))?;
         webrtc.set_property_from_str("bundle-policy", "max-bundle");
+        webrtc.set_property("latency", 10u32);
 
         let mut stun_set = false;
         if let Some(servers) = ice_servers {
@@ -155,13 +156,17 @@ impl NativeWebRtcBridge {
         // payloader has no config-interval property; AV1 sequence headers are
         // carried by av1parse/rtpav1pay according to the negotiated stream.
         if matches!(codec, VideoCodec::H264 | VideoCodec::Hevc) {
+            video_pay.set_property("perfect-rtptime", false);
             video_pay.set_property("config-interval", -1i32);
+            if codec == VideoCodec::H264 {
+                video_pay.set_property_from_str("aggregate-mode", "zero-latency");
+            }
         }
         let video_capsfilter =
             make_caps_filter("seemygame-video-caps", &rtp_caps(codec, video_payload))?;
         let video_queue = make_element("queue", "seemygame-video-queue")?;
         video_queue.set_property("max-size-buffers", 0u32);
-        video_queue.set_property("max-size-time", 100_000_000u64);
+        video_queue.set_property("max-size-time", 30_000_000u64);
         video_queue.set_property("max-size-bytes", 0u32);
         pipeline
             .add_many([&video_src, &video_depay, &video_pay, &video_capsfilter, &video_queue])
@@ -198,7 +203,7 @@ impl NativeWebRtcBridge {
                 make_caps_filter("seemygame-audio-caps", &audio_rtp_caps(audio_payload))?;
             let audio_queue = make_element("queue", "seemygame-audio-queue")?;
             audio_queue.set_property("max-size-buffers", 0u32);
-            audio_queue.set_property("max-size-time", 100_000_000u64);
+            audio_queue.set_property("max-size-time", 30_000_000u64);
             audio_queue.set_property("max-size-bytes", 0u32);
             pipeline
                 .add_many([
@@ -476,6 +481,7 @@ fn make_udp_source(name: &str, port: u16, caps: &gst::Caps) -> Result<gst::Eleme
     // process. Never expose the unauthenticated socket on a LAN interface.
     source.set_property("address", "127.0.0.1");
     source.set_property("buffer-size", 2097152i32);
+    source.set_property("do-timestamp", true);
     crate::media::clear_handoff_leases();
     source.set_property("port", port as i32);
     source.set_property("caps", caps);

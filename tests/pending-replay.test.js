@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { Blob as NodeBlob } from 'node:buffer';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -7,9 +7,30 @@ import { ClipRecorder } from '../js/clipping.js';
 
 const fixture = readFileSync(resolve('tests/fixtures/replay-red-then-blue.webm'));
 const FRAME_BYTES = 16 * 16 * 3;
+function findWingetFfmpeg() {
+  const localAppData = process.env.LOCALAPPDATA;
+  if (!localAppData) return null;
+  const base = resolve(localAppData, 'Microsoft', 'WinGet', 'Packages');
+  try {
+    if (!existsSync(base)) return null;
+    for (const dir of readdirSync(base)) {
+      if (/ffmpeg/i.test(dir)) {
+        const pkgDir = resolve(base, dir);
+        for (const sub of readdirSync(pkgDir)) {
+          const bin = resolve(pkgDir, sub, 'bin', 'ffmpeg.exe');
+          if (existsSync(bin)) return bin;
+        }
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
 function resolveFfmpegBin() {
   if (process.env.FFMPEG_BIN) return process.env.FFMPEG_BIN;
+  const wingetBin = findWingetFfmpeg();
   const candidates = [
+    ...(wingetBin ? [wingetBin] : []),
     'ffmpeg',
     'C:\\Users\\diogo\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.0.1-full_build\\bin\\ffmpeg.exe'
   ];

@@ -1832,6 +1832,12 @@ async function handleStartDirectStream(data, conn) {
         remoteStream.addTrack(track);
       }
     }
+    if (event.receiver) {
+      try {
+        if ('jitterBufferTarget' in event.receiver) event.receiver.jitterBufferTarget = 0;
+        if ('playoutDelayHint' in event.receiver) event.receiver.playoutDelayHint = 0;
+      } catch (_) {}
+    }
 
     hideCardLoading(hostId);
     setCardStreamPaused(hostId, false);

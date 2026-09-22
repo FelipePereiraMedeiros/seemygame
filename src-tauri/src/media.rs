@@ -865,7 +865,22 @@ fn build_pipeline(
         "show-cursor=false"
     };
 
-    let resolution_caps = match (config.width, config.height) {
+    let (target_w, target_h) = match (config.width, config.height) {
+        (Some(w), Some(h)) => {
+            // Never upscale a window/monitor capture beyond its native dimensions.
+            // When source dimensions are known and smaller than target, preserve native resolution.
+            if source.width > 0 && source.height > 0 && (source.width < w || source.height < h) {
+                (Some(source.width & !1), Some(source.height & !1))
+            } else {
+                (Some(w & !1), Some(h & !1))
+            }
+        }
+        (Some(w), None) => (Some(w & !1), None),
+        (None, Some(h)) => (None, Some(h & !1)),
+        (None, None) => (None, None),
+    };
+
+    let resolution_caps = match (target_w, target_h) {
         (Some(w), Some(h)) => format!(",width={w},height={h}"),
         (Some(w), None) => format!(",width={w}"),
         (None, Some(h)) => format!(",height={h}"),
@@ -896,10 +911,9 @@ fn build_pipeline(
         ),
         "!".to_string(),
         "queue".to_string(),
-        "max-size-buffers=2".to_string(),
-        "max-size-time=50000000".to_string(),
+        "max-size-buffers=4".to_string(),
+        "max-size-time=70000000".to_string(),
         "max-size-bytes=0".to_string(),
-        "leaky=downstream".to_string(),
         "!".to_string(),
     ]);
 
@@ -930,6 +944,7 @@ fn build_pipeline(
                     "rtph264pay".to_string(),
                     "pt=96".to_string(),
                     "config-interval=-1".to_string(),
+                    "aggregate-mode=zero-latency".to_string(),
                 ]);
             } else if config.h264_encoder == H264EncoderBackend::Nvenc {
                 args.extend([
@@ -940,6 +955,11 @@ fn build_pipeline(
                     "tune=ultra-low-latency".to_string(),
                     "zerolatency=true".to_string(),
                     "repeat-sequence-header=true".to_string(),
+                    "preset=p1".to_string(),
+                    "bframes=0".to_string(),
+                    "strict-gop=true".to_string(),
+                    "aud=false".to_string(),
+                    "cabac=false".to_string(),
                     "!".to_string(),
                     "video/x-h264,profile=constrained-baseline".to_string(),
                     "!".to_string(),
@@ -949,6 +969,7 @@ fn build_pipeline(
                     "rtph264pay".to_string(),
                     "pt=96".to_string(),
                     "config-interval=-1".to_string(),
+                    "aggregate-mode=zero-latency".to_string(),
                 ]);
             } else {
                 args.extend([
@@ -971,6 +992,7 @@ fn build_pipeline(
                     "rtph264pay".to_string(),
                     "pt=96".to_string(),
                     "config-interval=-1".to_string(),
+                    "aggregate-mode=zero-latency".to_string(),
                 ]);
             }
         }
