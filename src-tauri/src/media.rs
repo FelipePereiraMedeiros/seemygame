@@ -818,10 +818,14 @@ fn assign_child_to_job_object(child: &Child) {
         unsafe {
             let job_handle = HANDLE(stored as *mut std::ffi::c_void);
             let proc_handle = HANDLE(child.as_raw_handle() as *mut std::ffi::c_void);
+            let _ = windows::Win32::System::Threading::SetPriorityClass(
+                proc_handle,
+                windows::Win32::System::Threading::HIGH_PRIORITY_CLASS,
+            );
             if let Err(e) = AssignProcessToJobObject(job_handle, proc_handle) {
                 log::warn!("[JobObject] Falha ao associar processo ao Job Object: {e:?}");
             } else {
-                log::info!("[JobObject] Processo worker GStreamer associado ao Job Object");
+                log::info!("[JobObject] Processo worker GStreamer associado ao Job Object com HIGH_PRIORITY_CLASS");
             }
         }
     }

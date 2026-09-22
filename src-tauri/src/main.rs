@@ -4,10 +4,15 @@
 fn main() {
     #[cfg(target_os = "windows")]
     {
+        unsafe {
+            use windows::Win32::System::Threading::{GetCurrentProcess, SetPriorityClass, HIGH_PRIORITY_CLASS};
+            let _ = SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+        }
+
         // Garante aceleração por hardware da GPU para codificação/decodificação WebRTC no WebView2
         let current_args =
             std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
-        let gpu_args = "--enable-features=WebRtcHWEncoding,WebRtcHWDecoding --ignore-gpu-blocklist --enable-zero-copy --disable-features=WebRtcHideLocalIpsWithMdns";
+        let gpu_args = "--enable-features=WebRtcHWEncoding,WebRtcHWDecoding --ignore-gpu-blocklist --enable-zero-copy --disable-features=WebRtcHideLocalIpsWithMdns --gpu-preferences=2";
         let combined = if current_args.is_empty() {
             gpu_args.to_string()
         } else {
