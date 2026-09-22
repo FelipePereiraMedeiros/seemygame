@@ -25,6 +25,7 @@ tauri = { version = "2.11.3", features = ["wry", "devtools"] }
 tauri-plugin-log = "2"
 gstreamer = "0.25.2"
 gstreamer-webrtc = "0.25.2"
+gstreamer-video = "0.25.2"
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",

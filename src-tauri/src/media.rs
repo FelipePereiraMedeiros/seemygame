@@ -154,6 +154,8 @@ pub struct MediaWorkerConfig {
     pub show_cursor: bool,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub gop_size: Option<u32>,
+    pub capture_api: Option<String>,
 }
 
 impl Default for MediaWorkerConfig {
@@ -167,6 +169,8 @@ impl Default for MediaWorkerConfig {
             show_cursor: true,
             width: None,
             height: None,
+            gop_size: None,
+            capture_api: None,
         }
     }
 }
@@ -220,6 +224,17 @@ impl MediaWorkerConfig {
         if let Ok(value) = env::var("SEEMYGAME_NATIVE_HEIGHT") {
             if let Ok(h) = value.parse::<u32>() {
                 config.height = Some(h.clamp(240, 4320));
+            }
+        }
+        if let Ok(value) = env::var("SEEMYGAME_NATIVE_GOP_SIZE") {
+            if let Ok(gop) = value.trim().parse::<u32>() {
+                config.gop_size = Some(gop.clamp(10, 240));
+            }
+        }
+        if let Ok(value) = env::var("SEEMYGAME_NATIVE_CAPTURE_API") {
+            let api = value.trim().to_ascii_lowercase();
+            if api == "dxgi" || api == "wgc" {
+                config.capture_api = Some(api);
             }
         }
         Ok(config)
@@ -817,7 +832,7 @@ fn assign_child_to_job_object(child: &Child) {
     if let Some(stored) = *job_opt {
         unsafe {
             let job_handle = HANDLE(stored as *mut std::ffi::c_void);
-            let proc_handle = HANDLE(child.as_raw_handle() as *mut std::ffi::c_void);
+            let proc_handle = HANDLE(child.as_raw_handle());
             let _ = windows::Win32::System::Threading::SetPriorityClass(
                 proc_handle,
                 windows::Win32::System::Threading::HIGH_PRIORITY_CLASS,
@@ -847,9 +862,18 @@ fn build_pipeline(
     video_rtp_port: u16,
     audio_rtp_port: Option<u16>,
 ) -> Result<Vec<String>, String> {
+    let capture_api = if source.hwnd.is_some() {
+        "wgc"
+    } else {
+        config.capture_api.as_deref().unwrap_or("wgc")
+    };
+    let gop_size = config
+        .gop_size
+        .unwrap_or_else(|| (config.fps / 2).clamp(15, 30));
+
     let mut args = vec![
         "d3d11screencapturesrc".to_string(),
-        "capture-api=wgc".to_string(),
+        format!("capture-api={capture_api}"),
         "do-timestamp=true".to_string(),
     ];
     if let Some(hwnd) = source.hwnd {
@@ -936,7 +960,7 @@ fn build_pipeline(
                     format!("bitrate={}", config.bitrate_kbps),
                     "tune=zerolatency".to_string(),
                     "speed-preset=ultrafast".to_string(),
-                    format!("key-int-max={}", config.fps.clamp(15, 60)),
+                    format!("key-int-max={gop_size}"),
                     "bframes=0".to_string(),
                     "ref=1".to_string(),
                     "!".to_string(),
@@ -954,7 +978,7 @@ fn build_pipeline(
                 args.extend([
                     "nvd3d11h264enc".to_string(),
                     format!("bitrate={}", config.bitrate_kbps),
-                    format!("gop-size={}", config.fps.clamp(15, 60)),
+                    format!("gop-size={gop_size}"),
                     "rc-mode=cbr".to_string(),
                     "tune=ultra-low-latency".to_string(),
                     "zerolatency=true".to_string(),
@@ -979,7 +1003,7 @@ fn build_pipeline(
                 args.extend([
                     "mfh264enc".to_string(),
                     format!("bitrate={}", config.bitrate_kbps),
-                    format!("gop-size={}", config.fps.clamp(15, 60)),
+                    format!("gop-size={gop_size}"),
                     "low-latency=true".to_string(),
                     "rc-mode=cbr".to_string(),
                     "quality-vs-speed=0".to_string(),
@@ -1003,7 +1027,7 @@ fn build_pipeline(
         VideoCodec::Hevc => args.extend([
             "mfh265enc".to_string(),
             format!("bitrate={}", config.bitrate_kbps),
-            format!("gop-size={}", config.fps.clamp(15, 60)),
+            format!("gop-size={gop_size}"),
             "low-latency=true".to_string(),
             "rc-mode=cbr".to_string(),
             "quality-vs-speed=0".to_string(),
@@ -1327,12 +1351,54 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "x264enc"));
         assert!(args.iter().any(|arg| arg == "tune=zerolatency"));
         assert!(args.iter().any(|arg| arg == "speed-preset=ultrafast"));
-        assert!(args.iter().any(|arg| arg == "key-int-max=60"));
+        assert!(args.iter().any(|arg| arg == "key-int-max=30"));
         assert!(args.iter().any(|arg| arg == "bframes=0"));
         assert!(args.iter().any(|arg| arg == "window-handle=1234"));
         assert!(args.iter().any(|arg| arg == "video/x-h264,profile=constrained-baseline"));
         assert!(args.iter().any(|arg| arg == "rtph264pay"));
         assert!(args.iter().all(|arg| !arg.contains('"')));
+    }
+
+    #[test]
+    fn respects_custom_gop_size() {
+        let args = build_pipeline(
+            &source("window"),
+            &MediaWorkerConfig {
+                gop_size: Some(45),
+                ..MediaWorkerConfig::default()
+            },
+            5000,
+            None,
+        )
+        .unwrap();
+        assert!(args.iter().any(|arg| arg == "gop-size=45"));
+    }
+
+    #[test]
+    fn supports_dxgi_for_monitor_and_falls_back_to_wgc_for_window() {
+        let monitor_args = build_pipeline(
+            &source("monitor"),
+            &MediaWorkerConfig {
+                capture_api: Some("dxgi".to_string()),
+                ..MediaWorkerConfig::default()
+            },
+            5000,
+            None,
+        )
+        .unwrap();
+        assert!(monitor_args.iter().any(|arg| arg == "capture-api=dxgi"));
+
+        let window_args = build_pipeline(
+            &source("window"),
+            &MediaWorkerConfig {
+                capture_api: Some("dxgi".to_string()),
+                ..MediaWorkerConfig::default()
+            },
+            5000,
+            None,
+        )
+        .unwrap();
+        assert!(window_args.iter().any(|arg| arg == "capture-api=wgc"));
     }
 
     #[test]

@@ -299,6 +299,61 @@ pub fn unplug_all_virtual_gamepads() -> Result<(), String> {
     with_manager(|mgr| mgr.unplug_all())
 }
 
+#[tauri::command]
+pub async fn install_vigem_driver() -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let mut script_path = None;
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                for ancestor in parent.ancestors().take(7) {
+                    let candidate = ancestor.join("tools").join("install-vigem.ps1");
+                    if candidate.exists() {
+                        script_path = Some(candidate);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let script = script_path.ok_or_else(|| {
+            "Script de instalação tools/install-vigem.ps1 não encontrado".to_string()
+        })?;
+
+        log::info!("[Gamepad] Invocando instalador do ViGEmBus com elevação: {}", script.display());
+
+        let ps_cmd = format!(
+            "Start-Process powershell.exe -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{}\"' -Verb RunAs -Wait",
+            script.display()
+        );
+
+        let status = std::process::Command::new("powershell.exe")
+            .arg("-NoProfile")
+            .arg("-Command")
+            .arg(&ps_cmd)
+            .status()
+            .map_err(|e| format!("Falha ao invocar processo de instalação: {e}"))?;
+
+        if !status.success() {
+            return Err("A instalação do driver foi cancelada ou falhou".to_string());
+        }
+
+        let mut lock = GAMEPAD_MANAGER.lock().unwrap();
+        *lock = Some(native::NativeGamepadManager::new());
+        if let Some(mgr) = lock.as_mut() {
+            if mgr.is_available() {
+                return Ok("Driver ViGEmBus instalado e conectado com sucesso!".to_string());
+            }
+        }
+
+        Ok("Instalação concluída. Verifique se o serviço ViGEmBus está ativo.".to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("ViGEmBus é suportado apenas no Windows".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

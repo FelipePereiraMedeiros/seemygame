@@ -40,8 +40,50 @@ export class MockAudioContext {
       getByteFrequencyData: vi.fn((array) => {
         array.fill(120);
       }),
+      getFloatTimeDomainData: vi.fn((array) => {
+        array.fill(0.1);
+      }),
+      getByteTimeDomainData: vi.fn((array) => {
+        array.fill(128);
+      }),
+      connect: vi.fn(),
+      disconnect: vi.fn()
+    };
+  }
+
+  createBiquadFilter() {
+    return {
+      type: 'lowpass',
+      frequency: { value: 350 },
+      Q: { value: 1 },
+      connect: vi.fn(),
+      disconnect: vi.fn()
+    };
+  }
+
+  createGain() {
+    return {
+      gain: {
+        value: 1,
+        setTargetAtTime: vi.fn(),
+        setValueAtTime: vi.fn()
+      },
+      connect: vi.fn(),
+      disconnect: vi.fn()
+    };
+  }
+
+  createMediaStreamDestination() {
+    return {
+      stream: {
+        id: 'mock-processed-dest-stream',
+        getTracks: () => [{ kind: 'audio', id: 'mock-processed-track', stop: vi.fn() }],
+        getAudioTracks: () => [{ kind: 'audio', id: 'mock-processed-track', stop: vi.fn() }],
+        getVideoTracks: () => []
+      },
       connect: vi.fn(),
       disconnect: vi.fn()
     };
   }
 }
+

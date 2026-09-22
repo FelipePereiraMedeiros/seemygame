@@ -2,6 +2,7 @@
 // Tauri runtime. The runtime-only command wiring is intentionally excluded
 // from those test builds.
 #![cfg_attr(test, allow(dead_code, unused_imports, unused_variables))]
+#![allow(clippy::too_many_arguments)]
 
 #[cfg(not(test))]
 use tauri::Manager;
@@ -9,6 +10,7 @@ use tauri::Manager;
 mod capture;
 mod gamepad;
 mod media;
+mod native_viewer;
 #[cfg(not(test))]
 mod system;
 mod webrtc_bridge;
@@ -91,7 +93,11 @@ pub fn run() {
             gamepad::plug_virtual_gamepad,
             gamepad::update_virtual_gamepad,
             gamepad::unplug_virtual_gamepad,
-            gamepad::unplug_all_virtual_gamepads
+            gamepad::unplug_all_virtual_gamepads,
+            gamepad::install_vigem_driver,
+            native_viewer::start_native_viewer,
+            native_viewer::add_native_viewer_candidate,
+            native_viewer::stop_native_viewer
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

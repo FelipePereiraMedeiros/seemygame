@@ -163,4 +163,51 @@ describe('Módulo: desktop.js (Tauri v2 / Rust Integration)', () => {
             viewerId: 'viewer-a'
         });
     });
+
+    it('installViGEmDriver deve invocar install_vigem_driver no desktop', async () => {
+        const { installViGEmDriver, checkVirtualGamepadDriver } = await import('../js/desktop.js');
+        window.__TAURI_INTERNALS__ = {
+            invoke: vi.fn().mockImplementation((cmd) => {
+                if (cmd === 'install_vigem_driver') return Promise.resolve('Driver instalado');
+                if (cmd === 'check_gamepad_driver_status') return Promise.resolve({ vigem_available: true, active_slots: [] });
+                return Promise.resolve(null);
+            })
+        };
+        const status = await checkVirtualGamepadDriver();
+        expect(status.vigem_available).toBe(true);
+
+        const res = await installViGEmDriver();
+        expect(res).toBe('Driver instalado');
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('install_vigem_driver');
+    });
+
+    it('startNativeViewer deve invocar start_native_viewer no desktop', async () => {
+        const { startNativeViewer, addNativeViewerCandidate, stopNativeViewer } = await import('../js/desktop.js');
+        window.__TAURI_INTERNALS__ = {
+            invoke: vi.fn().mockImplementation((cmd) => {
+                if (cmd === 'start_native_viewer') return Promise.resolve({ type: 'answer', sdp: 'v=0...' });
+                if (cmd === 'add_native_viewer_candidate') return Promise.resolve();
+                if (cmd === 'stop_native_viewer') return Promise.resolve();
+                return Promise.resolve(null);
+            })
+        };
+        const answer = await startNativeViewer('host-42', 'v=0 offer', ['stun:stun.l.google.com:19302'], true);
+        expect(answer.type).toBe('answer');
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('start_native_viewer', {
+            hostId: 'host-42',
+            offerSdp: 'v=0 offer',
+            iceServers: ['stun:stun.l.google.com:19302'],
+            openDedicatedWindow: true
+        });
+
+        await addNativeViewerCandidate(0, 'candidate:123');
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('add_native_viewer_candidate', {
+            mlineIndex: 0,
+            candidate: 'candidate:123'
+        });
+
+        await stopNativeViewer();
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('stop_native_viewer');
+    });
 });
+

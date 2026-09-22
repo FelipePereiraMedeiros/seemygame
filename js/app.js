@@ -16,7 +16,7 @@ import {
   applySenderOptimizations,
   swapStreamAudioTrack
 } from './webrtc.js';
-import { initAudioAnalyser, stopAudioAnalyser } from './audio.js';
+import { initAudioAnalyser, stopAudioAnalyser, applyMicrophoneProcessing } from './audio.js';
 import { startStatsMonitor, stopStatsMonitor } from './stats.js';
 import { 
   showToast, 
@@ -129,6 +129,7 @@ let localStream = null;
 let isStartingStream = false;
 let capturedSystemAudioTrack = null;
 let capturedMicStream = null;
+let activeMicProcessor = null;
 let activeNativeCaptureProvider = null;
 
 // Conexões ativas
@@ -489,7 +490,12 @@ if (audioModeSelect) {
               }
             });
           }
-          newAudioTrack = capturedMicStream.getAudioTracks()[0] || null;
+          if (activeMicProcessor) {
+            activeMicProcessor.destroy();
+            activeMicProcessor = null;
+          }
+          activeMicProcessor = applyMicrophoneProcessing(capturedMicStream);
+          newAudioTrack = activeMicProcessor.processedStream.getAudioTracks()[0] || capturedMicStream.getAudioTracks()[0] || null;
 
           // Remove faixas de áudio anteriores da stream local
           localStream.getAudioTracks().forEach(t => {
@@ -501,9 +507,13 @@ if (audioModeSelect) {
 
           if (newAudioTrack) {
             localStream.addTrack(newAudioTrack);
-            showToast('🎙️ Microfone ativado na transmissão!', 'success');
+            showToast('🎙️ Microfone com filtro e Noise Gate ativado!', 'success');
           }
         } else if (newMode === 'none') {
+          if (activeMicProcessor) {
+            activeMicProcessor.destroy();
+            activeMicProcessor = null;
+          }
           localStream.getAudioTracks().forEach(t => {
             if (t !== capturedSystemAudioTrack) {
               t.stop();
@@ -513,6 +523,10 @@ if (audioModeSelect) {
           newAudioTrack = null;
           showToast('🔇 Áudio desativado (apenas vídeo).', 'info');
         } else if (newMode === 'system') {
+          if (activeMicProcessor) {
+            activeMicProcessor.destroy();
+            activeMicProcessor = null;
+          }
           if (capturedSystemAudioTrack && capturedSystemAudioTrack.readyState === 'live') {
             localStream.getAudioTracks().forEach(t => {
               if (t !== capturedSystemAudioTrack) {
@@ -2641,7 +2655,7 @@ export async function startLocalStream(options = {}) {
       }
     }
 
-    // Se selecionou Microfone, captura e anexa a trilha de voz
+    // Se selecionou Microfone, captura e anexa a trilha de voz com filtro High-Pass e Noise Gate
     if (audioMode === 'mic') {
       try {
         capturedMicStream = await navigator.mediaDevices.getUserMedia({
@@ -2651,7 +2665,12 @@ export async function startLocalStream(options = {}) {
             autoGainControl: true
           }
         });
-        const micTrack = capturedMicStream.getAudioTracks()[0];
+        if (activeMicProcessor) {
+          activeMicProcessor.destroy();
+          activeMicProcessor = null;
+        }
+        activeMicProcessor = applyMicrophoneProcessing(capturedMicStream);
+        const micTrack = activeMicProcessor.processedStream.getAudioTracks()[0] || capturedMicStream.getAudioTracks()[0];
         if (micTrack) {
           localStream.addTrack(micTrack);
         }
@@ -2778,6 +2797,10 @@ export function stopLocalStream() {
   if (capturedMicStream) {
     try { capturedMicStream.getTracks().forEach(t => t.stop()); } catch (e) {}
     capturedMicStream = null;
+  }
+  if (activeMicProcessor) {
+    activeMicProcessor.destroy();
+    activeMicProcessor = null;
   }
 
   // Revoga Player 2 se houver algum conectado

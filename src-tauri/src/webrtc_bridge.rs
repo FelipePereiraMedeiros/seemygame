@@ -116,10 +116,12 @@ impl NativeWebRtcBridge {
                 {
                     let formatted = if trimmed.starts_with("turn://") || trimmed.starts_with("turns://") {
                         trimmed.to_string()
-                    } else if trimmed.starts_with("turns:") {
-                        format!("turns://{}", &trimmed[6..])
+                    } else if let Some(rest) = trimmed.strip_prefix("turns:") {
+                        format!("turns://{rest}")
+                    } else if let Some(rest) = trimmed.strip_prefix("turn:") {
+                        format!("turn://{rest}")
                     } else {
-                        format!("turn://{}", &trimmed[5..])
+                        trimmed.to_string()
                     };
                     let sanitized = sanitize_turn_uri(&formatted);
                     #[cfg(not(test))]

@@ -13,6 +13,15 @@
   CopyFiles /SILENT "$INSTDIR\native-media\gstreamer\bin\ffi-7.dll" "$INSTDIR"
   CopyFiles /SILENT "$INSTDIR\native-media\gstreamer\bin\pcre2-8-0.dll" "$INSTDIR"
   CopyFiles /SILENT "$INSTDIR\native-media\gstreamer\bin\z-1.dll" "$INSTDIR"
+
+  ; ViGEmBus Virtual Gamepad driver check
+  ClearErrors
+  ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Services\ViGEmBus" "ImagePath"
+  ${If} ${Errors}
+    DetailPrint "ViGEmBus driver nao detectado. Pode ser instalado diretamente pelo SeeMyGame com 1 clique."
+  ${Else}
+    DetailPrint "ViGEmBus driver detectado com sucesso."
+  ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL

@@ -191,4 +191,37 @@ describe('Módulo: audio.js', () => {
       expect(createdAnalysers[1].disconnect).toHaveBeenCalled();
     });
   });
+
+  describe('applyMicrophoneProcessing', () => {
+    it('deve retornar a stream original se a entrada for inválida ou sem faixas de áudio', async () => {
+      const { applyMicrophoneProcessing } = await import('../js/audio.js');
+      const emptyStream = new MockMediaStream([]);
+      const resultNull = applyMicrophoneProcessing(null);
+      expect(resultNull.processedStream).toBeNull();
+
+      const resultEmpty = applyMicrophoneProcessing(emptyStream);
+      expect(resultEmpty.processedStream).toBe(emptyStream);
+    });
+
+    it('deve criar cadeia com HighPass, GainNode e MediaStreamDestination', async () => {
+      const { applyMicrophoneProcessing } = await import('../js/audio.js');
+      const audioTrack = new MockMediaStreamTrack('audio');
+      const stream = new MockMediaStream([audioTrack]);
+
+      const controller = applyMicrophoneProcessing(stream, {
+        thresholdDb: -40,
+        highPassFreq: 85
+      });
+
+      expect(controller.processedStream).toBeDefined();
+      expect(typeof controller.setEnabled).toBe('function');
+      expect(typeof controller.setThreshold).toBe('function');
+      expect(typeof controller.destroy).toBe('function');
+
+      controller.setEnabled(false);
+      controller.setThreshold(-35);
+      controller.destroy();
+    });
+  });
 });
+

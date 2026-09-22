@@ -9,7 +9,8 @@ import {
   updateVirtualGamepad,
   unplugVirtualGamepad,
   unplugAllVirtualGamepads,
-  checkVirtualGamepadDriver
+  checkVirtualGamepadDriver,
+  installViGEmDriver
 } from './desktop.js';
 
 // Estado do Co-op (Multi-Slot 1 a 4 Players)
@@ -1159,9 +1160,26 @@ export function setupGamepadTesterModal() {
           statusBox.style.background = 'rgba(16, 185, 129, 0.1)';
           statusBox.style.color = '#10b981';
         } else {
-          statusText.textContent = '🟡 Driver ViGEmBus não detectado. Execute: tools/install-vigem.ps1';
+          statusText.innerHTML = '🟡 Driver ViGEmBus não detectado. <button id="install-vigem-btn" style="margin-left: 8px; padding: 2px 8px; font-size: 11px; background: #eab308; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Instalar com 1 Clique</button>';
           statusBox.style.background = 'rgba(234, 179, 8, 0.1)';
           statusBox.style.color = '#eab308';
+
+          const btn = document.getElementById('install-vigem-btn');
+          if (btn) {
+            btn.onclick = async () => {
+              btn.disabled = true;
+              btn.textContent = 'Instalando...';
+              showToast('Iniciando instalação oficial do ViGEmBus... Confirme a janela UAC do Windows.', 'info', 6000);
+              try {
+                const res = await installViGEmDriver();
+                showToast(res || 'Instalação concluída com sucesso!', 'success');
+              } catch (err) {
+                showToast(`Falha na instalação: ${err?.message || err}`, 'error');
+              } finally {
+                await updateDriverStatus();
+              }
+            };
+          }
         }
       } catch (e) {
         statusText.textContent = '⚪ Modo Web P2P (Companion Agent opcional)';

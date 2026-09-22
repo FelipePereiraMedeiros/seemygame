@@ -58,6 +58,10 @@ export function checkVirtualGamepadDriver() {
     return invokeDesktopCommand('check_gamepad_driver_status', {}, { omitArgs: true });
 }
 
+export function installViGEmDriver() {
+    return invokeDesktopCommand('install_vigem_driver', {}, { omitArgs: true });
+}
+
 /**
  * Normaliza o contrato enviado pelo Rust. IDs são opacos: o frontend apenas
  * os repassa ao comando de captura e nunca tenta convertê-los em HWND/HMONITOR.
@@ -242,6 +246,59 @@ export async function closeNativeViewerPeer(sessionId, viewerId) {
     if (!isDesktopApp() || !sessionId || !viewerId) return null;
     return invokeDesktopCommand('close_native_viewer_peer', { sessionId, viewerId });
 }
+
+/**
+ * Visualizador Nativo Direct3D 11 (Ultra Baixa Latência sem passar pelo WebView2)
+ */
+export async function startNativeViewer(hostId, offerSdp, iceServers = null, openDedicatedWindow = true) {
+    if (!isDesktopApp()) throw new Error('Visualizador nativo Direct3D 11 requer o aplicativo desktop');
+    return invokeDesktopCommand('start_native_viewer', {
+        hostId: String(hostId),
+        offerSdp: String(offerSdp),
+        iceServers: Array.isArray(iceServers) ? iceServers : null,
+        openDedicatedWindow: Boolean(openDedicatedWindow)
+    });
+}
+
+export async function addNativeViewerCandidate(mlineIndex, candidate) {
+    if (!isDesktopApp()) return;
+    return invokeDesktopCommand('add_native_viewer_candidate', {
+        mlineIndex: Number(mlineIndex),
+        candidate: String(candidate)
+    });
+}
+
+export async function stopNativeViewer() {
+    if (!isDesktopApp()) return;
+    return invokeDesktopCommand('stop_native_viewer', {}, { omitArgs: true });
+}
+
+export async function listenNativeViewerEvents(callback) {
+    if (!isDesktopApp() || typeof callback !== 'function') return () => {};
+    try {
+        const internals = window.__TAURI_INTERNALS__;
+        if (!internals || typeof internals.transformCallback !== 'function') {
+            return () => {};
+        }
+        const event = 'native-viewer-event';
+        const callbackId = internals.transformCallback((payload) => {
+            callback(payload?.payload ?? payload);
+        });
+        const eventId = await invokeDesktopCommand('plugin:event|listen', {
+            event,
+            target: { kind: 'Any' },
+            handler: callbackId
+        });
+        return async () => {
+            try { internals.unregisterCallback?.(callbackId); } catch (_) {}
+            try { await invokeDesktopCommand('plugin:event|unlisten', { event, eventId }); } catch (_) {}
+        };
+    } catch (err) {
+        console.warn('[Desktop] Eventos do visualizador nativo indisponíveis:', err);
+        return () => {};
+    }
+}
+
 
 /**
  * Escuta transições do worker nativo quando o runtime de mídia estiver
