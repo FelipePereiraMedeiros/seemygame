@@ -166,7 +166,7 @@ impl NativeWebRtcBridge {
             make_caps_filter("seemygame-video-caps", &rtp_caps(codec, video_payload))?;
         let video_queue = make_element("queue", "seemygame-video-queue")?;
         video_queue.set_property("max-size-buffers", 0u32);
-        video_queue.set_property("max-size-time", 30_000_000u64);
+        video_queue.set_property("max-size-time", 120_000_000u64);
         video_queue.set_property("max-size-bytes", 0u32);
         pipeline
             .add_many([&video_src, &video_depay, &video_pay, &video_capsfilter, &video_queue])
@@ -203,7 +203,7 @@ impl NativeWebRtcBridge {
                 make_caps_filter("seemygame-audio-caps", &audio_rtp_caps(audio_payload))?;
             let audio_queue = make_element("queue", "seemygame-audio-queue")?;
             audio_queue.set_property("max-size-buffers", 0u32);
-            audio_queue.set_property("max-size-time", 30_000_000u64);
+            audio_queue.set_property("max-size-time", 120_000_000u64);
             audio_queue.set_property("max-size-bytes", 0u32);
             pipeline
                 .add_many([

@@ -1803,7 +1803,7 @@ async function handleStartDirectStream(data, conn) {
   directViewerPeerConnections.set(hostId, pc);
   directPendingCandidates.set(hostId, []);
 
-  const videoTargetMs = 0;
+  const videoTargetMs = 25;
   const videoTargetSec = 0;
   const videoTransceiver = pc.addTransceiver('video', { direction: 'recvonly' });
   if (videoTransceiver?.receiver) {
@@ -1813,7 +1813,7 @@ async function handleStartDirectStream(data, conn) {
   if (data.hasAudio) {
     const audioTransceiver = pc.addTransceiver('audio', { direction: 'recvonly' });
     if (audioTransceiver?.receiver) {
-      if ('jitterBufferTarget' in audioTransceiver.receiver) audioTransceiver.receiver.jitterBufferTarget = 0;
+      if ('jitterBufferTarget' in audioTransceiver.receiver) audioTransceiver.receiver.jitterBufferTarget = 20;
       if ('playoutDelayHint' in audioTransceiver.receiver) audioTransceiver.receiver.playoutDelayHint = 0;
     }
   }
@@ -1834,7 +1834,8 @@ async function handleStartDirectStream(data, conn) {
     }
     if (event.receiver) {
       try {
-        if ('jitterBufferTarget' in event.receiver) event.receiver.jitterBufferTarget = 0;
+        const target = event.track?.kind === 'video' ? 25 : 20;
+        if ('jitterBufferTarget' in event.receiver) event.receiver.jitterBufferTarget = target;
         if ('playoutDelayHint' in event.receiver) event.receiver.playoutDelayHint = 0;
       } catch (_) {}
     }
@@ -1868,7 +1869,7 @@ async function handleStartDirectStream(data, conn) {
         }
       });
 
-      applyTransceiverOptimizations(pc);
+      applyTransceiverOptimizations(pc, 'smooth');
       startStatsMonitor(hostId, pc, false);
       showToast(`Transmissão direta de ${hostId.slice(0, 6)} conectada em alta fluidez!`, 'success');
     }

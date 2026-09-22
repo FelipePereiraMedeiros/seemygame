@@ -911,8 +911,8 @@ fn build_pipeline(
         ),
         "!".to_string(),
         "queue".to_string(),
-        "max-size-buffers=4".to_string(),
-        "max-size-time=70000000".to_string(),
+        "max-size-buffers=8".to_string(),
+        "max-size-time=120000000".to_string(),
         "max-size-bytes=0".to_string(),
         "!".to_string(),
     ]);

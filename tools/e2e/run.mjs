@@ -26,6 +26,7 @@ const channel = option('--channel', 'msedge');
 const preset = option('--preset', 'balanced');
 const isCompareMode = args.includes('--compare');
 const isWebFirst = args.includes('--web-first') || option('--order', 'native-first') === 'web-first';
+const customWebOrigin = option('--web-url', option('--web-origin', null));
 const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}`;
 const sessionMagic = computeSessionMagic(runId);
 const output = path.join(root, 'output/playwright', runId);
@@ -255,7 +256,9 @@ try {
   });
   if (args.includes('--check')) { report.status = 'preflight-only'; console.log('Preflight OK; no capture was started.'); }
   else {
-    const webOrigin = await serve();
+    const localOrigin = await serve();
+    const webOrigin = customWebOrigin || localOrigin;
+    report.webOrigin = webOrigin;
     const port = await freePort();
     const env = {
       ...process.env,
@@ -322,8 +325,8 @@ try {
     });
     const sourceContext = await sourceBrowser.newContext({ viewport: { width: 1280, height: 720 } });
     const source = (await sourceContext.pages())[0] || await sourceContext.newPage();
-    if (source.url() !== `${webOrigin}/e2e-motion.html`) {
-      await source.goto(`${webOrigin}/e2e-motion.html`);
+    if (source.url() !== `${localOrigin}/e2e-motion.html`) {
+      await source.goto(`${localOrigin}/e2e-motion.html`);
     }
     await source.bringToFront();
     viewerBrowser = await chromium.launch({

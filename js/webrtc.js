@@ -216,7 +216,7 @@ export function applyTransceiverOptimizations(pc, latencyMode = 'ultra-low', pre
       // Ajuste de Jitter Buffer do receptor:
       // Em modo ultra-low latency, áudio e vídeo operam com alvo 0 para minimizar tempo de residência e descarte por A/V sync.
       if (t.receiver) {
-        const targetMs = latencyMode === 'stable' ? 50 : 0;
+        const targetMs = latencyMode === 'stable' ? 50 : (latencyMode === 'smooth' ? 25 : 0);
         const targetSec = latencyMode === 'stable' ? 0.05 : 0;
         if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = targetMs;
         if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = targetSec;
