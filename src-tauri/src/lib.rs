@@ -76,6 +76,7 @@ pub fn run() {
             capture::get_native_capture_capabilities,
             capture::get_native_capture_state,
             capture::start_native_capture,
+            capture::reconfigure_native_capture,
             capture::set_native_capture_audio_mode,
             capture::stop_native_capture,
             capture::create_native_capture_peer,

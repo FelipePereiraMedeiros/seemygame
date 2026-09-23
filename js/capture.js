@@ -10,6 +10,7 @@
 import {
   getNativeCaptureState,
   startNativeCapture,
+  reconfigureNativeCapture,
   stopNativeCapture,
   setNativeCaptureAudioMode,
   listenNativeCapture
@@ -197,6 +198,18 @@ export class NativeCaptureProvider {
   async setAudioMode(audioMode) {
     if (!this.session?.sessionId) return null;
     return setNativeCaptureAudioMode(this.session.sessionId, audioMode);
+  }
+
+  async reconfigure(options = {}) {
+    if (!this.session?.sessionId) return null;
+    const res = await reconfigureNativeCapture({
+      sessionId: this.session.sessionId,
+      ...options
+    });
+    if (res) {
+      this.session = { ...this.session, ...res };
+    }
+    return res;
   }
 
   async getState() {

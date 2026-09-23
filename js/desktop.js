@@ -179,6 +179,24 @@ export async function startNativeCapture({ sourceId, audioMode = 'none', videoCo
     return normalizeNativeCaptureState(state);
 }
 
+export async function reconfigureNativeCapture(options = {}) {
+    if (!isDesktopApp()) return null;
+    const { sessionId, audioMode, videoCodec, h264Encoder, showCursor, width, height, fps, bitrateKbps } = options;
+    if (!sessionId) throw new Error('Sessão de captura nativa inválida para reconfiguração');
+    const args = { sessionId };
+    if (audioMode !== undefined) args.audioMode = String(audioMode);
+    if (videoCodec !== undefined) args.videoCodec = String(videoCodec);
+    if (h264Encoder !== undefined) args.h264Encoder = String(h264Encoder);
+    if (showCursor !== undefined) args.showCursor = Boolean(showCursor);
+    if (width != null) args.width = Number(width);
+    if (height != null) args.height = Number(height);
+    if (fps != null) args.fps = Number(fps);
+    if (bitrateKbps != null) args.bitrateKbps = Number(bitrateKbps);
+
+    const state = await invokeDesktopCommand('reconfigure_native_capture', args);
+    return normalizeNativeCaptureState(state);
+}
+
 export async function setNativeCaptureAudioMode(sessionId, audioMode) {
     if (!isDesktopApp()) return null;
     if (!sessionId) throw new Error('Sessão de captura nativa inválida');

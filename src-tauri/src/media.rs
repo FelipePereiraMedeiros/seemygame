@@ -134,6 +134,14 @@ pub enum AudioMode {
 }
 
 impl AudioMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::System => "system",
+            Self::Process => "process",
+        }
+    }
+
     pub fn parse(value: &str) -> Result<Self, String> {
         match value.trim().to_ascii_lowercase().as_str() {
             "none" | "mic" => Ok(Self::None),
@@ -434,7 +442,10 @@ pub struct NativeMediaWorker {
 }
 
 impl NativeMediaWorker {
-    pub fn start(source: &ValidatedSource, config: MediaWorkerConfig) -> Result<Self, String> {
+    pub fn resolve_and_validate_config(
+        config: MediaWorkerConfig,
+        source: &ValidatedSource,
+    ) -> Result<(GStreamerRuntime, MediaWorkerConfig), String> {
         validate_source(source)?;
         let runtime = GStreamerRuntime::discover().ok_or_else(|| {
             "Runtime GStreamer empacotado não encontrado; execute tools/prepare-native-media.ps1"
@@ -515,17 +526,17 @@ impl NativeMediaWorker {
         if resolved_config.audio_mode == AudioMode::Process && source.process_id.is_none() {
             return Err("Áudio do processo exige uma fonte de janela com PID validado".to_string());
         }
+        Ok((runtime, resolved_config))
+    }
 
-        let (video_rtp_port, video_lease) = allocate_loopback_port()?;
-        let audio_port_and_lease = (resolved_config.audio_mode != AudioMode::None)
-            .then(allocate_loopback_port)
-            .transpose()?;
-        let audio_rtp_port = audio_port_and_lease.as_ref().map(|(port, _)| *port);
-        let mut rtp_port_leases = vec![video_lease];
-        if let Some((_, lease)) = audio_port_and_lease {
-            rtp_port_leases.push(lease);
-        }
-        let args = build_pipeline(source, &resolved_config, video_rtp_port, audio_rtp_port)?;
+    fn spawn_child(
+        runtime: &GStreamerRuntime,
+        source: &ValidatedSource,
+        config: &MediaWorkerConfig,
+        video_rtp_port: u16,
+        audio_rtp_port: Option<u16>,
+    ) -> Result<std::process::Child, String> {
+        let args = build_pipeline(source, config, video_rtp_port, audio_rtp_port)?;
         #[cfg(windows)]
         if let Some(hwnd) = source.hwnd {
             unsafe {
@@ -583,10 +594,54 @@ impl NativeMediaWorker {
                 crate::system::write_debug_log("[GStreamer worker] stderr stream encerrado (processo fechou stderr)");
             });
         }
+        Ok(child)
+    }
+
+    pub fn start(source: &ValidatedSource, config: MediaWorkerConfig) -> Result<Self, String> {
+        let (runtime, resolved_config) = Self::resolve_and_validate_config(config, source)?;
+        let (video_rtp_port, video_lease) = allocate_loopback_port()?;
+        let audio_port_and_lease = (resolved_config.audio_mode != AudioMode::None)
+            .then(allocate_loopback_port)
+            .transpose()?;
+        let audio_rtp_port = audio_port_and_lease.as_ref().map(|(port, _)| *port);
+        let mut rtp_port_leases = vec![video_lease];
+        if let Some((_, lease)) = audio_port_and_lease {
+            rtp_port_leases.push(lease);
+        }
+        let child = Self::spawn_child(&runtime, source, &resolved_config, video_rtp_port, audio_rtp_port)?;
         let mut worker = Self {
             runtime,
             child: Some(child),
             rtp_port_leases,
+            config: resolved_config,
+            video_rtp_port,
+            audio_rtp_port,
+        };
+        thread::sleep(Duration::from_millis(150));
+        if let Some(status) = worker
+            .child
+            .as_mut()
+            .expect("worker child initialized")
+            .try_wait()
+            .map_err(|error| format!("Falha ao verificar worker GStreamer: {error}"))?
+        {
+            return Err(format!("Worker GStreamer encerrou ao iniciar: {status}"));
+        }
+        Ok(worker)
+    }
+
+    pub fn start_with_ports(
+        source: &ValidatedSource,
+        config: MediaWorkerConfig,
+        video_rtp_port: u16,
+        audio_rtp_port: Option<u16>,
+    ) -> Result<Self, String> {
+        let (runtime, resolved_config) = Self::resolve_and_validate_config(config, source)?;
+        let child = Self::spawn_child(&runtime, source, &resolved_config, video_rtp_port, audio_rtp_port)?;
+        let mut worker = Self {
+            runtime,
+            child: Some(child),
+            rtp_port_leases: Vec::new(),
             config: resolved_config,
             video_rtp_port,
             audio_rtp_port,
@@ -612,10 +667,9 @@ impl NativeMediaWorker {
         let mut config = self.config.clone();
         config.audio_mode = audio_mode;
         self.stop_process();
-        let mut replacement = Self::start(source, config)?;
+        let mut replacement = Self::start_with_ports(source, config, self.video_rtp_port, self.audio_rtp_port)?;
         self.runtime = replacement.runtime.clone();
         self.child = replacement.child.take();
-        self.rtp_port_leases = std::mem::take(&mut replacement.rtp_port_leases);
         self.config = replacement.config.clone();
         self.video_rtp_port = replacement.video_rtp_port;
         self.audio_rtp_port = replacement.audio_rtp_port;
@@ -1162,6 +1216,26 @@ mod tests {
         // bridge construction; a competing binder must never get ownership.
         worker.release_rtp_port_leases();
         assert!(UdpSocket::bind(("127.0.0.1", port)).is_err(), "R04: porta desprotegida durante handoff");
+    }
+
+    #[test]
+    fn test_start_with_ports_preserves_assigned_loopback_endpoints() {
+        let test_src = source("window");
+        let config = MediaWorkerConfig {
+            codec: VideoCodec::H264,
+            bitrate_kbps: 4500,
+            width: Some(1280),
+            height: Some(720),
+            fps: 60,
+            ..Default::default()
+        };
+        let (_runtime, resolved) = NativeMediaWorker::resolve_and_validate_config(config, &test_src).unwrap();
+        assert_eq!(resolved.width, Some(1280));
+        assert_eq!(resolved.height, Some(720));
+        assert_eq!(resolved.bitrate_kbps, 4500);
+        let args = build_pipeline(&test_src, &resolved, 5555, Some(6666)).unwrap();
+        assert!(args.iter().any(|a| a.contains("port=5555")));
+        assert!(args.iter().any(|a| a.contains("port=6666")));
     }
 
     static TEST_GPU_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());

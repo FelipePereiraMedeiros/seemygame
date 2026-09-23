@@ -630,6 +630,116 @@ fn fail_start(
 
 #[cfg(not(test))]
 #[tauri::command]
+pub fn reconfigure_native_capture(
+    app: AppHandle,
+    session_id: String,
+    audio_mode: Option<String>,
+    video_codec: Option<String>,
+    h264_encoder: Option<String>,
+    show_cursor: Option<bool>,
+    width: Option<u32>,
+    height: Option<u32>,
+    fps: Option<u32>,
+    bitrate_kbps: Option<u32>,
+) -> Result<NativeCaptureState, String> {
+    let mut guard = active_session()
+        .lock()
+        .map_err(|_| "Estado de captura indisponível".to_string())?;
+    let Some(session) = guard.as_mut() else {
+        return Err("Nenhuma captura nativa ativa".to_string());
+    };
+    if session.state.session_id.as_deref() != Some(session_id.as_str()) {
+        return Err("Sessão de captura nativa inválida".to_string());
+    }
+    if session.state.state != "live" || session.worker.is_none() {
+        return Err("A captura nativa ainda não está ativa".to_string());
+    }
+
+    let current_worker = session.worker.take().expect("worker present");
+    let video_rtp_port = current_worker.video_rtp_port;
+    let audio_rtp_port = current_worker.audio_rtp_port;
+    let mut new_config = current_worker.config.clone();
+
+    if let Some(mode) = audio_mode.as_deref() {
+        if matches!(mode, "none" | "system" | "process" | "mic") {
+            new_config.audio_mode = AudioMode::parse(mode)?;
+        }
+    }
+    if let Some(codec_str) = video_codec.as_deref() {
+        if let Ok(c) = media::VideoCodec::parse(codec_str) {
+            new_config.codec = c;
+        }
+    }
+    if let Some(enc_str) = h264_encoder.as_deref() {
+        let trimmed = enc_str.trim();
+        if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("auto") {
+            if let Ok(backend) = media::H264EncoderBackend::parse(trimmed) {
+                new_config.h264_encoder = backend;
+            }
+        } else {
+            new_config.h264_encoder = media::H264EncoderBackend::Auto;
+        }
+    }
+    if let Some(cursor) = show_cursor {
+        new_config.show_cursor = cursor;
+    }
+    if let Some(w) = width {
+        new_config.width = Some(w.clamp(320, 7680));
+    }
+    if let Some(h) = height {
+        new_config.height = Some(h.clamp(240, 4320));
+    }
+    if let Some(f) = fps {
+        new_config.fps = f.clamp(1, 120);
+    }
+    if let Some(b) = bitrate_kbps {
+        new_config.bitrate_kbps = b.clamp(256, 50_000);
+    }
+
+    crate::system::write_debug_log(&format!(
+        "[Capture] Reconfigurando worker GStreamer: codec={:?}, encoder={:?}, show_cursor={}, width={:?}, height={:?}, fps={}, bitrate_kbps={}",
+        new_config.codec, new_config.h264_encoder, new_config.show_cursor, new_config.width, new_config.height, new_config.fps, new_config.bitrate_kbps
+    ));
+
+    current_worker.stop();
+
+    let new_worker = match NativeMediaWorker::start_with_ports(
+        &session.validated_source,
+        new_config,
+        video_rtp_port,
+        audio_rtp_port,
+    ) {
+        Ok(w) => w,
+        Err(err) => {
+            crate::system::write_debug_log(&format!("[Capture] Falha ao reconfigurar worker GStreamer: {err}"));
+            return Err(err);
+        }
+    };
+
+    let updated_state = NativeCaptureState {
+        state: "live".to_string(),
+        session_id: Some(session_id),
+        source_id: session.state.source_id.clone(),
+        source_type: session.state.source_type.clone(),
+        audio_mode: Some(new_worker.config.audio_mode.as_str().to_string()),
+        width: new_worker.config.width.or(session.state.width),
+        height: new_worker.config.height.or(session.state.height),
+        dpi: session.state.dpi,
+        video_codec: Some(new_worker.config.codec.as_str().to_string()),
+        h264_encoder: Some(new_worker.config.h264_encoder.as_str().to_string()),
+        video_rtp_port: Some(video_rtp_port),
+        audio_rtp_port,
+        error: None,
+    };
+
+    session.worker = Some(new_worker);
+    session.state = updated_state.clone();
+    emit_state(&app, &updated_state);
+    Ok(updated_state)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 pub fn set_native_capture_audio_mode(
     app: AppHandle,
     session_id: String,
