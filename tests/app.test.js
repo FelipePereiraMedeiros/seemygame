@@ -532,6 +532,7 @@ describe('Módulo: app.js', () => {
       app.stopLocalStream();
 
       expect(closeSpy).toHaveBeenCalled();
+      mockConn.emit('close');
     });
   });
 

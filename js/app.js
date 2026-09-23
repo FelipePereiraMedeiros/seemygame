@@ -38,6 +38,8 @@ import {
   releaseCoopControl,
   revokePlayer2,
   setCoopEnabled,
+  setMaxCoopPlayers,
+  setPartyModeEnabled,
   getCoopState,
   registerCoopPromptHandler,
   registerCoopStateChangeHandler,
@@ -167,6 +169,7 @@ const coopModeSelect = document.getElementById('coop-mode-select');
 const videoCodecSelect = document.getElementById('video-codec-select');
 const h264EncoderSelect = document.getElementById('h264-encoder-select');
 const h264EncoderGroup = document.getElementById('h264-encoder-group');
+const captureCursorToggle = document.getElementById('capture-cursor-toggle');
 
 try {
   const savedCodec = localStorage.getItem('seemygame_video_codec');
@@ -177,6 +180,10 @@ try {
   if (savedEncoder && h264EncoderSelect) {
     h264EncoderSelect.value = savedEncoder;
   }
+  const savedCursor = localStorage.getItem('seemygame_capture_cursor');
+  if (savedCursor !== null && captureCursorToggle) {
+    captureCursorToggle.checked = savedCursor === 'true';
+  }
 } catch (e) {}
 
 function syncH264EncoderVisibility() {
@@ -184,9 +191,51 @@ function syncH264EncoderVisibility() {
     h264EncoderGroup.style.display = videoCodecSelect.value === 'h264' ? 'block' : 'none';
   }
 }
+
 if (videoCodecSelect) {
-  videoCodecSelect.addEventListener('change', syncH264EncoderVisibility);
+  videoCodecSelect.addEventListener('change', (e) => {
+    syncH264EncoderVisibility();
+    try { localStorage.setItem('seemygame_video_codec', e.target.value); } catch (err) {}
+    if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
+      activeNativeCaptureProvider.reconfigure({ videoCodec: e.target.value }).catch((err) => {
+        console.warn('Falha ao reconfigurar codec nativo:', err);
+      });
+    }
+    const codecMsg = { type: 'STREAM_CONFIG_UPDATED', videoCodec: e.target.value };
+    connectedViewers.forEach((conn) => {
+      try { conn.send(codecMsg); } catch (err) {}
+    });
+    if (roomManager) {
+      roomManager.broadcast(codecMsg);
+    }
+    showToast(`Codec de vídeo alterado: ${e.target.value.toUpperCase()}`, 'info');
+  });
   syncH264EncoderVisibility();
+}
+
+if (h264EncoderSelect) {
+  h264EncoderSelect.addEventListener('change', (e) => {
+    try { localStorage.setItem('seemygame_h264_encoder', e.target.value); } catch (err) {}
+    if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
+      activeNativeCaptureProvider.reconfigure({ h264Encoder: e.target.value }).catch((err) => {
+        console.warn('Falha ao reconfigurar encoder H.264 nativo:', err);
+      });
+    }
+    const encoderLabels = { auto: 'Automático', cpu: 'CPU Software (x264)', nvenc: 'NVIDIA NVENC', mf: 'Media Foundation' };
+    showToast(`Encoder H.264 alterado: ${encoderLabels[e.target.value] || e.target.value}`, 'info');
+  });
+}
+
+if (captureCursorToggle) {
+  captureCursorToggle.addEventListener('change', (e) => {
+    try { localStorage.setItem('seemygame_capture_cursor', String(e.target.checked)); } catch (err) {}
+    if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
+      activeNativeCaptureProvider.reconfigure({ showCursor: e.target.checked }).catch((err) => {
+        console.warn('Falha ao alternar cursor na captura nativa:', err);
+      });
+    }
+    showToast(e.target.checked ? '🖱️ Cursor visível na transmissão' : '🚫 Cursor oculto na transmissão', 'info');
+  });
 }
 
 // Espectadores autorizados (após verificação de PIN se houver)
@@ -364,16 +413,52 @@ function updateViewerCountUI() {
 // CONFIGURAÇÕES E LISTENERS CO-OP (PLAYER 2)
 // ==========================================
 
+export function applyCoopModeChange(val) {
+  const isEnabled = (val !== 'disabled');
+  setCoopEnabled(isEnabled);
+  let maxPlayers = 1;
+  let partyMode = false;
+  let toastMsg = '🔒 Co-op desativado.';
+
+  if (isEnabled) {
+    if (val === 'party_4p') {
+      maxPlayers = 4;
+      partyMode = true;
+      toastMsg = '🎉 Modo Party / Torneio ativado (4 jogadores remotos nos slots P1 a P4).';
+    } else if (val === 'enabled_4p') {
+      maxPlayers = 4;
+      partyMode = false;
+      toastMsg = '🎮 Modo Co-op 4 Players ativado (Host P1 + até 3 amigos nos controles P2, P3, P4).';
+    } else if (val === 'enabled_2p' || val === 'enabled') {
+      maxPlayers = 1;
+      partyMode = false;
+      toastMsg = '🎮 Modo Co-op ativado (Player 2 habilitado).';
+    }
+    setMaxCoopPlayers(maxPlayers);
+    setPartyModeEnabled(partyMode);
+  }
+
+  showToast(toastMsg, 'info');
+
+  const coopMsg = {
+    type: 'COOP_CONFIG',
+    enabled: isEnabled,
+    maxPlayers: isEnabled ? maxPlayers : 0,
+    partyMode
+  };
+
+  connectedViewers.forEach((conn) => {
+    try { conn.send(coopMsg); } catch (e) {}
+  });
+
+  if (roomManager) {
+    roomManager.broadcast(coopMsg);
+  }
+}
+
 if (coopModeSelect) {
   coopModeSelect.addEventListener('change', (e) => {
-    const isEnabled = e.target.value === 'enabled';
-    setCoopEnabled(isEnabled);
-    showToast(isEnabled ? '🎮 Modo Co-op ativado (espectadores podem solicitar Player 2).' : '🔒 Co-op desativado.', 'info');
-
-    // Notifica todos os espectadores conectados imediatamente
-    connectedViewers.forEach((conn) => {
-      conn.send({ type: 'COOP_CONFIG', enabled: isEnabled });
-    });
+    applyCoopModeChange(e.target.value);
   });
 }
 
@@ -401,9 +486,9 @@ window.addEventListener('keydown', (e) => {
 // CONTROLES DE TUNING & PRESETS
 // ==========================================
 
-function applyLiveBitrateChange() {
+export function applyLiveBitrateChange() {
+  let scaleFactor = 1;
   if (localStream) {
-    let scaleFactor = 1;
     const videoTrack = localStream.getVideoTracks()[0];
     if (videoTrack && typeof videoTrack.getSettings === 'function') {
       const settings = videoTrack.getSettings();
@@ -421,17 +506,51 @@ function applyLiveBitrateChange() {
         applySenderOptimizations(call.peerConnection, customBitrateBps, selectedProfile.fps, scaleFactor);
       }
     });
+  }
 
-    // Notifica espectadores sobre a nova taxa/perfil via DataConnection
-    connectedViewers.forEach((conn) => {
-      conn.send({
-        type: 'STREAM_CONFIG_UPDATED',
-        preset: qualityPresetSelect ? qualityPresetSelect.value : null,
-        bitrate: customBitrateBps,
-        fps: selectedProfile.fps,
-        height: selectedProfile.height
-      });
+  // Se a captura nativa desktop estiver ativa, reconfigura o pipeline GStreamer a quente
+  if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
+    activeNativeCaptureProvider.reconfigure({
+      bitrateKbps: Math.round(customBitrateBps / 1000),
+      width: selectedProfile.width,
+      height: selectedProfile.height,
+      fps: selectedProfile.fps,
+      videoCodec: videoCodecSelect ? videoCodecSelect.value : undefined,
+      h264Encoder: h264EncoderSelect ? h264EncoderSelect.value : undefined,
+      showCursor: captureCursorToggle ? captureCursorToggle.checked : undefined,
+      audioMode: audioModeSelect ? audioModeSelect.value : undefined
+    }).catch((err) => {
+      console.warn('Falha ao reconfigurar captura nativa dinamicamente:', err);
     });
+  }
+
+  // Atualiza estado local da sala para que novos membros sincronizem com a resolução correta
+  if (roomManager) {
+    roomManager.setLocalStreaming(true, {
+      title: 'Jogo / Tela',
+      preset: selectedProfile.id,
+      fps: selectedProfile.fps,
+      height: selectedProfile.height,
+      bitrate: customBitrateBps,
+      audioMode: audioModeSelect ? audioModeSelect.value : 'system'
+    });
+  }
+
+  // Notifica todos os espectadores (P2P direto e malha da sala)
+  const configMsg = {
+    type: 'STREAM_CONFIG_UPDATED',
+    preset: qualityPresetSelect ? qualityPresetSelect.value : null,
+    bitrate: customBitrateBps,
+    fps: selectedProfile.fps,
+    height: selectedProfile.height
+  };
+
+  connectedViewers.forEach((conn) => {
+    try { conn.send(configMsg); } catch (e) {}
+  });
+
+  if (roomManager) {
+    roomManager.broadcast(configMsg);
   }
 }
 
@@ -522,12 +641,14 @@ if (audioModeSelect) {
           });
           newAudioTrack = null;
           showToast('🔇 Áudio desativado (apenas vídeo).', 'info');
-        } else if (newMode === 'system') {
+        } else if (newMode === 'process') {
           if (activeMicProcessor) {
             activeMicProcessor.destroy();
             activeMicProcessor = null;
           }
-          if (capturedSystemAudioTrack && capturedSystemAudioTrack.readyState === 'live') {
+          if (isDesktopApp() && activeNativeCaptureProvider) {
+            showToast('🎮 Áudio isolado da janela/processo ativado!', 'success');
+          } else if (capturedSystemAudioTrack && capturedSystemAudioTrack.readyState === 'live') {
             localStream.getAudioTracks().forEach(t => {
               if (t !== capturedSystemAudioTrack) {
                 t.stop();
@@ -536,10 +657,17 @@ if (audioModeSelect) {
             });
             localStream.addTrack(capturedSystemAudioTrack);
             newAudioTrack = capturedSystemAudioTrack;
-            showToast('🔊 Áudio do jogo restaurado!', 'success');
+            showToast('🔊 Áudio do aplicativo/jogo ativado!', 'success');
           } else {
-            showToast('ℹ️ O áudio do jogo precisa ser capturado via seletor do navegador ao iniciar a transmissão.', 'info', 6000);
+            showToast('ℹ️ No navegador, o áudio deve ser compartilhado pela janela ao iniciar.', 'info', 6000);
           }
+        }
+
+        // Reconfigura captura nativa no desktop se ativa
+        if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
+          activeNativeCaptureProvider.reconfigure({ audioMode: newMode }).catch((err) => {
+            console.warn('Falha ao reconfigurar modo de áudio nativo:', err);
+          });
         }
 
         // Hot Swapping de áudio no WebRTC para cada chamada ativa
@@ -556,19 +684,33 @@ if (audioModeSelect) {
           stopAudioAnalyser('local-me');
         }
 
-        // Notifica espectadores da nova fonte de áudio
+        // Atualiza estado local da sala
+        if (roomManager) {
+          roomManager.setLocalStreaming(true, { audioMode: newMode });
+        }
+
+        // Notifica todos os espectadores da nova fonte de áudio
+        const audioMsg = {
+          type: 'STREAM_CONFIG_UPDATED',
+          audioMode: newMode,
+          hasAudio: !!newAudioTrack || (isDesktopApp() && newMode !== 'none')
+        };
+
         connectedViewers.forEach((conn) => {
-          conn.send({
-            type: 'STREAM_CONFIG_UPDATED',
-            audioMode: newMode,
-            hasAudio: !!newAudioTrack
-          });
+          try { conn.send(audioMsg); } catch (e) {}
         });
+
+        if (roomManager) {
+          roomManager.broadcast(audioMsg);
+        }
       } catch (err) {
         console.error('Erro ao trocar modo de áudio:', err);
         showToast(`Erro ao mudar fonte de áudio: ${err.message}`, 'error');
       }
     } else {
+      if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
+        activeNativeCaptureProvider.reconfigure({ audioMode: newMode }).catch(() => {});
+      }
       const label = e.target.options[e.target.selectedIndex] ? e.target.options[e.target.selectedIndex].text : newMode;
       showToast(`Fonte de áudio selecionada: ${label}`, 'info');
     }
@@ -1060,14 +1202,14 @@ export function initPeer() {
 // ==========================================
 
 export function broadcastDataMessage(payload, excludePeerId = null) {
-  if (roomManager) {
-    return roomManager.broadcast(payload, excludePeerId);
+  if (isRoomMode() && roomManager) {
+    roomManager.broadcast(payload, excludePeerId);
   }
 
   const hostPin = getStoredRoomPin();
   // Transmissor envia para todos os espectadores conectados e autorizados
   connectedViewers.forEach((conn, peerId) => {
-    if (peerId !== excludePeerId && conn && conn.open) {
+    if (peerId !== excludePeerId && conn && conn.open !== false) {
       if (hostPin && !authenticatedViewers.has(peerId)) return;
       try {
         conn.send(payload);
@@ -1077,7 +1219,7 @@ export function broadcastDataMessage(payload, excludePeerId = null) {
 
   // Espectador envia para o host
   watchingHosts.forEach((hostData) => {
-    if (hostData.conn && hostData.conn.open) {
+    if (hostData.conn && hostData.conn.open !== false) {
       try {
         hostData.conn.send(payload);
       } catch (e) {}
@@ -1542,8 +1684,20 @@ export function initDiscordFeatures() {
       if (h264EncoderSelect) {
         try { localStorage.setItem('seemygame_h264_encoder', h264EncoderSelect.value); } catch (e) {}
       }
+      if (captureCursorToggle) {
+        try { localStorage.setItem('seemygame_capture_cursor', String(captureCursorToggle.checked)); } catch (e) {}
+      }
+      if (coopModeSelect) {
+        applyCoopModeChange(coopModeSelect.value);
+      }
+
+      // Reconfigura a transmissão ativa consolidando todas as opções do modal
+      if (localStream || (isDesktopApp() && activeNativeCaptureProvider)) {
+        applyLiveBitrateChange();
+      }
+
       tuningModal.style.display = 'none';
-      showToast('Configurações atualizadas!', 'success');
+      showToast('Configurações atualizadas com sucesso!', 'success');
     });
   }
 
@@ -2649,7 +2803,7 @@ export async function startLocalStream(options = {}) {
     width: { ideal: selectedProfile.width, max: 1920 },
     height: { ideal: selectedProfile.height, max: 1080 },
     frameRate: { ideal: 60, max: 60 },
-    cursor: 'always'
+    cursor: (captureCursorToggle && !captureCursorToggle.checked) ? 'never' : 'always'
   };
 
   let capturedDisplayStream = null;
@@ -2664,12 +2818,14 @@ export async function startLocalStream(options = {}) {
       const nativeProvider = new NativeCaptureProvider();
       const chosenCodec = videoCodecSelect ? videoCodecSelect.value : (options.videoCodec || null);
       const chosenEncoder = h264EncoderSelect ? h264EncoderSelect.value : (options.h264Encoder || null);
+      const chosenCursor = captureCursorToggle ? captureCursorToggle.checked : (options.showCursor !== false);
       const result = await nativeProvider.start({
         sourceId: options.sourceId,
         sourceType: options.sourceType || 'window',
         audioMode: wantSystemAudio ? audioMode : 'none',
         videoCodec: chosenCodec,
         h264Encoder: chosenEncoder,
+        showCursor: chosenCursor,
         width: selectedProfile.width,
         height: selectedProfile.height,
         fps: selectedProfile.fps || 60,
