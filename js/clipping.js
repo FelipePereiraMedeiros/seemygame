@@ -6,6 +6,7 @@
 export class ClipRecorder {
   constructor(options = {}) {
     this.maxDurationSeconds = options.maxDurationSeconds || 30;
+    this.timesliceMs = Number(options.timesliceMs) || 3000;
     this.chunks = []; // Array de { blob, timestamp }
     this.initializationChunk = null;
     this.mediaRecorder = null;
@@ -121,8 +122,9 @@ export class ClipRecorder {
         console.warn('[ClipRecorder] Erro no MediaRecorder:', this.lastError);
       };
 
-      // Fatias de 1 segundo (1000ms)
-      recorder.start(1000);
+      // Fatias de 3 segundos (3000ms padrão) para evitar picos de flush e congelamento a cada 1 segundo
+      const timeslice = this.timesliceMs || 3000;
+      recorder.start(timeslice);
       this.isRecording = true;
       return true;
     } catch (err) {

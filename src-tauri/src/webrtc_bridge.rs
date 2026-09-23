@@ -158,7 +158,7 @@ impl NativeWebRtcBridge {
         // payloader has no config-interval property; AV1 sequence headers are
         // carried by av1parse/rtpav1pay according to the negotiated stream.
         if matches!(codec, VideoCodec::H264 | VideoCodec::Hevc) {
-            video_pay.set_property("perfect-rtptime", false);
+            video_pay.set_property("perfect-rtptime", true);
             video_pay.set_property("config-interval", -1i32);
             if codec == VideoCodec::H264 {
                 video_pay.set_property_from_str("aggregate-mode", "zero-latency");
@@ -195,12 +195,13 @@ impl NativeWebRtcBridge {
             let audio_caps = audio_rtp_caps(audio_worker_payload);
             let audio_src = make_udp_source("seemygame-audio", audio_rtp_port, &audio_caps)?;
             let audio_jitter = make_element("rtpjitterbuffer", "seemygame-audio-jitter")?;
-            audio_jitter.set_property("latency", 20u32);
+            audio_jitter.set_property("latency", 5u32);
             audio_jitter.set_property("do-lost", true);
             audio_jitter.set_property("drop-on-latency", true);
             let audio_depay = make_element("rtpopusdepay", "seemygame-audio-depay")?;
             let audio_pay = make_element("rtpopuspay", "seemygame-audio-pay")?;
             audio_pay.set_property("pt", audio_payload as u32);
+            audio_pay.set_property("perfect-rtptime", true);
             let audio_capsfilter =
                 make_caps_filter("seemygame-audio-caps", &audio_rtp_caps(audio_payload))?;
             let audio_queue = make_element("queue", "seemygame-audio-queue")?;

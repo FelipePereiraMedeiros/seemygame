@@ -14,6 +14,36 @@ export function isValidPeerId(id) {
 }
 
 /**
+ * Retorna o MediaStream adequado para o elemento <video>.
+ * Para a visualização local (preview), se o stream possuir áudio e vídeo juntos,
+ * isola apenas a trilha de vídeo para exibição na tela. O áudio já é escutado pelo jogador
+ * diretamente pelo sistema operacional. Ao evitar trilhas de áudio no elemento <video> de preview,
+ * o Chromium não ativa o mecanismo de sincronização de relógio A/V (AudioRenderer master clock)
+ * nem sofre engasgos/congelamentos periódicos de 1 segundo causados por RTCP Sender Reports.
+ * @param {MediaStream|null} stream
+ * @param {boolean} isLocal
+ * @returns {MediaStream|null}
+ */
+export function resolveCardDisplayStream(stream, isLocal = false) {
+  if (!stream) return stream;
+  if (isLocal && typeof stream.getVideoTracks === 'function' && typeof stream.getAudioTracks === 'function') {
+    const videoTracks = stream.getVideoTracks();
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length > 0 && videoTracks.length > 0) {
+      try {
+        const StreamCtor = stream.constructor || (typeof MediaStream !== 'undefined' ? MediaStream : null);
+        if (StreamCtor) {
+          return new StreamCtor(videoTracks);
+        }
+      } catch (_) {
+        return stream;
+      }
+    }
+  }
+  return stream;
+}
+
+/**
  * Exibe notificações toast flutuantes na tela (Seguro contra XSS)
  * @param {string} message
  * @param {'info'|'success'|'error'} type
@@ -320,7 +350,7 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
     const existingVideo = card.querySelector('video');
     const wasLocal = card.dataset.isLocal === 'true';
     if (existingVideo && wasLocal === isLocal) {
-      existingVideo.srcObject = stream;
+      existingVideo.srcObject = resolveCardDisplayStream(stream, isLocal);
       setCardStreamPaused(peerId, false);
       hideCardLoading(peerId);
 
@@ -577,7 +607,7 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
   `;
 
   const video = document.createElement('video');
-  video.srcObject = stream;
+  video.srcObject = resolveCardDisplayStream(stream, isLocal);
   video.autoplay = true;
   video.playsInline = true;
   video.controls = false;

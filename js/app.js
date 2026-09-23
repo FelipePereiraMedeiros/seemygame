@@ -2644,7 +2644,11 @@ export async function startLocalStream(options = {}) {
     }
 
     localStream = capturedDisplayStream;
-    if (options.replayEnabled !== false) {
+    const replayPref = typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_replay_enabled') : null;
+    const shouldRecordReplay = options.replayEnabled !== undefined
+      ? options.replayEnabled
+      : (replayPref !== 'false');
+    if (shouldRecordReplay) {
       clipRecorder.start(localStream, 'local');
     }
     if (wantSystemAudio) {

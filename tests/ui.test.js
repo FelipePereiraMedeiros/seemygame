@@ -314,6 +314,26 @@ describe('Módulo: ui.js', () => {
       expect(exitBtn.textContent).toBe('Encerrar');
     });
 
+    it('deve isolar a trilha de vídeo no preview local quando o stream possui áudio e vídeo para evitar engasgos A/V', () => {
+      const videoTrack = new MockMediaStreamTrack('video');
+      const audioTrack = new MockMediaStreamTrack('audio');
+      const stream = new MockMediaStream([videoTrack, audioTrack]);
+
+      addOrUpdateVideoCard({
+        stream,
+        peerId: 'local-me-av',
+        label: 'Minha Transmissão AV',
+        isLocal: true
+      });
+
+      const card = document.getElementById('card-local-me-av');
+      const video = card.querySelector('video');
+      expect(video.srcObject).not.toBeNull();
+      expect(video.srcObject.getVideoTracks()).toHaveLength(1);
+      expect(video.srcObject.getAudioTracks()).toHaveLength(0);
+      expect(video.muted).toBe(true);
+    });
+
     it('deve renderizar botão de Clipar no card e acionar #clip-btn global ao ser clicado', () => {
       const stream = new MockMediaStream([new MockMediaStreamTrack('video')]);
       const clipBtnGlobal = document.createElement('button');

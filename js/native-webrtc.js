@@ -208,7 +208,7 @@ export function createNativeWebRtcBridge({ target = globalThis } = {}) {
                     const transceivers = peerConnection.getTransceivers ? peerConnection.getTransceivers() : [];
                     for (const t of transceivers) {
                         if (t?.receiver) {
-                            const targetMs = hasNativeAudio ? 25 : 0;
+                            const targetMs = 0; // Loopback interno localhost: zero latência e sem buffer artificial
                             if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = targetMs;
                             if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = targetMs / 1000;
                         }
