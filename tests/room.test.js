@@ -276,5 +276,76 @@ describe('Módulo: room.js (Gerenciador de Salas P2P - Paradigma Room-First)', (
       expect(room.meshConnections.size).toBe(0);
       expect(closeSpy).toHaveBeenCalledWith({ roomId: 'jogatina' });
     });
+
+    it('ROOM_SYNC_ALL deve autorizar membros e emitir streamPublished para transmissões em andamento', () => {
+      const guestRoom = new RoomManager({ roomId: 'jogatina' });
+      const masterPeerId = getRoomMasterPeerId('jogatina');
+      guestRoom.join('guest-peer', false);
+
+      const pubSpy = vi.fn();
+      guestRoom.on('streamPublished', pubSpy);
+
+      const fakeMasterConn = { peer: masterPeerId, open: true, send: vi.fn(), close: vi.fn() };
+      guestRoom.registerConnection(masterPeerId, fakeMasterConn);
+      guestRoom.promoteConnection(masterPeerId, fakeMasterConn, { isMaster: true });
+
+      guestRoom.handleRoomMessage(masterPeerId, {
+        type: 'ROOM_SYNC_ALL',
+        roomId: 'jogatina',
+        members: [
+          {
+            peerId: masterPeerId,
+            name: 'Master Streamer',
+            isMaster: true,
+            isStreaming: true,
+            streamDetails: { title: 'Apex Legends 4K', fps: 60, height: 1080 }
+          },
+          {
+            peerId: 'other-member',
+            name: 'Outro Membro',
+            isMaster: false,
+            isStreaming: false
+          }
+        ]
+      }, fakeMasterConn);
+
+      expect(guestRoom.isPeerAuthorized(masterPeerId)).toBe(true);
+      expect(guestRoom.isPeerAuthorized('other-member')).toBe(true);
+      expect(guestRoom.getActiveStreamers().length).toBe(1);
+      expect(pubSpy).toHaveBeenCalledWith(expect.objectContaining({
+        peerId: masterPeerId,
+        details: expect.objectContaining({ title: 'Apex Legends 4K', fps: 60 })
+      }));
+    });
+
+    it('ROOM_MEMBER_JOINED deve autorizar novo membro e emitir streamPublished se estiver transmitindo', () => {
+      const viewerRoom = new RoomManager({ roomId: 'jogatina' });
+      const masterPeerId = getRoomMasterPeerId('jogatina');
+      viewerRoom.join('viewer-peer', false);
+
+      const pubSpy = vi.fn();
+      viewerRoom.on('streamPublished', pubSpy);
+
+      const fakeMasterConn = { peer: masterPeerId, open: true, send: vi.fn(), close: vi.fn() };
+      viewerRoom.registerConnection(masterPeerId, fakeMasterConn);
+      viewerRoom.promoteConnection(masterPeerId, fakeMasterConn, { isMaster: true });
+
+      viewerRoom.handleRoomMessage(masterPeerId, {
+        type: 'ROOM_MEMBER_JOINED',
+        member: {
+          peerId: 'streamer-joined',
+          name: 'Pro Player',
+          isStreaming: true,
+          streamDetails: { title: 'Valorant Ranked', fps: 60 }
+        }
+      }, fakeMasterConn);
+
+      expect(viewerRoom.isPeerAuthorized('streamer-joined')).toBe(true);
+      expect(viewerRoom.getActiveStreamers().length).toBe(1);
+      expect(pubSpy).toHaveBeenCalledWith(expect.objectContaining({
+        peerId: 'streamer-joined',
+        details: expect.objectContaining({ title: 'Valorant Ranked' })
+      }));
+    });
   });
 });

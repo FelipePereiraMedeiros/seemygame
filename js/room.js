@@ -443,15 +443,26 @@ export class RoomManager {
         }
 
         if (Array.isArray(message.members)) {
+          const newlyActiveStreamers = [];
           message.members.forEach((m) => {
             if (m && isValidPeerId(m.peerId) && m.peerId !== this.myPeerId) {
               const prev = this.members.get(m.peerId);
               if (!prev && this.members.size >= MAX_ROOM_MEMBERS) return;
               const cleanName = typeof m.name === 'string' ? sanitizeText(m.name).slice(0, 30) : (prev ? prev.name : `Amigo ${m.peerId.slice(-4)}`);
-              this.members.set(m.peerId, { ...prev, ...m, peerId: m.peerId, name: cleanName });
+              const updatedMember = { ...prev, ...m, peerId: m.peerId, name: cleanName };
+              this.members.set(m.peerId, updatedMember);
+              this.authenticatedPeers.add(m.peerId);
+
+              // Se o membro já estiver transmitindo na sala, detecta para notificação do ingressante
+              if (updatedMember.isStreaming && (!prev || !prev.isStreaming)) {
+                newlyActiveStreamers.push(updatedMember);
+              }
             }
           });
           this.emit('membersUpdated', this.getMembersList());
+          newlyActiveStreamers.forEach((m) => {
+            this.emit('streamPublished', { peerId: m.peerId, details: m.streamDetails, member: m });
+          });
           this.notifyState();
         }
         return true;
@@ -474,7 +485,11 @@ export class RoomManager {
           const cleanName = typeof message.member.name === 'string' ? sanitizeText(message.member.name).slice(0, 30) : `Amigo ${message.member.peerId.slice(-4)}`;
           const safeMember = { ...message.member, name: cleanName };
           this.members.set(message.member.peerId, safeMember);
+          this.authenticatedPeers.add(message.member.peerId);
           this.emit('memberJoined', safeMember);
+          if (safeMember.isStreaming) {
+            this.emit('streamPublished', { peerId: safeMember.peerId, details: safeMember.streamDetails, member: safeMember });
+          }
           this.emit('membersUpdated', this.getMembersList());
           this.notifyState();
         }

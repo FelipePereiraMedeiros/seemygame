@@ -694,9 +694,21 @@ export function setupRoomSession(id) {
       if (member && member.peerId && member.peerId !== myId) {
         if (localStream && isPeerAuthorizedForMedia(member.peerId)) {
           authenticatedViewers.add(member.peerId);
+          let conn = connectedViewers.get(member.peerId) || roomManager.meshConnections.get(member.peerId);
+          if (!conn && peer && !peer.destroyed) {
+            conn = peer.connect(member.peerId, { reliable: true });
+            setupIncomingDataConnection(conn);
+          }
           initiateMediaCallToViewer(member.peerId);
-          const conn = connectedViewers.get(member.peerId) || roomManager.meshConnections.get(member.peerId);
-          conn?.send?.({ type: 'STREAM_STATUS', isStreaming: true });
+          if (conn && conn.open) {
+            conn.send({ type: 'STREAM_STATUS', isStreaming: true });
+          } else if (conn) {
+            const sendStatus = () => {
+              try { conn.send({ type: 'STREAM_STATUS', isStreaming: true }); } catch (_) {}
+            };
+            if (typeof conn.once === 'function') conn.once('open', sendStatus);
+            else if (typeof conn.on === 'function') conn.on('open', sendStatus);
+          }
         }
       }
     });
@@ -1632,14 +1644,19 @@ function setupIncomingDataConnection(conn) {
       if (roomManager.isPeerAuthorized(conn.peer) && conn.peer === roomManager.masterPeerId) {
         if (data.type === 'ROOM_SYNC_ALL' && Array.isArray(data.members)) {
           data.members.forEach((m) => {
-            if (m && m.peerId && m.peerId !== myId && roomManager.members.has(m.peerId) && !connectedViewers.has(m.peerId) && !watchingHosts.has(m.peerId)) {
-              const peerConn = peer.connect(m.peerId, { reliable: true });
-              setupIncomingDataConnection(peerConn);
-              if (voiceManager && voiceManager.isInVoice && voiceManager.localStream && !activeVoiceCalls.has(m.peerId)) {
-                const call = peer.call(m.peerId, voiceManager.localStream, {
-                  metadata: { type: 'VOICE_CHAT', name: roomManager.userName, role: 'member' }
-                });
-                setupVoiceMediaCall(call, m.peerId);
+            if (m && m.peerId && m.peerId !== myId) {
+              if (m.isStreaming && !watchingHosts.has(m.peerId)) {
+                watchFriend(m.peerId);
+              }
+              if (roomManager.members.has(m.peerId) && !connectedViewers.has(m.peerId) && !watchingHosts.has(m.peerId)) {
+                const peerConn = peer.connect(m.peerId, { reliable: true });
+                setupIncomingDataConnection(peerConn);
+                if (voiceManager && voiceManager.isInVoice && voiceManager.localStream && !activeVoiceCalls.has(m.peerId)) {
+                  const call = peer.call(m.peerId, voiceManager.localStream, {
+                    metadata: { type: 'VOICE_CHAT', name: roomManager.userName, role: 'member' }
+                  });
+                  setupVoiceMediaCall(call, m.peerId);
+                }
               }
             }
           });
@@ -1704,6 +1721,32 @@ function setupIncomingDataConnection(conn) {
     }
 
     if (handleDirectStreamSignaling(data, conn)) {
+      return;
+    }
+
+    if (data.type === 'STREAM_STATUS') {
+      if (watchingHosts.has(conn.peer)) {
+        if (!data.isStreaming) {
+          updateCardStatus(conn.peer, 'Amigo conectado! Aguardando ele iniciar o jogo...');
+        } else {
+          updateCardStatus(conn.peer, 'Sincronizando stream em tempo real...');
+        }
+      }
+      return;
+    }
+
+    if (data.type === 'STREAM_STOPPED') {
+      if (watchingHosts.has(conn.peer)) {
+        showToast('O amigo pausou a transmissão.', 'info');
+        setCardStreamPaused(conn.peer, true, 'Transmissão pausada pelo streamer.');
+        const directPc = directViewerPeerConnections.get(conn.peer);
+        if (directPc) {
+          try { directPc.close(); } catch (e) {}
+          directViewerPeerConnections.delete(conn.peer);
+          directPendingCandidates.delete(conn.peer);
+        }
+        stopStatsMonitor(conn.peer);
+      }
       return;
     }
 
@@ -1805,6 +1848,13 @@ async function handleStartDirectStream(data, conn) {
       clearTimeout(hostData.timeoutTimer);
       hostData.timeoutTimer = null;
     }
+  } else {
+    watchingHosts.set(hostId, {
+      state: 'CONNECTED',
+      conn: conn || (roomManager && roomManager.meshConnections.get(hostId)) || null,
+      call: null,
+      timeoutTimer: null
+    });
   }
 
   const peerConfig = getPeerConfig();
@@ -2108,14 +2158,40 @@ export function initiateMediaCallToViewer(viewerPeerId) {
       return;
     }
     const conn = connectedViewers.get(viewerPeerId) || (roomManager && roomManager.meshConnections.get(viewerPeerId));
-    if (conn && conn.open) {
-      console.log(`Iniciando stream direto GStreamer para espectador: ${viewerPeerId}`);
-      activeDirectSignaling.add(viewerPeerId);
-      conn.send({
-        type: 'START_DIRECT_STREAM',
-        sessionId,
-        hasAudio: Boolean(activeNativeCaptureProvider.session.audioRtpPort || activeNativeCaptureProvider.session.audio_rtp_port)
-      });
+    if (conn) {
+      if (conn.open) {
+        console.log(`Iniciando stream direto GStreamer para espectador: ${viewerPeerId}`);
+        activeDirectSignaling.add(viewerPeerId);
+        conn.send({
+          type: 'START_DIRECT_STREAM',
+          sessionId,
+          hasAudio: Boolean(activeNativeCaptureProvider.session.audioRtpPort || activeNativeCaptureProvider.session.audio_rtp_port)
+        });
+      } else {
+        console.log(`Aguardando abertura de canal de dados para stream direto com: ${viewerPeerId}`);
+        activeDirectSignaling.add(viewerPeerId);
+        const onOpen = () => {
+          console.log(`Canal de dados aberto. Enviando START_DIRECT_STREAM para: ${viewerPeerId}`);
+          try {
+            conn.send({
+              type: 'START_DIRECT_STREAM',
+              sessionId,
+              hasAudio: Boolean(activeNativeCaptureProvider.session.audioRtpPort || activeNativeCaptureProvider.session.audio_rtp_port)
+            });
+          } catch (e) {
+            activeDirectSignaling.delete(viewerPeerId);
+          }
+        };
+        if (typeof conn.once === 'function') {
+          conn.once('open', onOpen);
+        } else if (typeof conn.on === 'function') {
+          const handler = () => {
+            conn.off?.('open', handler);
+            onOpen();
+          };
+          conn.on('open', handler);
+        }
+      }
       return;
     }
   }
@@ -2349,7 +2425,8 @@ export function watchFriend(rawTargetId) {
     initPeer();
   }
 
-  const conn = peer.connect(targetId, { reliable: true });
+  const existingConn = (roomManager && (roomManager.meshConnections.get(targetId) || roomManager.pendingConnections.get(targetId))) || connectedViewers.get(targetId);
+  const conn = (existingConn && !existingConn.destroyed) ? existingConn : peer.connect(targetId, { reliable: true });
   hostEntry.conn = conn;
 
   // Timeout de conexão pendente (15s)
@@ -2360,7 +2437,7 @@ export function watchFriend(rawTargetId) {
     }
   }, 15000);
 
-  conn.on('open', () => {
+  const handleOpen = () => {
     // Se foi cancelado antes do open, aborta imediatamente
     if (hostEntry.state === 'CANCELLED') {
       conn.close();
@@ -2373,9 +2450,19 @@ export function watchFriend(rawTargetId) {
       hostEntry.timeoutTimer = null;
     }
 
-    conn.send({ type: 'REQUEST_STREAM' });
-    showToast(`Conectado a ${targetId.slice(0, 6)}! Aguardando stream...`, 'info');
-  });
+    try {
+      conn.send({ type: 'REQUEST_STREAM' });
+      showToast(`Conectado a ${targetId.slice(0, 6)}! Aguardando stream...`, 'info');
+    } catch (e) {
+      console.warn(`[watchFriend] Falha ao enviar REQUEST_STREAM para ${targetId}:`, e);
+    }
+  };
+
+  if (conn.open) {
+    handleOpen();
+  } else {
+    conn.on('open', handleOpen);
+  }
 
   conn.on('data', (data) => {
     if (!data || typeof data !== 'object') return;
@@ -2487,7 +2574,7 @@ export function disconnectHost(peerId) {
       clearTimeout(hostData.timeoutTimer);
       hostData.timeoutTimer = null;
     }
-    if (hostData.conn) {
+    if (hostData.conn && !(isRoomMode() && roomManager && roomManager.meshConnections.get(peerId) === hostData.conn)) {
       try {
         hostData.conn.close();
       } catch (e) {}
