@@ -104,6 +104,9 @@ export class DiscordUIController {
       quickMicBtn: document.getElementById('quick-mic-btn'),
       quickDeafBtn: document.getElementById('quick-deaf-btn'),
       quickTuningBtn: document.getElementById('quick-tuning-btn'),
+      bottomControlDock: document.getElementById('bottom-control-dock'),
+      reactionsDock: document.getElementById('reactions-dock'),
+      roomStage: document.getElementById('room-stage'),
     };
 
     this.bindEvents();
@@ -112,6 +115,7 @@ export class DiscordUIController {
     this.bindRoomDockEvents();
     this.initSoundboard();
     this.initEmojis();
+    this.initStageDockAutoHide();
   }
 
   bindEvents() {
@@ -710,6 +714,99 @@ export class DiscordUIController {
         dockStreamBtn.classList.remove('is-streaming');
       }
     }
+  }
+
+  initStageDockAutoHide() {
+    const { bottomControlDock, reactionsDock, roomStage } = this.elements;
+    if (!bottomControlDock && !reactionsDock) return;
+
+    let hideTimeout = null;
+    let isHoveringDock = false;
+    let isHoveringReactions = false;
+    const INACTIVITY_MS = 3500;
+
+    const isAnyModalOpen = () => {
+      if (typeof document === 'undefined') return false;
+      const openModals = document.querySelectorAll('.modal-overlay');
+      for (const modal of openModals) {
+        if (modal.style.display && modal.style.display !== 'none') {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const showDocks = () => {
+      if (bottomControlDock) bottomControlDock.classList.remove('dock-hidden');
+      if (reactionsDock) reactionsDock.classList.remove('dock-hidden');
+    };
+
+    const hideDocks = () => {
+      if (isHoveringDock || isHoveringReactions || isAnyModalOpen()) {
+        resetTimer();
+        return;
+      }
+      if (bottomControlDock) bottomControlDock.classList.add('dock-hidden');
+      if (reactionsDock) reactionsDock.classList.add('dock-hidden');
+    };
+
+    const resetTimer = () => {
+      showDocks();
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+        hideTimeout = null;
+      }
+      hideTimeout = setTimeout(hideDocks, INACTIVITY_MS);
+    };
+
+    if (bottomControlDock) {
+      bottomControlDock.addEventListener('mouseenter', () => {
+        isHoveringDock = true;
+        showDocks();
+        if (hideTimeout) clearTimeout(hideTimeout);
+      });
+      bottomControlDock.addEventListener('mouseleave', () => {
+        isHoveringDock = false;
+        resetTimer();
+      });
+      bottomControlDock.addEventListener('focusin', () => {
+        showDocks();
+        if (hideTimeout) clearTimeout(hideTimeout);
+      });
+      bottomControlDock.addEventListener('focusout', () => {
+        resetTimer();
+      });
+    }
+
+    if (reactionsDock) {
+      reactionsDock.addEventListener('mouseenter', () => {
+        isHoveringReactions = true;
+        showDocks();
+        if (hideTimeout) clearTimeout(hideTimeout);
+      });
+      reactionsDock.addEventListener('mouseleave', () => {
+        isHoveringReactions = false;
+        resetTimer();
+      });
+    }
+
+    const stage = roomStage || (typeof document !== 'undefined' ? document.getElementById('room-stage') : null);
+    if (stage) {
+      stage.addEventListener('mousemove', resetTimer);
+      stage.addEventListener('mousedown', resetTimer);
+      stage.addEventListener('touchstart', resetTimer, { passive: true });
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('keydown', resetTimer);
+      window.addEventListener('mousemove', (e) => {
+        // Se o mouse estiver sobre o palco, reseta o timer
+        if (stage && stage.contains(e.target)) {
+          resetTimer();
+        }
+      });
+    }
+
+    resetTimer();
   }
 
   updateRoomPresence(members) {

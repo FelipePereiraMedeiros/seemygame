@@ -1545,7 +1545,7 @@ video {
 
 .reactions-dock {
   position: absolute;
-  bottom: 16px;
+  bottom: 76px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -1557,7 +1557,13 @@ video {
   padding: 6px 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   z-index: 60;
-  transition: opacity 0.2s, transform 0.2s;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reactions-dock.dock-hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(28px);
+  pointer-events: none;
 }
 
 .reaction-dock-btn {
@@ -2686,7 +2692,13 @@ video {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(16px);
   z-index: 60;
-  transition: all 0.2s ease;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease;
+}
+
+.bottom-control-dock.dock-hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(28px);
+  pointer-events: none;
 }
 
 .bottom-control-dock:hover {
