@@ -132,6 +132,7 @@ describe('Ocultação Automática da Barra Inferior e Reações (DiscordUI)', ()
 
     discordUI = new DiscordUIController();
     discordUI.init();
+    discordUI.setStreamingState(true);
   });
 
   afterEach(() => {

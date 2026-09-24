@@ -613,7 +613,7 @@ try {
       await record('select native synthetic window and transmit', async () => {
         await hostPage.locator('#audio-mode-select').selectOption('none', { force: true });
         await hostPage.locator('#quality-preset').selectOption(preset, { force: true }).catch(() => {});
-        await hostPage.locator('#dock-stream-btn').click();
+        await hostPage.locator('#dock-stream-btn').click({ force: true });
         await hostPage.locator('.window-item').first().waitFor({ state: 'visible', timeout: 45000 });
 
         let targetWindow = hostPage.locator('.window-item').filter({ hasText: syntheticTitle }).first();
@@ -681,7 +681,7 @@ try {
       await viewerPage.screenshot({ path: path.join(output, isCompareMode ? 'viewer-native.png' : 'viewer.png') });
 
       await record('stop native capture via desktop UI and verify idle', async () => {
-        await hostPage.locator('#dock-stream-btn').click();
+        await hostPage.locator('#dock-stream-btn').click({ force: true });
         await waitApp(hostPage, async () => (await (await import('/js/desktop.js')).getNativeCaptureState()).state === 'idle', null, 15000);
       });
 

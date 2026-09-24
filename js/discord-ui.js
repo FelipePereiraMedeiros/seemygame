@@ -704,7 +704,11 @@ export class DiscordUIController {
   }
 
   setStreamingState(isStreaming) {
-    const { dockStreamBtn } = this.elements;
+    this.isStreaming = Boolean(isStreaming);
+    const { dockStreamBtn, bottomControlDock } = this.elements;
+    if (!this.isStreaming && bottomControlDock) {
+      bottomControlDock.classList.remove('dock-hidden');
+    }
     if (dockStreamBtn) {
       if (isStreaming) {
         dockStreamBtn.innerHTML = '<span>⏹️</span> <span class="dock-label">Parar Stream</span>';
@@ -736,13 +740,24 @@ export class DiscordUIController {
       return false;
     };
 
+    const hasLiveVideoOnStage = () => {
+      if (this.isStreaming || this.hasActiveStreams) return true;
+      if (typeof document !== 'undefined') {
+        const videoGrid = this.elements?.videoGrid || document.getElementById('video-grid');
+        if (videoGrid && videoGrid.style.display !== 'none' && videoGrid.querySelector('video, .video-card')) {
+          return true;
+        }
+      }
+      return false;
+    };
+
     const showDocks = () => {
       if (bottomControlDock) bottomControlDock.classList.remove('dock-hidden');
       if (reactionsDock) reactionsDock.classList.remove('dock-hidden');
     };
 
     const hideDocks = () => {
-      if (isHoveringDock || isHoveringReactions || isAnyModalOpen()) {
+      if (!hasLiveVideoOnStage() || isHoveringDock || isHoveringReactions || isAnyModalOpen()) {
         resetTimer();
         return;
       }
@@ -917,7 +932,11 @@ export class DiscordUIController {
   }
 
   syncStageView(hasActiveStreams) {
-    const { voiceStageGrid, videoGrid } = this.elements;
+    this.hasActiveStreams = Boolean(hasActiveStreams);
+    const { voiceStageGrid, videoGrid, bottomControlDock } = this.elements;
+    if (!this.hasActiveStreams && !this.isStreaming && bottomControlDock) {
+      bottomControlDock.classList.remove('dock-hidden');
+    }
     if (videoGrid && voiceStageGrid) {
       if (hasActiveStreams) {
         videoGrid.style.display = 'flex';
