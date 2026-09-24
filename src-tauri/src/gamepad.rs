@@ -306,11 +306,24 @@ pub async fn install_vigem_driver() -> Result<String, String> {
         let mut script_path = None;
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
-                for ancestor in parent.ancestors().take(7) {
-                    let candidate = ancestor.join("tools").join("install-vigem.ps1");
-                    if candidate.exists() {
-                        script_path = Some(candidate);
+                let candidates = [
+                    parent.join("tools").join("install-vigem.ps1"),
+                    parent.join("resources").join("tools").join("install-vigem.ps1"),
+                    parent.join("resources").join("install-vigem.ps1"),
+                ];
+                for cand in candidates {
+                    if cand.exists() {
+                        script_path = Some(cand);
                         break;
+                    }
+                }
+                if script_path.is_none() {
+                    for ancestor in parent.ancestors().take(7) {
+                        let candidate = ancestor.join("tools").join("install-vigem.ps1");
+                        if candidate.exists() {
+                            script_path = Some(candidate);
+                            break;
+                        }
                     }
                 }
             }

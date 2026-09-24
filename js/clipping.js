@@ -88,9 +88,37 @@ export class ClipRecorder {
         // Escuta novas trilhas adicionadas dinamicamente ao stream de origem (ex: áudio chegando após vídeo)
         if (typeof stream.addEventListener === 'function') {
           const onTrackAdded = (e) => {
-            if (e.track && e.track.readyState !== 'ended' && !isolatedStream.getTracks().includes(e.track)) {
+            if (generation !== this._recordingGeneration || !this.isRecording) return;
+            if (e.track && e.track.readyState !== 'ended' && isolatedStream && !isolatedStream.getTracks().includes(e.track)) {
+              // W3C: Adicionar faixas a stream gravado dispara InvalidModificationError.
+              // Conclui gravação parcial e reinicia com topologia atualizada preservando histórico.
+              if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+                try {
+                  if (typeof this.mediaRecorder.requestData === 'function') {
+                    this.mediaRecorder.requestData();
+                  }
+                } catch (_) {}
+                try {
+                  this.mediaRecorder.stop();
+                } catch (_) {}
+              }
+
               try { isolatedStream.addTrack(e.track); } catch (_) {}
               this.recordingTracks.push({ track: e.track, owned: false });
+
+              const hasAudioNow = typeof this.recordingStream.getAudioTracks === 'function' &&
+                this.recordingStream.getAudioTracks().length > 0;
+              this.mimeType = this._resolveSupportedMimeType(hasAudioNow);
+              const recOptions = this.mimeType ? { mimeType: this.mimeType } : {};
+
+              try {
+                const newRec = new MediaRecorder(this.recordingStream, recOptions);
+                this.mediaRecorder = newRec;
+                this._bindRecorderEvents(newRec, generation);
+                newRec.start(this.timesliceMs || 3000);
+              } catch (reErr) {
+                console.warn('[ClipRecorder] Falha ao recriar MediaRecorder após adição de faixa:', reErr);
+              }
             }
           };
           stream.addEventListener('addtrack', onTrackAdded);
@@ -113,31 +141,7 @@ export class ClipRecorder {
         recorder = new MediaRecorder(this.recordingStream);
       }
       this.mediaRecorder = recorder;
-
-      recorder.ondataavailable = (e) => {
-        if (this.mediaRecorder !== recorder || generation !== this._recordingGeneration) return;
-        if (e.data && e.data.size > 0) {
-          const now = Date.now();
-          const chunk = { blob: e.data, timestamp: now, sequence: this._nextChunkSequence++ };
-          if (!this.initializationChunk) this.initializationChunk = chunk;
-          this.chunks.push(chunk);
-
-          // MediaRecorder normally delivers chunks in order, but an encoder
-          // flush can arrive after a timer callback. Keep export deterministic.
-          this.chunks.sort((a, b) => a.timestamp - b.timestamp || a.sequence - b.sequence);
-
-          // Descarte circular: mantém apenas os últimos maxDurationSeconds
-          const cutoff = now - (this.maxDurationSeconds * 1000);
-          this.chunks = this.chunks.filter((item) => item === this.initializationChunk || item.timestamp >= cutoff);
-        }
-      };
-
-      recorder.onerror = (event) => {
-        if (this.mediaRecorder !== recorder || generation !== this._recordingGeneration) return;
-        this.lastError = event?.error || new Error('Falha desconhecida do MediaRecorder');
-        this.isRecording = false;
-        console.warn('[ClipRecorder] Erro no MediaRecorder:', this.lastError);
-      };
+      this._bindRecorderEvents(recorder, generation);
 
       // Fatias de 3 segundos (3000ms padrão) para evitar picos de flush e congelamento a cada 1 segundo
       const timeslice = this.timesliceMs || 3000;
@@ -152,6 +156,30 @@ export class ClipRecorder {
       this._releaseRecordingTracks();
       return false;
     }
+  }
+
+  _bindRecorderEvents(recorder, generation) {
+    recorder.ondataavailable = (e) => {
+      if (this.mediaRecorder !== recorder || generation !== this._recordingGeneration) return;
+      if (e.data && e.data.size > 0) {
+        const now = Date.now();
+        const chunk = { blob: e.data, timestamp: now, sequence: this._nextChunkSequence++ };
+        if (!this.initializationChunk) this.initializationChunk = chunk;
+        this.chunks.push(chunk);
+
+        this.chunks.sort((a, b) => a.timestamp - b.timestamp || a.sequence - b.sequence);
+
+        const cutoff = now - (this.maxDurationSeconds * 1000);
+        this.chunks = this.chunks.filter((item) => item === this.initializationChunk || item.timestamp >= cutoff);
+      }
+    };
+
+    recorder.onerror = (event) => {
+      if (this.mediaRecorder !== recorder || generation !== this._recordingGeneration) return;
+      this.lastError = event?.error || new Error('Falha desconhecida do MediaRecorder');
+      this.isRecording = false;
+      console.warn('[ClipRecorder] Erro no MediaRecorder:', this.lastError);
+    };
   }
 
   _releaseRecordingTracks() {
@@ -396,8 +424,8 @@ export class ClipRecorder {
       } catch (e) {}
     }
     this.isRecording = false;
-    this.stream = null;
     this._releaseRecordingTracks();
+    this.stream = null;
   }
 
   clear() {

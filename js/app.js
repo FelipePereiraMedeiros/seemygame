@@ -489,6 +489,26 @@ window.addEventListener('keydown', (e) => {
 // CONTROLES DE TUNING & PRESETS
 // ==========================================
 
+let pendingNativeReconfig = null;
+let isNativeReconfiguring = false;
+
+async function queueNativeReconfigure(params) {
+  if (!activeNativeCaptureProvider?.session?.sessionId) return;
+  pendingNativeReconfig = params;
+  if (isNativeReconfiguring) return;
+  isNativeReconfiguring = true;
+  while (pendingNativeReconfig) {
+    const nextParams = pendingNativeReconfig;
+    pendingNativeReconfig = null;
+    try {
+      await activeNativeCaptureProvider.reconfigure(nextParams);
+    } catch (err) {
+      console.warn('Falha ao reconfigurar captura nativa dinamicamente:', err);
+    }
+  }
+  isNativeReconfiguring = false;
+}
+
 export function applyLiveBitrateChange(isAutomatic = false) {
   let scaleFactor = 1;
   if (localStream) {
@@ -511,9 +531,11 @@ export function applyLiveBitrateChange(isAutomatic = false) {
     });
   }
 
-  // Se a captura nativa desktop estiver ativa, reconfigura o pipeline GStreamer a quente
+  const isCurrentlyStreaming = Boolean(localStream || (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId));
+
+  // Se a captura nativa desktop estiver ativa, reconfigura o pipeline GStreamer a quente de forma serializada
   if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
-    activeNativeCaptureProvider.reconfigure({
+    queueNativeReconfigure({
       bitrateKbps: Math.round(customBitrateBps / 1000),
       width: selectedProfile.width,
       height: selectedProfile.height,
@@ -522,13 +544,11 @@ export function applyLiveBitrateChange(isAutomatic = false) {
       h264Encoder: h264EncoderSelect ? h264EncoderSelect.value : undefined,
       showCursor: captureCursorToggle ? captureCursorToggle.checked : undefined,
       audioMode: audioModeSelect ? audioModeSelect.value : undefined
-    }).catch((err) => {
-      console.warn('Falha ao reconfigurar captura nativa dinamicamente:', err);
     });
   }
 
-  // Atualiza estado local da sala para que novos membros sincronizem com a resolução correta
-  if (roomManager) {
+  // Atualiza estado local da sala apenas se estiver realmente transmitindo (evita anunciar falso stream para espectadores)
+  if (roomManager && isCurrentlyStreaming) {
     roomManager.setLocalStreaming(true, {
       title: 'Jogo / Tela',
       preset: selectedProfile.id,
@@ -539,22 +559,24 @@ export function applyLiveBitrateChange(isAutomatic = false) {
     });
   }
 
-  // Notifica todos os espectadores (P2P direto e malha da sala)
-  const configMsg = {
-    type: 'STREAM_CONFIG_UPDATED',
-    preset: qualityPresetSelect ? qualityPresetSelect.value : null,
-    bitrate: customBitrateBps,
-    fps: selectedProfile.fps,
-    height: selectedProfile.height,
-    isAutomatic
-  };
+  // Notifica todos os espectadores se estiver transmitindo
+  if (isCurrentlyStreaming) {
+    const configMsg = {
+      type: 'STREAM_CONFIG_UPDATED',
+      preset: qualityPresetSelect ? qualityPresetSelect.value : null,
+      bitrate: customBitrateBps,
+      fps: selectedProfile.fps,
+      height: selectedProfile.height,
+      isAutomatic
+    };
 
-  connectedViewers.forEach((conn) => {
-    try { conn.send(configMsg); } catch (e) {}
-  });
+    connectedViewers.forEach((conn) => {
+      try { conn.send(configMsg); } catch (e) {}
+    });
 
-  if (roomManager) {
-    roomManager.broadcast(configMsg);
+    if (roomManager) {
+      roomManager.broadcast(configMsg);
+    }
   }
 }
 
@@ -585,11 +607,25 @@ if (qualityPresetSelect) {
   });
 }
 
+let bitrateSliderDebounceTimer = null;
+
 if (bitrateSlider) {
   bitrateSlider.addEventListener('input', (e) => {
     const kbps = parseInt(e.target.value, 10);
     customBitrateBps = kbps * 1000;
     if (bitrateDisplay) bitrateDisplay.innerText = `${(kbps / 1000).toFixed(1)} Mbps`;
+    if (bitrateSliderDebounceTimer) clearTimeout(bitrateSliderDebounceTimer);
+    bitrateSliderDebounceTimer = setTimeout(() => {
+      bitrateSliderDebounceTimer = null;
+      applyLiveBitrateChange();
+    }, 250);
+  });
+
+  bitrateSlider.addEventListener('change', () => {
+    if (bitrateSliderDebounceTimer) {
+      clearTimeout(bitrateSliderDebounceTimer);
+      bitrateSliderDebounceTimer = null;
+    }
     applyLiveBitrateChange();
   });
 }

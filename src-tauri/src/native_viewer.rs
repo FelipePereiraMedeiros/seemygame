@@ -346,7 +346,7 @@ fn handle_incoming_stream_pad(
         let queue = gst::ElementFactory::make("queue").build()
             .map_err(|e| format!("Falha ao criar queue de vídeo: {e}"))?;
         queue.set_property("max-size-buffers", 1u32);
-        queue.set_property("drop-oldest", true);
+        queue.set_property_from_str("leaky", "downstream");
 
         // Sink de vídeo: d3d11videosink para renderização direta em SwapChain DXGI do Windows
         let sink = gst::ElementFactory::make("d3d11videosink")

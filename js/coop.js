@@ -17,7 +17,7 @@ import {
 let isCoopEnabled = true;
 let maxCoopPlayers = 1; // Padrão 1 para 1-on-1 streamer; configurado para 4 em modo sala
 let partyModeEnabled = false; // Se true, o slot 0 (Player 1) também é liberado para amigos remotos
-const coopSlots = new Map(); // slot (0..3) -> { slot, peerId, conn, name, deviceType, connectedAt }
+export const coopSlots = new Map(); // slot (0..3) -> { slot, peerId, conn, name, deviceType, connectedAt }
 
 // Lado do espectador
 let activePlayer2PeerId = null; // backward-compat: peerId do Player 2 ativo
@@ -200,8 +200,22 @@ export function isCompanionAgentRunning() {
   return isCompanionConnected;
 }
 
+export function reconcileCoopSlots() {
+  const allowedMaxSlots = maxCoopPlayers > 1 ? 4 : 2;
+  for (const [slot, player] of Array.from(coopSlots.entries())) {
+    // Se o modo party estiver desativado, o slot 0 não pode ser ocupado por jogador remoto (exclusivo do host)
+    if (slot === 0 && !partyModeEnabled) {
+      revokeCoopPlayer(0, true);
+    } else if (slot >= allowedMaxSlots) {
+      // Se maxCoopPlayers foi reduzido (ex: de 4 para 2), revoga slots além do limite
+      revokeCoopPlayer(slot, true);
+    }
+  }
+}
+
 export function setMaxCoopPlayers(count) {
   maxCoopPlayers = Math.max(1, Math.min(4, Number(count) || 1));
+  reconcileCoopSlots();
   notifyStateChange();
 }
 
@@ -211,6 +225,7 @@ export function getMaxCoopPlayers() {
 
 export function setPartyModeEnabled(enabled) {
   partyModeEnabled = Boolean(enabled);
+  reconcileCoopSlots();
   notifyStateChange();
 }
 
@@ -518,7 +533,11 @@ export function handleHostCoopMessage(senderPeerId, data, conn) {
     const slot = Number(data.slot !== undefined ? data.slot : 1);
     const assignedPlayer = coopSlots.get(slot);
 
-    if (assignedPlayer && assignedPlayer.peerId === senderPeerId) {
+    const isSlotAllowed = (slot === 0 && partyModeEnabled) ||
+      (slot === 1) ||
+      (maxCoopPlayers > 1 && (slot === 2 || slot === 3));
+
+    if (isSlotAllowed && assignedPlayer && assignedPlayer.peerId === senderPeerId) {
       if (data.type === 'INPUT_KEY') {
         dispatchHostKeyboardInput(data);
       } else if (data.type === 'INPUT_MOUSE') {

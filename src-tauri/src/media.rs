@@ -1145,9 +1145,10 @@ fn build_pipeline(
         "buffer-size=2097152".to_string(),
     ]);
 
-    if let Some(audio_rtp_port) = audio_rtp_port {
-        args.extend([
-            "wasapi2src".to_string(),
+    if config.audio_mode != AudioMode::None {
+        if let Some(audio_rtp_port) = audio_rtp_port {
+            args.extend([
+                "wasapi2src".to_string(),
             "loopback=true".to_string(),
             "low-latency=true".to_string(),
             "do-timestamp=true".to_string(),
@@ -1191,6 +1192,7 @@ fn build_pipeline(
             "sync=false".to_string(),
             "async=false".to_string(),
         ]);
+        }
     }
 
     Ok(args)
@@ -1246,6 +1248,7 @@ mod tests {
         let test_src = source("window");
         let config = MediaWorkerConfig {
             codec: VideoCodec::H264,
+            audio_mode: AudioMode::System,
             bitrate_kbps: 4500,
             width: Some(1280),
             height: Some(720),
@@ -1259,6 +1262,18 @@ mod tests {
         let args = build_pipeline(&test_src, &resolved, 5555, Some(6666)).unwrap();
         assert!(args.iter().any(|a| a.contains("port=5555")));
         assert!(args.iter().any(|a| a.contains("port=6666")));
+
+        // R1: Verifica que se audio_mode for None, nenhum branch de áudio é montado
+        let config_none = MediaWorkerConfig {
+            codec: VideoCodec::H264,
+            audio_mode: AudioMode::None,
+            ..Default::default()
+        };
+        let (_runtime, resolved_none) = NativeMediaWorker::resolve_and_validate_config(config_none, &test_src).unwrap();
+        let args_none = build_pipeline(&test_src, &resolved_none, 5555, Some(6666)).unwrap();
+        assert!(args_none.iter().any(|a| a.contains("port=5555")));
+        assert!(!args_none.iter().any(|a| a.contains("port=6666")));
+        assert!(!args_none.iter().any(|a| a.contains("wasapi2src")));
     }
 
     static TEST_GPU_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());

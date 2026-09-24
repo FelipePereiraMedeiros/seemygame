@@ -583,6 +583,16 @@ fn spawn_worker_health_monitor(app: &AppHandle, session_id: String) {
                             }
                         }
                     } else {
+                        log::error!("[Capture] Sessão ativa sem worker GStreamer");
+                        session.state.state = "error".to_string();
+                        session.state.error = Some("Worker GStreamer ausente em sessão ativa".to_string());
+                        cleanup = Some((
+                            session.viewer_bridges.drain().collect::<Vec<_>>(),
+                            session.local_bridge.take(),
+                            session.fanout.take(),
+                            session.worker.take(),
+                        ));
+                        state_event = Some(session.state.clone());
                         true
                     }
                 }
@@ -662,11 +672,28 @@ pub fn reconfigure_native_capture(
 
     if let Some(mode) = audio_mode.as_deref() {
         if matches!(mode, "none" | "system" | "process" | "mic") {
-            new_config.audio_mode = AudioMode::parse(mode)?;
+            let parsed_mode = AudioMode::parse(mode)?;
+            if parsed_mode != current_worker.config.audio_mode {
+                if audio_rtp_port.is_none() && parsed_mode != AudioMode::None {
+                    session.worker = Some(current_worker);
+                    return Err(
+                        "Ativar áudio nativo durante uma transmissão iniciada sem áudio requer reiniciar a transmissão para negociar as faixas com os espectadores."
+                            .to_string(),
+                    );
+                }
+                new_config.audio_mode = parsed_mode;
+            }
         }
     }
     if let Some(codec_str) = video_codec.as_deref() {
         if let Ok(c) = media::VideoCodec::parse(codec_str) {
+            if c != current_worker.config.codec {
+                session.worker = Some(current_worker);
+                return Err(
+                    "A troca de codec de vídeo durante a transmissão requer reiniciar a transmissão para renegociar com os espectadores."
+                        .to_string(),
+                );
+            }
             new_config.codec = c;
         }
     }
@@ -703,15 +730,32 @@ pub fn reconfigure_native_capture(
 
     current_worker.stop();
 
+    let target_audio_rtp_port = if new_config.audio_mode == AudioMode::None {
+        None
+    } else {
+        audio_rtp_port
+    };
+
     let new_worker = match NativeMediaWorker::start_with_ports(
         &session.validated_source,
         new_config,
         video_rtp_port,
-        audio_rtp_port,
+        target_audio_rtp_port,
     ) {
         Ok(w) => w,
         Err(err) => {
             crate::system::write_debug_log(&format!("[Capture] Falha ao reconfigurar worker GStreamer: {err}"));
+            session.state.state = "error".to_string();
+            session.state.error = Some(format!("Falha ao reconfigurar captura nativa: {err}"));
+            let cleanup = (
+                session.viewer_bridges.drain().collect::<Vec<_>>(),
+                session.local_bridge.take(),
+                session.fanout.take(),
+                session.worker.take(),
+            );
+            drop(cleanup);
+            let state_to_emit = session.state.clone();
+            emit_state(&app, &state_to_emit);
             return Err(err);
         }
     };
@@ -728,7 +772,7 @@ pub fn reconfigure_native_capture(
         video_codec: Some(new_worker.config.codec.as_str().to_string()),
         h264_encoder: Some(new_worker.config.h264_encoder.as_str().to_string()),
         video_rtp_port: Some(video_rtp_port),
-        audio_rtp_port,
+        audio_rtp_port: target_audio_rtp_port,
         error: None,
     };
 

@@ -36,7 +36,8 @@
       "nsis"
     ],
     "resources": {
-      "../native-media/": "native-media/"
+      "../native-media/": "native-media/",
+      "../tools/install-vigem.ps1": "tools/install-vigem.ps1"
     },
     "windows": {
       "nsis": {
