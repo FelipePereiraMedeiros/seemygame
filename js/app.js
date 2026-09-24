@@ -2134,6 +2134,7 @@ async function handleDirectStreamOffer(data, conn) {
   console.log(`[DirectStream] Recebido DIRECT_STREAM_OFFER de ${viewerId} (${data.sdp?.length} bytes)`);
   if (!activeNativeCaptureProvider?.session?.sessionId) {
     console.warn('[DirectStream] Host não possui sessão nativa ativa para responder oferta.');
+    activeDirectSignaling.delete(viewerId);
     return;
   }
   const sessionId = activeNativeCaptureProvider.session.sessionId;
@@ -2974,17 +2975,23 @@ export async function startLocalStream(options = {}) {
         height: selectedProfile.height,
         audioMode: audioModeSelect ? audioModeSelect.value : 'system'
       });
-      roomManager.meshConnections.forEach((_, viewerId) => {
+      roomManager.meshConnections.forEach((conn, viewerId) => {
         if (roomManager.isPeerAuthorized(viewerId)) {
+          if (conn && conn.open) {
+            try { conn.send({ type: 'STREAM_STATUS', isStreaming: true }); } catch (_) {}
+          }
           initiateMediaCallToViewer(viewerId);
         }
       });
     }
 
-    // Notifica e chama todos os espectadores autorizados conectados
+    // Notifica e chama todos os espectadores autorizados fora da malha da sala
     connectedViewers.forEach((conn, viewerId) => {
-      if (isPeerAuthorizedForMedia(viewerId)) {
-        conn.send({ type: 'STREAM_STATUS', isStreaming: true });
+      const alreadyInRoomMesh = Boolean(roomManager && roomManager.meshConnections.has(viewerId));
+      if (!alreadyInRoomMesh && isPeerAuthorizedForMedia(viewerId)) {
+        if (conn && conn.open) {
+          try { conn.send({ type: 'STREAM_STATUS', isStreaming: true }); } catch (_) {}
+        }
         initiateMediaCallToViewer(viewerId);
       }
     });

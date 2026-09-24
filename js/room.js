@@ -486,6 +486,11 @@ export class RoomManager {
           const safeMember = { ...message.member, name: cleanName };
           this.members.set(message.member.peerId, safeMember);
           this.authenticatedPeers.add(message.member.peerId);
+          // Se havia uma conexão pendente deste membro aguardando confirmação do coordenador, promove-a agora
+          const pendingConn = this.pendingConnections.get(message.member.peerId);
+          if (pendingConn) {
+            this.promoteConnection(message.member.peerId, pendingConn, safeMember);
+          }
           this.emit('memberJoined', safeMember);
           if (safeMember.isStreaming) {
             this.emit('streamPublished', { peerId: safeMember.peerId, details: safeMember.streamDetails, member: safeMember });
@@ -526,12 +531,19 @@ export class RoomManager {
       }
 
       case 'ROOM_STREAM_PUBLISHED': {
-        // SEGURANÇA (A03): Apenas o próprio streamer publica sua stream
-        const peerId = senderPeerId;
+        // SEGURANÇA (A03): Apenas o próprio streamer publica sua stream, ou o Master retransmite
+        const peerId = (senderPeerId === this.masterPeerId && message.peerId) ? message.peerId : senderPeerId;
         const member = this.members.get(peerId);
         if (member) {
           member.isStreaming = true;
           member.streamDetails = message.details || null;
+          if (this.isMaster) {
+            this.broadcast({
+              type: 'ROOM_STREAM_PUBLISHED',
+              peerId,
+              details: member.streamDetails
+            }, senderPeerId);
+          }
           this.emit('streamPublished', { peerId, details: member.streamDetails, member });
           this.emit('membersUpdated', this.getMembersList());
           this.notifyState();
@@ -540,12 +552,18 @@ export class RoomManager {
       }
 
       case 'ROOM_STREAM_UNPUBLISHED': {
-        // SEGURANÇA (A03): Apenas o próprio streamer despublica sua stream
-        const peerId = senderPeerId;
+        // SEGURANÇA (A03): Apenas o próprio streamer despublica sua stream, ou o Master retransmite
+        const peerId = (senderPeerId === this.masterPeerId && message.peerId) ? message.peerId : senderPeerId;
         const member = this.members.get(peerId);
         if (member) {
           member.isStreaming = false;
           member.streamDetails = null;
+          if (this.isMaster) {
+            this.broadcast({
+              type: 'ROOM_STREAM_UNPUBLISHED',
+              peerId
+            }, senderPeerId);
+          }
           this.emit('streamUnpublished', { peerId, member });
           this.emit('membersUpdated', this.getMembersList());
           this.notifyState();
@@ -554,13 +572,22 @@ export class RoomManager {
       }
 
       case 'ROOM_MEMBER_STATE_UPDATE': {
-        // SEGURANÇA (A03): Um membro só pode atualizar seu próprio estado
+        // SEGURANÇA (A03): Um membro só pode atualizar seu próprio estado, ou o Master retransmite
         const targetPeerId = senderPeerId === this.masterPeerId ? (message.peerId || senderPeerId) : senderPeerId;
         const member = this.members.get(targetPeerId);
         if (member) {
           if (typeof message.isMuted === 'boolean') member.isMuted = message.isMuted;
           if (typeof message.isDeafened === 'boolean') member.isDeafened = message.isDeafened;
           if (typeof message.isSpeaking === 'boolean') member.isSpeaking = message.isSpeaking;
+          if (this.isMaster) {
+            this.broadcast({
+              type: 'ROOM_MEMBER_STATE_UPDATE',
+              peerId: targetPeerId,
+              isMuted: member.isMuted,
+              isDeafened: member.isDeafened,
+              isSpeaking: member.isSpeaking
+            }, senderPeerId);
+          }
           this.emit('membersUpdated', this.getMembersList());
           this.notifyState();
         }
