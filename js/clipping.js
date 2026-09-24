@@ -17,6 +17,9 @@ export class ClipRecorder {
     this.lastError = null;
     this._recordingGeneration = 0;
     this._nextChunkSequence = 0;
+    this._audioContext = null;
+    this._audioDestination = null;
+    this._audioSourceNode = null;
     this.mimeType = this._resolveSupportedMimeType();
   }
 
@@ -85,40 +88,75 @@ export class ClipRecorder {
           }
         });
 
+        // Se Web Audio estiver disponível, cria um mixer de áudio estável para manter a topologia
+        // inalterada mesmo que trilhas cheguem tardiamente (ex: WebRTC conectando vídeo antes de áudio)
+        const AudioCtx = (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) ||
+          (typeof AudioContext !== 'undefined' ? AudioContext : null);
+
+        if (AudioCtx) {
+          try {
+            this._audioContext = new AudioCtx();
+            if (typeof this._audioContext.createMediaStreamDestination === 'function') {
+              this._audioDestination = this._audioContext.createMediaStreamDestination();
+              const mixedTrack = this._audioDestination.stream.getAudioTracks()[0];
+              if (mixedTrack) {
+                const audioTracks = stream.getAudioTracks ? stream.getAudioTracks() : [];
+                if (audioTracks.length > 0 && typeof this._audioContext.createMediaStreamSource === 'function') {
+                  this._audioSourceNode = this._audioContext.createMediaStreamSource(new MediaStream(audioTracks));
+                  this._audioSourceNode.connect(this._audioDestination);
+                }
+                isolatedStream.getAudioTracks().forEach(t => isolatedStream.removeTrack(t));
+                isolatedStream.addTrack(mixedTrack);
+                this.recordingTracks.push({ track: mixedTrack, owned: true });
+              }
+            }
+          } catch (audioErr) {
+            console.warn('[ClipRecorder] Falha ao configurar mixer Web Audio:', audioErr);
+          }
+        }
+
         // Escuta novas trilhas adicionadas dinamicamente ao stream de origem (ex: áudio chegando após vídeo)
         if (typeof stream.addEventListener === 'function') {
           const onTrackAdded = (e) => {
             if (generation !== this._recordingGeneration || !this.isRecording) return;
-            if (e.track && e.track.readyState !== 'ended' && isolatedStream && !isolatedStream.getTracks().includes(e.track)) {
-              // W3C: Adicionar faixas a stream gravado dispara InvalidModificationError.
-              // Conclui gravação parcial e reinicia com topologia atualizada preservando histórico.
-              if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-                try {
-                  if (typeof this.mediaRecorder.requestData === 'function') {
-                    this.mediaRecorder.requestData();
-                  }
-                } catch (_) {}
-                try {
-                  this.mediaRecorder.stop();
-                } catch (_) {}
-              }
+            if (!e.track || e.track.readyState === 'ended') return;
 
-              try { isolatedStream.addTrack(e.track); } catch (_) {}
-              this.recordingTracks.push({ track: e.track, owned: false });
-
-              const hasAudioNow = typeof this.recordingStream.getAudioTracks === 'function' &&
-                this.recordingStream.getAudioTracks().length > 0;
-              this.mimeType = this._resolveSupportedMimeType(hasAudioNow);
-              const recOptions = this.mimeType ? { mimeType: this.mimeType } : {};
-
+            // Se for áudio e tivermos um mixer Web Audio ativo, roteia para o mixer sem alterar o MediaRecorder
+            if (e.track.kind === 'audio' && this._audioContext && this._audioDestination) {
               try {
-                const newRec = new MediaRecorder(this.recordingStream, recOptions);
-                this.mediaRecorder = newRec;
-                this._bindRecorderEvents(newRec, generation);
-                newRec.start(this.timesliceMs || 3000);
-              } catch (reErr) {
-                console.warn('[ClipRecorder] Falha ao recriar MediaRecorder após adição de faixa:', reErr);
+                if (this._audioContext.state === 'suspended') {
+                  this._audioContext.resume().catch(() => {});
+                }
+                const newSource = this._audioContext.createMediaStreamSource(new MediaStream([e.track]));
+                newSource.connect(this._audioDestination);
+                return;
+              } catch (routeErr) {
+                console.warn('[ClipRecorder] Falha ao rotear áudio dinâmico ao mixer:', routeErr);
               }
+            }
+
+            // Fallback (ou mudança de vídeo): conforme especificação W3C, não podemos injetar
+            // trilhas em MediaRecorder em gravação. Reinicia gravador com nova topologia,
+            // resetando histórico incompatível para não corromper cabeçalhos WebM.
+            if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+              try { this.mediaRecorder.stop(); } catch (_) {}
+            }
+            this.clear();
+            try { isolatedStream.addTrack(e.track); } catch (_) {}
+            this.recordingTracks.push({ track: e.track, owned: false });
+
+            const hasAudioNow = typeof this.recordingStream.getAudioTracks === 'function' &&
+              this.recordingStream.getAudioTracks().length > 0;
+            this.mimeType = this._resolveSupportedMimeType(hasAudioNow);
+            const recOptions = this.mimeType ? { mimeType: this.mimeType } : {};
+
+            try {
+              const newRec = new MediaRecorder(this.recordingStream, recOptions);
+              this.mediaRecorder = newRec;
+              this._bindRecorderEvents(newRec, generation);
+              newRec.start(this.timesliceMs || 3000);
+            } catch (reErr) {
+              console.warn('[ClipRecorder] Falha ao recriar MediaRecorder:', reErr);
             }
           };
           stream.addEventListener('addtrack', onTrackAdded);
@@ -187,6 +225,16 @@ export class ClipRecorder {
       try { this.stream.removeEventListener('addtrack', this._streamAddTrackHandler); } catch (_) {}
       this._streamAddTrackHandler = null;
     }
+    if (this._audioSourceNode) {
+      try { this._audioSourceNode.disconnect(); } catch (_) {}
+      this._audioSourceNode = null;
+    }
+    if (this._audioContext) {
+      try { this._audioContext.close(); } catch (_) {}
+      this._audioContext = null;
+    }
+    this._audioDestination = null;
+
     this.recordingTracks.forEach(({ track, owned }) => {
       if (owned && typeof track.stop === 'function') {
         try { track.stop(); } catch (e) {}

@@ -44,7 +44,8 @@ let broadcastSlotsCallback = null;
 // Loop de captura de Gamepad no Player 2
 let gamepadLoopId = null;
 let lastGamepadState = null;
-const pressedBrowserKeys = new Set();
+export const pressedBrowserKeys = new Set();
+export const slotPressedKeys = new Map(); // slot (0..3) -> Set of codes
 let capabilityWarningShown = false;
 let activeHostCapabilities = { keyboard: true, mouse: false, gamepad: false };
 let controlVisibilityTarget = null;
@@ -539,7 +540,7 @@ export function handleHostCoopMessage(senderPeerId, data, conn) {
 
     if (isSlotAllowed && assignedPlayer && assignedPlayer.peerId === senderPeerId) {
       if (data.type === 'INPUT_KEY') {
-        dispatchHostKeyboardInput(data);
+        dispatchHostKeyboardInput(data, slot);
       } else if (data.type === 'INPUT_MOUSE') {
         dispatchHostMouseInput(data);
       } else if (data.type === 'INPUT_GAMEPAD') {
@@ -561,6 +562,26 @@ export function revokeCoopPlayer(slot, notify = true) {
 
   if (isTauriEnvironment()) {
     unplugVirtualGamepad(targetSlot).catch(() => {});
+  }
+
+  // Libera teclas que estavam retidas no navegador por este slot específico
+  const keysForSlot = slotPressedKeys.get(targetSlot);
+  if (keysForSlot && typeof window !== 'undefined') {
+    keysForSlot.forEach((code) => {
+      try {
+        window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true, cancelable: true }));
+      } catch (e) {}
+      pressedBrowserKeys.delete(code);
+    });
+    keysForSlot.clear();
+  }
+  slotPressedKeys.delete(targetSlot);
+
+  // Se o companion nativo estiver conectado, envia reset para o slot correspondente
+  if (isCompanionConnected && companionSocket && companionSocket.readyState === WebSocket.OPEN) {
+    try {
+      companionSocket.send(JSON.stringify({ type: 'INPUT_RESET', slot: targetSlot }));
+    } catch (e) {}
   }
 
   if (notify && player.conn && player.conn.open !== false) {
@@ -628,7 +649,7 @@ function closeCompanionAgentConnection() {
 /**
  * Despacha evento de teclado no host (para jogos web ou agente nativo)
  */
-function dispatchHostKeyboardInput(data) {
+function dispatchHostKeyboardInput(data, slot = 1) {
   // 1. Se o companion Windows estiver aberto, envia para jogos nativos do PC
   if (isCompanionConnected && companionSocket && companionSocket.readyState === WebSocket.OPEN) {
     companionSocket.send(JSON.stringify(data));
@@ -645,10 +666,26 @@ function dispatchHostKeyboardInput(data) {
       bubbles: true,
       cancelable: true
     });
-    window.dispatchEvent(evt);
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(evt);
+    }
     if (data.code) {
-      if (data.action === 'down') pressedBrowserKeys.add(data.code);
-      else pressedBrowserKeys.delete(data.code);
+      let keys = slotPressedKeys.get(slot);
+      if (!keys) {
+        keys = new Set();
+        slotPressedKeys.set(slot, keys);
+      }
+      if (data.action === 'down') {
+        keys.add(data.code);
+        pressedBrowserKeys.add(data.code);
+      } else {
+        keys.delete(data.code);
+        let stillPressed = false;
+        for (const sKeys of slotPressedKeys.values()) {
+          if (sKeys.has(data.code)) { stillPressed = true; break; }
+        }
+        if (!stillPressed) pressedBrowserKeys.delete(data.code);
+      }
     }
   } catch (e) {}
 }
@@ -707,6 +744,7 @@ function dispatchHostInputReset() {
     });
   }
   pressedBrowserKeys.clear();
+  slotPressedKeys.clear();
 }
 
 // ==========================================

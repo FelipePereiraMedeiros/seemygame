@@ -196,22 +196,43 @@ function syncH264EncoderVisibility() {
 }
 
 if (videoCodecSelect) {
-  videoCodecSelect.addEventListener('change', (e) => {
-    syncH264EncoderVisibility();
-    try { localStorage.setItem('seemygame_video_codec', e.target.value); } catch (err) {}
-    if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
-      activeNativeCaptureProvider.reconfigure({ videoCodec: e.target.value }).catch((err) => {
+  let activeConfirmedCodec = localStorage.getItem('seemygame_video_codec') || 'h264';
+  videoCodecSelect.value = activeConfirmedCodec;
+
+  videoCodecSelect.addEventListener('change', async (e) => {
+    const targetCodec = e.target.value;
+    const isLiveNative = isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId;
+
+    if (isLiveNative) {
+      try {
+        await activeNativeCaptureProvider.reconfigure({ videoCodec: targetCodec });
+        activeConfirmedCodec = targetCodec;
+      } catch (err) {
         console.warn('Falha ao reconfigurar codec nativo:', err);
+        videoCodecSelect.value = activeConfirmedCodec;
+        syncH264EncoderVisibility();
+        const msg = err?.message || 'A troca de codec de vídeo durante a transmissão requer reiniciar a transmissão.';
+        showToast(`⚠️ ${msg}`, 'error', 6000);
+        return;
+      }
+    } else {
+      activeConfirmedCodec = targetCodec;
+    }
+
+    syncH264EncoderVisibility();
+    try { localStorage.setItem('seemygame_video_codec', activeConfirmedCodec); } catch (err) {}
+
+    const isCurrentlyStreaming = Boolean(localStream || (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId));
+    if (isCurrentlyStreaming) {
+      const codecMsg = { type: 'STREAM_CONFIG_UPDATED', videoCodec: activeConfirmedCodec };
+      connectedViewers.forEach((conn) => {
+        try { conn.send(codecMsg); } catch (err) {}
       });
+      if (roomManager) {
+        roomManager.broadcast(codecMsg);
+      }
     }
-    const codecMsg = { type: 'STREAM_CONFIG_UPDATED', videoCodec: e.target.value };
-    connectedViewers.forEach((conn) => {
-      try { conn.send(codecMsg); } catch (err) {}
-    });
-    if (roomManager) {
-      roomManager.broadcast(codecMsg);
-    }
-    showToast(`Codec de vídeo alterado: ${e.target.value.toUpperCase()}`, 'info');
+    showToast(`Codec de vídeo alterado: ${activeConfirmedCodec.toUpperCase()}`, 'info');
   });
   syncH264EncoderVisibility();
 }
@@ -540,10 +561,8 @@ export function applyLiveBitrateChange(isAutomatic = false) {
       width: selectedProfile.width,
       height: selectedProfile.height,
       fps: selectedProfile.fps,
-      videoCodec: videoCodecSelect ? videoCodecSelect.value : undefined,
       h264Encoder: h264EncoderSelect ? h264EncoderSelect.value : undefined,
-      showCursor: captureCursorToggle ? captureCursorToggle.checked : undefined,
-      audioMode: audioModeSelect ? audioModeSelect.value : undefined
+      showCursor: captureCursorToggle ? captureCursorToggle.checked : undefined
     });
   }
 
@@ -632,8 +651,28 @@ if (bitrateSlider) {
 
 // Hot Swapping dinâmico de fonte de áudio ao vivo sem desconectar espectadores
 if (audioModeSelect) {
+  let activeConfirmedAudioMode = audioModeSelect.value || 'system';
+
   audioModeSelect.addEventListener('change', async (e) => {
+    const previousMode = activeConfirmedAudioMode;
     const newMode = e.target.value;
+    const isLiveNative = isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId;
+
+    // Se captura nativa desktop estiver ativa, reconfigura no backend primeiro e valida
+    if (isLiveNative) {
+      try {
+        await activeNativeCaptureProvider.reconfigure({ audioMode: newMode });
+        activeConfirmedAudioMode = newMode;
+      } catch (err) {
+        console.warn('Falha ao reconfigurar modo de áudio nativo:', err);
+        audioModeSelect.value = previousMode;
+        const msg = err?.message || 'Ativar áudio nativo durante uma transmissão iniciada sem áudio requer reiniciar a transmissão.';
+        showToast(`⚠️ ${msg}`, 'error', 6000);
+        return;
+      }
+    } else {
+      activeConfirmedAudioMode = newMode;
+    }
 
     if (localStream) {
       try {
@@ -656,7 +695,6 @@ if (audioModeSelect) {
           activeMicProcessor = applyMicrophoneProcessing(capturedMicStream);
           newAudioTrack = activeMicProcessor.processedStream.getAudioTracks()[0] || capturedMicStream.getAudioTracks()[0] || null;
 
-          // Remove faixas de áudio anteriores da stream local
           localStream.getAudioTracks().forEach(t => {
             if (t !== capturedSystemAudioTrack) {
               t.stop();
@@ -703,13 +741,6 @@ if (audioModeSelect) {
           }
         }
 
-        // Reconfigura captura nativa no desktop se ativa
-        if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
-          activeNativeCaptureProvider.reconfigure({ audioMode: newMode }).catch((err) => {
-            console.warn('Falha ao reconfigurar modo de áudio nativo:', err);
-          });
-        }
-
         // Hot Swapping de áudio no WebRTC para cada chamada ativa
         activeMediaCalls.forEach((call) => {
           if (call && call.peerConnection) {
@@ -723,36 +754,42 @@ if (audioModeSelect) {
         } else {
           stopAudioAnalyser('local-me');
         }
-
-        // Atualiza estado local da sala
-        if (roomManager) {
-          roomManager.setLocalStreaming(true, { audioMode: newMode });
-        }
-
-        // Notifica todos os espectadores da nova fonte de áudio
-        const audioMsg = {
-          type: 'STREAM_CONFIG_UPDATED',
-          audioMode: newMode,
-          hasAudio: !!newAudioTrack || (isDesktopApp() && newMode !== 'none')
-        };
-
-        connectedViewers.forEach((conn) => {
-          try { conn.send(audioMsg); } catch (e) {}
-        });
-
-        if (roomManager) {
-          roomManager.broadcast(audioMsg);
-        }
       } catch (err) {
         console.error('Erro ao trocar modo de áudio:', err);
+        audioModeSelect.value = previousMode;
+        activeConfirmedAudioMode = previousMode;
         showToast(`Erro ao mudar fonte de áudio: ${err.message}`, 'error');
+        return;
       }
-    } else {
-      if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
-        activeNativeCaptureProvider.reconfigure({ audioMode: newMode }).catch(() => {});
+    }
+
+    const isCurrentlyStreaming = Boolean(localStream || (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId));
+
+    // Atualiza estado local da sala apenas se estiver transmitindo
+    if (roomManager && isCurrentlyStreaming) {
+      roomManager.setLocalStreaming(true, { audioMode: activeConfirmedAudioMode });
+    }
+
+    // Notifica todos os espectadores se estiver transmitindo
+    if (isCurrentlyStreaming) {
+      const audioMsg = {
+        type: 'STREAM_CONFIG_UPDATED',
+        audioMode: activeConfirmedAudioMode,
+        hasAudio: activeConfirmedAudioMode !== 'none'
+      };
+
+      connectedViewers.forEach((conn) => {
+        try { conn.send(audioMsg); } catch (e) {}
+      });
+
+      if (roomManager) {
+        roomManager.broadcast(audioMsg);
       }
-      const label = e.target.options[e.target.selectedIndex] ? e.target.options[e.target.selectedIndex].text : newMode;
-      showToast(`Fonte de áudio selecionada: ${label}`, 'info');
+    }
+
+    if (!localStream) {
+      const label = e.target.options[e.target.selectedIndex] ? e.target.options[e.target.selectedIndex].text : activeConfirmedAudioMode;
+      showToast(`Fonte de áudio: ${label}`, 'info');
     }
   });
 }

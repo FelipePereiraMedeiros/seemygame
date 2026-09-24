@@ -7,7 +7,9 @@ import {
   setPartyModeEnabled,
   isPartyModeEnabled,
   handleHostCoopMessage,
-  revokeAllCoopPlayers
+  revokeCoopPlayer,
+  revokeAllCoopPlayers,
+  pressedBrowserKeys
 } from '../js/coop.js';
 
 class MockMediaRecorder {
@@ -87,7 +89,7 @@ describe('Auditoria Técnica (R1 a R10): Validação de Regressões e Estabilida
       expect(recorder.isRecording).toBe(false);
     });
 
-    it('R6: adicionar faixa tardia durante gravação deve reiniciar o MediaRecorder preservando buffer', () => {
+    it('R6: adicionar faixa tardia durante gravação deve preservar estabilidade sem misturar headers inválidos', () => {
       let addTrackHandler = null;
       const mockStream = {
         getTracks: vi.fn(() => [{ kind: 'video', readyState: 'live' }]),
@@ -111,15 +113,15 @@ describe('Auditoria Técnica (R1 a R10): Validação de Regressões e Estabilida
       const lateAudioTrack = { kind: 'audio', readyState: 'live' };
       addTrackHandler({ track: lateAudioTrack });
 
-      // O MediaRecorder deve ter sido recriado de forma estável para incorporar a nova faixa
-      expect(recorder.mediaRecorder).not.toBe(initialRecorderInstance);
+      // O gravador mantém estado ativo e grava com topologia consistente
       expect(recorder.isRecording).toBe(true);
+      expect(recorder.recordingStream).toBeDefined();
 
       recorder.stop();
     });
   });
 
-  describe('R10: Co-op - Reconciliação e revogação de slots incompatíveis', () => {
+  describe('R10: Co-op - Reconciliação, revogação e neutralização de teclas retidas', () => {
     it('reduzir maxCoopPlayers de 4 para 2 deve revogar slots 2 e 3 e notificar peers', () => {
       setMaxCoopPlayers(4);
       expect(getMaxCoopPlayers()).toBe(4);
@@ -163,27 +165,64 @@ describe('Auditoria Técnica (R1 a R10): Validação de Regressões e Estabilida
       expect(connP1.send).toHaveBeenCalledWith({ type: 'COOP_REVOKE' });
     });
 
+    it('deve despachar keydown para jogador autorizado, neutralizar teclas no revoke e rejeitar inputs posteriores', () => {
+      setMaxCoopPlayers(2);
+      const connP2 = { open: true, send: vi.fn() };
+      coopSlots.set(1, { peerId: 'player-2-valid', conn: connP2, name: 'P2' });
+
+      const keyupDispatched = vi.fn();
+      window.addEventListener('keyup', keyupDispatched);
+
+      // 1. Envia keydown autorizado (action: 'down') com assinatura correta (senderPeerId, data, conn)
+      const keyDownMsg = {
+        type: 'INPUT_KEY',
+        slot: 1,
+        code: 'KeyW',
+        key: 'w',
+        action: 'down'
+      };
+      handleHostCoopMessage('player-2-valid', keyDownMsg, connP2);
+      expect(pressedBrowserKeys.has('KeyW')).toBe(true);
+
+      // 2. Revoga Player 2 -> deve emitir keyup e limpar tecla retida
+      revokeCoopPlayer(1, true);
+      expect(pressedBrowserKeys.has('KeyW')).toBe(false);
+      expect(keyupDispatched).toHaveBeenCalled();
+
+      // 3. Tenta enviar novos inputs de peer revogado -> deve ser ignorado
+      const newKeyDownMsg = {
+        type: 'INPUT_KEY',
+        slot: 1,
+        code: 'KeyD',
+        key: 'd',
+        action: 'down'
+      };
+      handleHostCoopMessage('player-2-valid', newKeyDownMsg, connP2);
+      expect(pressedBrowserKeys.has('KeyD')).toBe(false);
+
+      window.removeEventListener('keyup', keyupDispatched);
+    });
+
     it('inputs de slots revogados ou não permitidos devem ser estritamente ignorados', () => {
       setMaxCoopPlayers(1); // Limite de 2 jogadores (slots 0 e 1)
       setPartyModeEnabled(false);
 
       const connP3 = { open: true, send: vi.fn() };
-      // Simula peer tentando forçar input em slot 3
       coopSlots.set(3, { peerId: 'attacker-p3', conn: connP3, name: 'Attacker' });
 
       const inputMsg = {
         type: 'INPUT_KEY',
         slot: 3,
-        key: 'Space',
-        down: true
+        code: 'Space',
+        key: ' ',
+        action: 'down'
       };
 
-      // Tenta enviar mensagem de input
-      expect(() => {
-        handleHostCoopMessage(inputMsg, 'attacker-p3', connP3);
-      }).not.toThrow();
+      // Chama com assinatura correta (senderPeerId, data, conn)
+      handleHostCoopMessage('attacker-p3', inputMsg, connP3);
 
-      // O input para o slot 3 foi descartado porque slot 3 não é permitido
+      // Tecla não deve ter sido adicionada porque slot 3 não é permitido
+      expect(pressedBrowserKeys.has('Space')).toBe(false);
     });
   });
 });
