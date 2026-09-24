@@ -31,9 +31,10 @@ const DEFAULT_BITRATE_KBPS: u32 = 8_000;
 const MIN_BITRATE_KBPS: u32 = 256;
 const MAX_BITRATE_KBPS: u32 = 50_000;
 
-const REQUIRED_ELEMENTS: [&str; 8] = [
+const REQUIRED_ELEMENTS: [&str; 9] = [
     "d3d11screencapturesrc",
     "d3d11convert",
+    "videorate",
     "wasapi2src",
     "opusenc",
     "rtpjitterbuffer",
@@ -390,18 +391,25 @@ impl GStreamerRuntime {
     /// The worker subprocess receives the same variables through
     /// `configure_environment`; the WebRTC bridge needs them in this process.
     pub fn prepare_process_environment(&self) {
-        let bin = self.root.join("bin");
-        let lib = self.root.join("lib");
-        let plugins = lib.join("gstreamer-1.0");
-        std::env::set_var("GST_PLUGIN_PATH_1_0", &plugins);
-        std::env::set_var("GST_PLUGIN_SYSTEM_PATH_1_0", &plugins);
-        let mut path_entries = vec![bin, lib];
-        if let Some(existing) = env::var_os("PATH") {
-            path_entries.extend(env::split_paths(&existing));
-        }
-        if let Ok(path) = env::join_paths(path_entries) {
-            std::env::set_var("PATH", path);
-        }
+        static PREPARED: OnceLock<()> = OnceLock::new();
+        PREPARED.get_or_init(|| {
+            let bin = self.root.join("bin");
+            let lib = self.root.join("lib");
+            let plugins = lib.join("gstreamer-1.0");
+            std::env::set_var("GST_PLUGIN_PATH_1_0", &plugins);
+            std::env::set_var("GST_PLUGIN_SYSTEM_PATH_1_0", &plugins);
+            let mut path_entries = vec![bin, lib];
+            if let Some(existing) = env::var_os("PATH") {
+                for p in env::split_paths(&existing) {
+                    if !path_entries.contains(&p) {
+                        path_entries.push(p);
+                    }
+                }
+            }
+            if let Ok(path) = env::join_paths(path_entries) {
+                std::env::set_var("PATH", path);
+            }
+        });
     }
 
     fn inspect_element(&self, element: &str) -> bool {
@@ -718,6 +726,7 @@ impl NativeMediaWorker {
         }
         let _ = child.wait();
         self.child = None;
+        thread::sleep(Duration::from_millis(60));
     }
 }
 
@@ -762,7 +771,11 @@ fn configure_environment(command: &mut Command, root: &Path) {
     command.creation_flags(CREATE_NO_WINDOW | HIGH_PRIORITY_CLASS);
     let mut path_entries = vec![bin, lib];
     if let Some(existing) = env::var_os("PATH") {
-        path_entries.extend(env::split_paths(&existing));
+        for p in env::split_paths(&existing) {
+            if !path_entries.contains(&p) {
+                path_entries.push(p);
+            }
+        }
     }
     if let Ok(path) = env::join_paths(path_entries) {
         command.env("PATH", path);
@@ -980,8 +993,18 @@ fn build_pipeline(
     args.extend([
         cursor_arg.to_string(),
         "!".to_string(),
+        "video/x-raw(memory:D3D11Memory),format=BGRA".to_string(),
+        "!".to_string(),
+        "queue".to_string(),
+        "max-size-buffers=3".to_string(),
+        "max-size-time=50000000".to_string(),
+        "max-size-bytes=0".to_string(),
+        "!".to_string(),
+        "videorate".to_string(),
+        "drop-only=true".to_string(),
+        "!".to_string(),
         format!(
-            "video/x-raw(memory:D3D11Memory),format=BGRA,framerate={}/1",
+            "video/x-raw(memory:D3D11Memory),framerate={}/1",
             config.fps
         ),
         "!".to_string(),
@@ -993,8 +1016,8 @@ fn build_pipeline(
         ),
         "!".to_string(),
         "queue".to_string(),
-        "max-size-buffers=8".to_string(),
-        "max-size-time=120000000".to_string(),
+        "max-size-buffers=3".to_string(),
+        "max-size-time=50000000".to_string(),
         "max-size-bytes=0".to_string(),
         "!".to_string(),
     ]);
@@ -1039,7 +1062,7 @@ fn build_pipeline(
                     "repeat-sequence-header=true".to_string(),
                     "preset=p1".to_string(),
                     "bframes=0".to_string(),
-                    "strict-gop=true".to_string(),
+                    "strict-gop=false".to_string(),
                     "aud=false".to_string(),
                     "cabac=false".to_string(),
                     "!".to_string(),

@@ -22,7 +22,7 @@ $env:GST_PLUGIN_SYSTEM_PATH_1_0 = $env:GST_PLUGIN_PATH_1_0
 $env:PATH = "$(Join-Path $rootPath 'bin');$(Join-Path $rootPath 'lib');$env:PATH"
 
 $requiredElements = @(
-    'd3d11screencapturesrc', 'd3d11convert', 'mfh264enc', 'mfh265enc',
+    'd3d11screencapturesrc', 'd3d11convert', 'videorate', 'mfh264enc', 'mfh265enc',
     'wasapi2src', 'opusenc', 'rtpjitterbuffer', 'webrtcbin'
 )
 $optionalElements = @('nvd3d11h264enc', 'x264enc', 'svtav1enc')
