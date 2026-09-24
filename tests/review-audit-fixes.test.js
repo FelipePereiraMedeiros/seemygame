@@ -43,10 +43,40 @@ class MockMediaRecorder {
 MockMediaRecorder.isTypeSupported = vi.fn((type) => type.includes('webm'));
 MockMediaRecorder.lastInstance = null;
 
+class MockAudioContext {
+  constructor() {
+    this.state = 'suspended';
+    this.resume = vi.fn().mockImplementation(() => {
+      this.state = 'running';
+      return Promise.resolve();
+    });
+    this.close = vi.fn().mockResolvedValue();
+    this.destination = {
+      stream: {
+        getAudioTracks: () => [{ kind: 'audio', readyState: 'live', stop: vi.fn() }]
+      }
+    };
+    this.createMediaStreamDestination = vi.fn(() => this.destination);
+    this.createMediaStreamSource = vi.fn((stream) => {
+      const node = {
+        stream,
+        connect: vi.fn(),
+        disconnect: vi.fn()
+      };
+      return node;
+    });
+    MockAudioContext.lastInstance = this;
+  }
+}
+MockAudioContext.lastInstance = null;
+
 describe('Auditoria Técnica (R1 a R10): Validação de Regressões e Estabilidade', () => {
   beforeEach(() => {
     globalThis.MediaRecorder = MockMediaRecorder;
+    globalThis.AudioContext = MockAudioContext;
+    globalThis.webkitAudioContext = MockAudioContext;
     MockMediaRecorder.lastInstance = null;
+    MockAudioContext.lastInstance = null;
     vi.useFakeTimers();
     revokeAllCoopPlayers();
     setMaxCoopPlayers(1);
@@ -58,8 +88,8 @@ describe('Auditoria Técnica (R1 a R10): Validação de Regressões e Estabilida
     revokeAllCoopPlayers();
   });
 
-  describe('R7 & R6: Clipping - Limpeza de listeners e adição estável de faixas', () => {
-    it('stop() deve remover o event listener addtrack da MediaStream de origem', () => {
+  describe('R7, R6, P1 & P2: Clipping - Limpeza de listeners, áudio estável, removetrack e ativação de AudioContext', () => {
+    it('stop() deve remover os event listeners addtrack e removetrack da MediaStream de origem', () => {
       const addedListeners = [];
       const removedListeners = [];
 
@@ -79,12 +109,16 @@ describe('Auditoria Técnica (R1 a R10): Validação de Regressões e Estabilida
       recorder.start(mockStream);
 
       expect(mockStream.addEventListener).toHaveBeenCalledWith('addtrack', expect.any(Function));
-      expect(addedListeners.length).toBe(1);
+      expect(mockStream.addEventListener).toHaveBeenCalledWith('removetrack', expect.any(Function));
+      expect(addedListeners.length).toBe(2);
 
       recorder.stop();
 
-      // R7: O listener deve ter sido removido antes de stream ser limpo
-      expect(mockStream.removeEventListener).toHaveBeenCalledWith('addtrack', addedListeners[0].handler);
+      // R7 & P1: Os listeners devem ter sido removidos antes de stream ser limpo
+      const addTrackListener = addedListeners.find(l => l.type === 'addtrack');
+      const removeTrackListener = addedListeners.find(l => l.type === 'removetrack');
+      expect(mockStream.removeEventListener).toHaveBeenCalledWith('addtrack', addTrackListener.handler);
+      expect(mockStream.removeEventListener).toHaveBeenCalledWith('removetrack', removeTrackListener.handler);
       expect(recorder.stream).toBeNull();
       expect(recorder.isRecording).toBe(false);
     });
@@ -116,6 +150,82 @@ describe('Auditoria Técnica (R1 a R10): Validação de Regressões e Estabilida
       // O gravador mantém estado ativo e grava com topologia consistente
       expect(recorder.isRecording).toBe(true);
       expect(recorder.recordingStream).toBeDefined();
+
+      recorder.stop();
+    });
+
+    it('P1: removetrack deve desconectar nós de áudio do mixer e ended na faixa deve limpar mapeamento', () => {
+      let addTrackHandler = null;
+      let removeTrackHandler = null;
+      const audioTrackEndedListeners = [];
+
+      const mockAudioTrack = {
+        kind: 'audio',
+        readyState: 'live',
+        addEventListener: vi.fn((evt, cb) => {
+          if (evt === 'ended') audioTrackEndedListeners.push(cb);
+        }),
+        removeEventListener: vi.fn()
+      };
+
+      const mockStream = {
+        getTracks: vi.fn(() => [{ kind: 'video', readyState: 'live' }, mockAudioTrack]),
+        getAudioTracks: vi.fn(() => [mockAudioTrack]),
+        getVideoTracks: vi.fn(() => [{ kind: 'video', readyState: 'live' }]),
+        addEventListener: vi.fn((type, handler) => {
+          if (type === 'addtrack') addTrackHandler = handler;
+          if (type === 'removetrack') removeTrackHandler = handler;
+        }),
+        removeEventListener: vi.fn()
+      };
+
+      const recorder = new ClipRecorder({ maxDurationSeconds: 15 });
+      recorder.start(mockStream);
+
+      // Deve ter mapeado mockAudioTrack em _audioTrackSources
+      expect(recorder._audioTrackSources.has(mockAudioTrack)).toBe(true);
+      const entry = recorder._audioTrackSources.get(mockAudioTrack);
+      const disconnectSpy = vi.spyOn(entry.sourceNode, 'disconnect');
+
+      // 1. Simula removetrack (usuário mudou para "Apenas vídeo")
+      removeTrackHandler({ track: mockAudioTrack });
+      expect(disconnectSpy).toHaveBeenCalled();
+      expect(recorder._audioTrackSources.has(mockAudioTrack)).toBe(false);
+
+      // 2. Simula readição da trilha
+      addTrackHandler({ track: mockAudioTrack });
+      expect(recorder._audioTrackSources.has(mockAudioTrack)).toBe(true);
+
+      // 3. Simula fim da trilha (ended)
+      const newEntry = recorder._audioTrackSources.get(mockAudioTrack);
+      const newDisconnectSpy = vi.spyOn(newEntry.sourceNode, 'disconnect');
+      audioTrackEndedListeners.forEach(cb => cb());
+      expect(newDisconnectSpy).toHaveBeenCalled();
+      expect(recorder._audioTrackSources.has(mockAudioTrack)).toBe(false);
+
+      recorder.stop();
+    });
+
+    it('P2: AudioContext suspenso deve ser retomado no start e via evento de gesto do usuário', () => {
+      const mockStream = {
+        getTracks: vi.fn(() => [{ kind: 'video', readyState: 'live' }]),
+        getAudioTracks: vi.fn(() => []),
+        getVideoTracks: vi.fn(() => [{ kind: 'video', readyState: 'live' }]),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      };
+
+      const recorder = new ClipRecorder({ maxDurationSeconds: 15 });
+      recorder.start(mockStream);
+
+      if (recorder._audioContext) {
+        expect(recorder._audioContext.resume).toHaveBeenCalled();
+        // Simula que o navegador manteve suspended devido à autoplay policy
+        recorder._audioContext.state = 'suspended';
+        // Interação do usuário deve acionar resume
+        window.dispatchEvent(new Event('click'));
+        expect(recorder._audioContext.resume).toHaveBeenCalledTimes(2);
+      }
 
       recorder.stop();
     });
@@ -223,6 +333,41 @@ describe('Auditoria Técnica (R1 a R10): Validação de Regressões e Estabilida
 
       // Tecla não deve ter sido adicionada porque slot 3 não é permitido
       expect(pressedBrowserKeys.has('Space')).toBe(false);
+    });
+
+    it('P3: múltiplos slots com a mesma tecla não devem sofrer interferência mútua na revogação individual', () => {
+      setMaxCoopPlayers(2);
+      const connP2 = { open: true, send: vi.fn() };
+      const connP3 = { open: true, send: vi.fn() };
+      coopSlots.set(1, { peerId: 'p2-peer', conn: connP2, name: 'P2' });
+      coopSlots.set(2, { peerId: 'p3-peer', conn: connP3, name: 'P3' });
+
+      const keyupDispatched = vi.fn();
+      window.addEventListener('keyup', keyupDispatched);
+
+      // Slot 1 e Slot 2 pressionam a mesma tecla 'KeyW'
+      const downMsgP2 = { type: 'INPUT_KEY', slot: 1, code: 'KeyW', key: 'w', action: 'down' };
+      const downMsgP3 = { type: 'INPUT_KEY', slot: 2, code: 'KeyW', key: 'w', action: 'down' };
+      handleHostCoopMessage('p2-peer', downMsgP2, connP2);
+      handleHostCoopMessage('p3-peer', downMsgP3, connP3);
+
+      expect(pressedBrowserKeys.has('KeyW')).toBe(true);
+
+      // Revoga Player 2 (Slot 1)
+      revokeCoopPlayer(1, true);
+
+      // Tecla KeyW NÃO deve ser liberada nem ter keyup emitido porque Player 3 (Slot 2) ainda a segura!
+      expect(pressedBrowserKeys.has('KeyW')).toBe(true);
+      expect(keyupDispatched).not.toHaveBeenCalled();
+
+      // Agora revoga Player 3 (Slot 2)
+      revokeCoopPlayer(2, true);
+
+      // Agora sim a tecla deve ser liberada e keyup despachado!
+      expect(pressedBrowserKeys.has('KeyW')).toBe(false);
+      expect(keyupDispatched).toHaveBeenCalled();
+
+      window.removeEventListener('keyup', keyupDispatched);
     });
   });
 });

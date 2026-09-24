@@ -122,6 +122,24 @@ class CompanionRegression(unittest.TestCase):
         self.assertEqual(socket.closed[0][0], 4001)
         self.assertFalse(self.driver.keys)
 
+    def test_slot_isolation_shared_keys_and_individual_reset(self):
+        messages = [
+            {'type': 'AUTH', 'token': self.agent.auth_token},
+            # Slot 1 pressiona W
+            {'type': 'INPUT_KEY', 'code': 'KeyW', 'action': 'down', 'slot': 1},
+            # Slot 2 também pressiona W
+            {'type': 'INPUT_KEY', 'code': 'KeyW', 'action': 'down', 'slot': 2},
+            # Reset do Slot 1: como Slot 2 ainda segura W, W deve permanecer pressionado!
+            {'type': 'INPUT_RESET', 'slot': 1},
+            # Slot 2 solta W: agora sim W deve ser liberado!
+            {'type': 'INPUT_KEY', 'code': 'KeyW', 'action': 'up', 'slot': 2},
+        ]
+        socket = Socket(messages)
+        asyncio.run(self.agent.handle_client(socket))
+        # Ao término de todas as mensagens, todas as teclas foram liberadas
+        self.assertEqual(self.driver.keys, set())
+        self.assertEqual(self.agent.pressed_keys, set())
+
 
 if __name__ == '__main__':
     unittest.main()

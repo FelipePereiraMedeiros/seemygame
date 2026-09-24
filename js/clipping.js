@@ -19,8 +19,65 @@ export class ClipRecorder {
     this._nextChunkSequence = 0;
     this._audioContext = null;
     this._audioDestination = null;
-    this._audioSourceNode = null;
+    this._audioTrackSources = new Map();
+    this._audioGestureCleanup = null;
+    this._streamAddTrackHandler = null;
+    this._streamRemoveTrackHandler = null;
     this.mimeType = this._resolveSupportedMimeType();
+  }
+
+  _resumeAudioContext() {
+    if (!this._audioContext) return;
+    if (this._audioContext.state === 'suspended') {
+      try {
+        const res = this._audioContext.resume();
+        if (res && typeof res.catch === 'function') {
+          res.catch(() => {});
+        }
+      } catch (_) {}
+    }
+  }
+
+  _connectAudioTrackToMixer(track) {
+    if (!this._audioContext || !this._audioDestination) return;
+    if (!track || track.readyState === 'ended') return;
+    if (this._audioTrackSources.has(track)) return; // Previne conexões duplicadas
+
+    try {
+      const trackStream = typeof MediaStream !== 'undefined' ? new MediaStream([track]) : null;
+      if (!trackStream || typeof this._audioContext.createMediaStreamSource !== 'function') return;
+
+      const sourceNode = this._audioContext.createMediaStreamSource(trackStream);
+      if (sourceNode && typeof sourceNode.connect === 'function') {
+        sourceNode.connect(this._audioDestination);
+      }
+
+      const onEnded = () => {
+        this._disconnectAudioTrackFromMixer(track);
+      };
+      if (typeof track.addEventListener === 'function') {
+        track.addEventListener('ended', onEnded);
+      }
+
+      this._audioTrackSources.set(track, { sourceNode, onEnded, trackStream });
+    } catch (err) {
+      console.warn('[ClipRecorder] Falha ao conectar trilha de áudio ao mixer:', err);
+    }
+  }
+
+  _disconnectAudioTrackFromMixer(track) {
+    if (!this._audioTrackSources || !this._audioTrackSources.has(track)) return;
+    const entry = this._audioTrackSources.get(track);
+    if (entry) {
+      const { sourceNode, onEnded } = entry;
+      if (track && typeof track.removeEventListener === 'function' && onEnded) {
+        try { track.removeEventListener('ended', onEnded); } catch (_) {}
+      }
+      if (sourceNode && typeof sourceNode.disconnect === 'function') {
+        try { sourceNode.disconnect(); } catch (_) {}
+      }
+    }
+    this._audioTrackSources.delete(track);
   }
 
   _resolveSupportedMimeType(hasAudio = true) {
@@ -101,13 +158,35 @@ export class ClipRecorder {
               const mixedTrack = this._audioDestination.stream.getAudioTracks()[0];
               if (mixedTrack) {
                 const audioTracks = stream.getAudioTracks ? stream.getAudioTracks() : [];
-                if (audioTracks.length > 0 && typeof this._audioContext.createMediaStreamSource === 'function') {
-                  this._audioSourceNode = this._audioContext.createMediaStreamSource(new MediaStream(audioTracks));
-                  this._audioSourceNode.connect(this._audioDestination);
-                }
+                audioTracks.forEach((t) => this._connectAudioTrackToMixer(t));
+
                 isolatedStream.getAudioTracks().forEach(t => isolatedStream.removeTrack(t));
                 isolatedStream.addTrack(mixedTrack);
                 this.recordingTracks.push({ track: mixedTrack, owned: true });
+              }
+            }
+
+            // P2: Trata ativação inicial do AudioContext e recuperação em estado suspenso
+            const wasSuspended = this._audioContext.state === 'suspended';
+            this._resumeAudioContext();
+            if (wasSuspended || this._audioContext.state === 'suspended') {
+              const onUserGesture = () => {
+                this._resumeAudioContext();
+                if (!this._audioContext || this._audioContext.state !== 'suspended') {
+                  if (typeof window !== 'undefined') {
+                    window.removeEventListener('click', onUserGesture);
+                    window.removeEventListener('keydown', onUserGesture);
+                  }
+                  this._audioGestureCleanup = null;
+                }
+              };
+              if (typeof window !== 'undefined') {
+                window.addEventListener('click', onUserGesture, { passive: true });
+                window.addEventListener('keydown', onUserGesture, { passive: true });
+                this._audioGestureCleanup = () => {
+                  window.removeEventListener('click', onUserGesture);
+                  window.removeEventListener('keydown', onUserGesture);
+                };
               }
             }
           } catch (audioErr) {
@@ -115,7 +194,7 @@ export class ClipRecorder {
           }
         }
 
-        // Escuta novas trilhas adicionadas dinamicamente ao stream de origem (ex: áudio chegando após vídeo)
+        // Escuta novas trilhas adicionadas ou removidas dinamicamente do stream de origem
         if (typeof stream.addEventListener === 'function') {
           const onTrackAdded = (e) => {
             if (generation !== this._recordingGeneration || !this.isRecording) return;
@@ -123,16 +202,9 @@ export class ClipRecorder {
 
             // Se for áudio e tivermos um mixer Web Audio ativo, roteia para o mixer sem alterar o MediaRecorder
             if (e.track.kind === 'audio' && this._audioContext && this._audioDestination) {
-              try {
-                if (this._audioContext.state === 'suspended') {
-                  this._audioContext.resume().catch(() => {});
-                }
-                const newSource = this._audioContext.createMediaStreamSource(new MediaStream([e.track]));
-                newSource.connect(this._audioDestination);
-                return;
-              } catch (routeErr) {
-                console.warn('[ClipRecorder] Falha ao rotear áudio dinâmico ao mixer:', routeErr);
-              }
+              this._resumeAudioContext();
+              this._connectAudioTrackToMixer(e.track);
+              return;
             }
 
             // Fallback (ou mudança de vídeo): conforme especificação W3C, não podemos injetar
@@ -159,8 +231,26 @@ export class ClipRecorder {
               console.warn('[ClipRecorder] Falha ao recriar MediaRecorder:', reErr);
             }
           };
+
+          const onTrackRemoved = (e) => {
+            if (generation !== this._recordingGeneration || !this.isRecording) return;
+            if (!e.track) return;
+
+            // P1: Desconecta a fonte do mixer para não continuar gravando áudio desativado/removido
+            if (e.track.kind === 'audio') {
+              this._disconnectAudioTrackFromMixer(e.track);
+            }
+
+            // Fallback sem mixer: remove da topologia isolada
+            if (!this._audioDestination && isolatedStream) {
+              try { isolatedStream.removeTrack(e.track); } catch (_) {}
+            }
+          };
+
           stream.addEventListener('addtrack', onTrackAdded);
+          stream.addEventListener('removetrack', onTrackRemoved);
           this._streamAddTrackHandler = onTrackAdded;
+          this._streamRemoveTrackHandler = onTrackRemoved;
         }
 
         this.recordingStream = isolatedStream;
@@ -221,13 +311,30 @@ export class ClipRecorder {
   }
 
   _releaseRecordingTracks() {
-    if (this.stream && this._streamAddTrackHandler && typeof this.stream.removeEventListener === 'function') {
-      try { this.stream.removeEventListener('addtrack', this._streamAddTrackHandler); } catch (_) {}
-      this._streamAddTrackHandler = null;
+    if (this.stream && typeof this.stream.removeEventListener === 'function') {
+      if (this._streamAddTrackHandler) {
+        try { this.stream.removeEventListener('addtrack', this._streamAddTrackHandler); } catch (_) {}
+        this._streamAddTrackHandler = null;
+      }
+      if (this._streamRemoveTrackHandler) {
+        try { this.stream.removeEventListener('removetrack', this._streamRemoveTrackHandler); } catch (_) {}
+        this._streamRemoveTrackHandler = null;
+      }
     }
-    if (this._audioSourceNode) {
-      try { this._audioSourceNode.disconnect(); } catch (_) {}
-      this._audioSourceNode = null;
+    if (this._audioGestureCleanup) {
+      try { this._audioGestureCleanup(); } catch (_) {}
+      this._audioGestureCleanup = null;
+    }
+    if (this._audioTrackSources) {
+      this._audioTrackSources.forEach(({ sourceNode, onEnded }, track) => {
+        if (track && typeof track.removeEventListener === 'function' && onEnded) {
+          try { track.removeEventListener('ended', onEnded); } catch (_) {}
+        }
+        if (sourceNode && typeof sourceNode.disconnect === 'function') {
+          try { sourceNode.disconnect(); } catch (_) {}
+        }
+      });
+      this._audioTrackSources.clear();
     }
     if (this._audioContext) {
       try { this._audioContext.close(); } catch (_) {}

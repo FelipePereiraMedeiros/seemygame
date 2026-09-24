@@ -53,6 +53,7 @@ virtual_gamepads = {}
 # Rastreamento de teclas e botões pressionados para liberação total em pânico/desconexão (A06)
 pressed_keys = set()
 pressed_mouse_buttons = set()
+slot_pressed_keys = {}
 
 def _release_input(call, **kwargs):
     """Release an input even when the pointer is on PyAutoGUI's failsafe corner."""
@@ -72,6 +73,33 @@ def _release_input(call, **kwargs):
     finally:
         pyautogui.FAILSAFE = previous_failsafe
 
+def release_slot(slot):
+    """Libera entradas retidas exclusivamente para um slot específico sem interferir nos outros."""
+    try:
+        target_slot = int(slot)
+    except (TypeError, ValueError):
+        return release_all()
+
+    # 1. Reset do gamepad virtual correspondente ao slot
+    if HAVE_VGAMEPAD and target_slot in virtual_gamepads:
+        try:
+            virtual_gamepads[target_slot].reset()
+            virtual_gamepads[target_slot].update()
+        except Exception:
+            pass
+
+    # 2. Reset das teclas retidas por este slot
+    if HAVE_PYAUTOGUI and target_slot in slot_pressed_keys:
+        keys_to_release = list(slot_pressed_keys[target_slot])
+        slot_pressed_keys[target_slot].clear()
+        for k in keys_to_release:
+            # Verifica se nenhum outro slot ativo ainda segura a mesma tecla
+            if not any(k in s_keys for s_id, s_keys in slot_pressed_keys.items() if s_id != target_slot):
+                _release_input(pyautogui.keyUp, key=k)
+                pressed_keys.discard(k)
+
+    return True
+
 def release_all():
     """Liberação total de todas as teclas e botões do mouse (All-Up / Emergency Stop)."""
     if not HAVE_PYAUTOGUI:
@@ -82,6 +110,7 @@ def release_all():
             remaining_keys.add(k)
     pressed_keys.clear()
     pressed_keys.update(remaining_keys)
+    slot_pressed_keys.clear()
 
     remaining_buttons = set()
     for b in list(pressed_mouse_buttons):
@@ -241,7 +270,20 @@ async def handle_client(websocket):
                         return
 
                 # Pânico / Reset de emergência (A06)
-                if msg_type in ("INPUT_RESET", "EMERGENCY_STOP", "COOP_REVOKE"):
+                if msg_type in ("INPUT_RESET", "COOP_REVOKE"):
+                    slot = data.get("slot")
+                    if slot is not None:
+                        if not release_slot(slot):
+                            await websocket.close(4002, "Input release failed")
+                            return
+                        continue
+                    else:
+                        if not release_all():
+                            await websocket.close(4002, "Input release failed")
+                            return
+                        continue
+
+                if msg_type == "EMERGENCY_STOP":
                     if not release_all():
                         await websocket.close(4002, "Input release failed")
                         return
@@ -263,14 +305,24 @@ async def handle_client(websocket):
                         if candidate in allowed_keys:
                             key = candidate
 
+                    try:
+                        slot = int(data.get("slot", 1))
+                    except (TypeError, ValueError):
+                        slot = 1
+                    if slot not in slot_pressed_keys:
+                        slot_pressed_keys[slot] = set()
+
                     if key and action in {"down", "up"}:
                         try:
                             if action == "down":
+                                slot_pressed_keys[slot].add(key)
                                 pressed_keys.add(key)
                                 pyautogui.keyDown(key)
                             elif action == "up":
-                                pyautogui.keyUp(key)
-                                pressed_keys.discard(key)
+                                slot_pressed_keys[slot].discard(key)
+                                if not any(key in s_keys for s_keys in slot_pressed_keys.values()):
+                                    pyautogui.keyUp(key)
+                                    pressed_keys.discard(key)
                         except PyAutoGUIFailSafe:
                             raise
                         except Exception:

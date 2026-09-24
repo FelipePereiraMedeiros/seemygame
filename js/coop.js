@@ -566,12 +566,24 @@ export function revokeCoopPlayer(slot, notify = true) {
 
   // Libera teclas que estavam retidas no navegador por este slot específico
   const keysForSlot = slotPressedKeys.get(targetSlot);
-  if (keysForSlot && typeof window !== 'undefined') {
+  if (keysForSlot) {
     keysForSlot.forEach((code) => {
-      try {
-        window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true, cancelable: true }));
-      } catch (e) {}
-      pressedBrowserKeys.delete(code);
+      // P3: Só emite keyup se nenhum outro slot ainda estiver segurando esta mesma tecla
+      let heldByOtherSlot = false;
+      for (const [otherSlot, sKeys] of slotPressedKeys.entries()) {
+        if (otherSlot !== targetSlot && sKeys.has(code)) {
+          heldByOtherSlot = true;
+          break;
+        }
+      }
+      if (!heldByOtherSlot) {
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          try {
+            window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true, cancelable: true }));
+          } catch (e) {}
+        }
+        pressedBrowserKeys.delete(code);
+      }
     });
     keysForSlot.clear();
   }
@@ -652,7 +664,7 @@ function closeCompanionAgentConnection() {
 function dispatchHostKeyboardInput(data, slot = 1) {
   // 1. Se o companion Windows estiver aberto, envia para jogos nativos do PC
   if (isCompanionConnected && companionSocket && companionSocket.readyState === WebSocket.OPEN) {
-    companionSocket.send(JSON.stringify(data));
+    companionSocket.send(JSON.stringify({ ...data, slot }));
     return;
   }
 
