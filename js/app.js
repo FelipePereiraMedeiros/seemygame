@@ -144,6 +144,7 @@ export let discordUI = null;
 // Stream direto GStreamer / webrtcbin (Alternativa 1)
 const directViewerPeerConnections = new Map(); // HostId -> RTCPeerConnection (no espectador)
 const directPendingCandidates = new Map();     // HostId -> Array de candidatos ICE (no espectador)
+const directClipStartTimers = new Map();       // HostId -> timerId de debounce para início do clipping
 const activeNativeViewerPeers = new Set();     // ViewerId -> Set de peers com ponte ativa no Rust (no transmissor)
 const activeDirectSignaling = new Set();       // ViewerId -> Set de peers em negociação (no transmissor)
 let unlistenNativeBridge = null;
@@ -2065,7 +2066,17 @@ async function handleStartDirectStream(data, conn) {
       discordUI.syncStageView(true);
     }
 
-    clipRecorder.start(remoteStream, hostId);
+    if (directClipStartTimers.has(hostId)) {
+      clearTimeout(directClipStartTimers.get(hostId));
+    }
+    const clipTimer = setTimeout(() => {
+      directClipStartTimers.delete(hostId);
+      if (!clipRecorder.isRecordingFor(hostId)) {
+        clipRecorder.start(remoteStream, hostId);
+      }
+    }, 150);
+    directClipStartTimers.set(hostId, clipTimer);
+
     const reactionsDock = document.getElementById('reactions-dock');
     if (reactionsDock) reactionsDock.style.display = 'flex';
 
@@ -3726,9 +3737,13 @@ export async function openClipPostModal(clipBlob) {
   const previewVideo = document.getElementById('clip-preview-video');
   if (previewVideo && clipBlob) {
     try {
+      if (previewVideo._blobUrl) {
+        try { URL.revokeObjectURL(previewVideo._blobUrl); } catch (_) {}
+      }
       const url = URL.createObjectURL(clipBlob);
       previewVideo.src = url;
       previewVideo._blobUrl = url;
+      previewVideo.load();
     } catch (e) {
       console.warn('Falha ao definir preview de vídeo do clip:', e);
     }

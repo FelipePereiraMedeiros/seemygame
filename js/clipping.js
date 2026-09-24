@@ -28,14 +28,18 @@ export class ClipRecorder {
     const candidatesWithAudio = [
       'video/webm;codecs=vp9,opus',
       'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=h264,opus',
       'video/webm',
+      'video/mp4;codecs=avc1,mp4a.40.2',
       'video/mp4'
     ];
 
     const candidatesVideoOnly = [
       'video/webm;codecs=vp9',
       'video/webm;codecs=vp8',
+      'video/webm;codecs=h264',
       'video/webm',
+      'video/mp4;codecs=avc1',
       'video/mp4'
     ];
 
@@ -80,6 +84,19 @@ export class ClipRecorder {
             this.recordingTracks.push({ track, owned: false });
           }
         });
+
+        // Escuta novas trilhas adicionadas dinamicamente ao stream de origem (ex: áudio chegando após vídeo)
+        if (typeof stream.addEventListener === 'function') {
+          const onTrackAdded = (e) => {
+            if (e.track && e.track.readyState !== 'ended' && !isolatedStream.getTracks().includes(e.track)) {
+              try { isolatedStream.addTrack(e.track); } catch (_) {}
+              this.recordingTracks.push({ track: e.track, owned: false });
+            }
+          };
+          stream.addEventListener('addtrack', onTrackAdded);
+          this._streamAddTrackHandler = onTrackAdded;
+        }
+
         this.recordingStream = isolatedStream;
       }
 
@@ -138,6 +155,10 @@ export class ClipRecorder {
   }
 
   _releaseRecordingTracks() {
+    if (this.stream && this._streamAddTrackHandler && typeof this.stream.removeEventListener === 'function') {
+      try { this.stream.removeEventListener('addtrack', this._streamAddTrackHandler); } catch (_) {}
+      this._streamAddTrackHandler = null;
+    }
     this.recordingTracks.forEach(({ track, owned }) => {
       if (owned && typeof track.stop === 'function') {
         try { track.stop(); } catch (e) {}
@@ -190,7 +211,7 @@ export class ClipRecorder {
         if (done) return;
         done = true;
         cleanup();
-        reject(new Error('Tempo limite aguardando flush do MediaRecorder'));
+        resolve();
       };
 
       if (typeof media.addEventListener === 'function') {
@@ -203,7 +224,7 @@ export class ClipRecorder {
         media.requestData();
       } catch (err) {
         cleanup();
-        reject(err);
+        resolve();
         return;
       }
 
@@ -275,10 +296,40 @@ export class ClipRecorder {
     }
 
     const header = initializationBytes.slice(0, clusterOffset);
-    const recentBlobs = orderedChunks
-      .filter(item => item !== initialization && item.timestamp >= cutoff)
-      .map(item => item.blob);
-    return this._finalizeExport([header, ...recentBlobs], actualMimeType, customFilename);
+    const recentChunks = orderedChunks.filter(item => item !== initialization && item.timestamp >= cutoff);
+    if (recentChunks.length === 0) {
+      return this._finalizeExport(orderedChunks.map(item => item.blob), actualMimeType, customFilename);
+    }
+
+    const recentBlobs = recentChunks.map(item => item.blob);
+    const recentCombined = new Uint8Array(await new Blob(recentBlobs).arrayBuffer());
+
+    // Localiza o primeiro marcador de Cluster [0x1f, 0x43, 0xb6, 0x75] válido dentro do stream recente.
+    // Em transmissões contínuas com timeslice, o início de recentBlobs[0] pode conter
+    // resíduos parciais do cluster anterior descartado. Descartar esses bytes até
+    // o próximo marcador garante que o container WebM permaneça perfeitamente alinhado e decodificável.
+    let targetClusterOffset = -1;
+    for (let index = 0; index <= recentCombined.length - clusterMarker.length; index += 1) {
+      let matches = true;
+      for (let markerIndex = 0; markerIndex < clusterMarker.length; markerIndex += 1) {
+        if (recentCombined[index + markerIndex] !== clusterMarker[markerIndex]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        targetClusterOffset = index;
+        break;
+      }
+    }
+
+    if (targetClusterOffset < 0) {
+      // Se nenhum cluster foi localizado nos chunks recentes, preserva o corpo completo
+      return this._finalizeExport([header, recentCombined], actualMimeType, customFilename);
+    }
+
+    const cleanClusters = recentCombined.slice(targetClusterOffset);
+    return this._finalizeExport([header, cleanClusters], actualMimeType, customFilename);
   }
 
   _finalizeExport(rawBlobs, actualMimeType, customFilename) {

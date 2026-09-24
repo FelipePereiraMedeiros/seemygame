@@ -147,5 +147,32 @@ describe('Módulo: clipping.js (ClipRecorder)', () => {
     expect(instance.requestData).toHaveBeenCalled();
     expect(recorder.chunks.length).toBe(1);
   });
+
+  it('deve alinhar chunks recentes ao primeiro marcador de cluster WebM ao exportar após rotação circular', async () => {
+    const recorder = new ClipRecorder({ maxDurationSeconds: 3 });
+    const clusterMarker = [0x1f, 0x43, 0xb6, 0x75];
+
+    // Chunk de inicialização: cabeçalho EBML + primeiro cluster
+    const initPayload = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02, ...clusterMarker, 0x99, 0x99]);
+    // Chunk recente com 10 bytes de resíduos parciais antes do marcador de cluster
+    const garbageBytes = [0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+    const recentPayload = new Uint8Array([...garbageBytes, ...clusterMarker, 0x88, 0x77, 0x66]);
+
+    const now = Date.now();
+    recorder.initializationChunk = { blob: new Blob([initPayload], { type: 'video/webm' }), timestamp: now - 10000 };
+    recorder.chunks = [
+      recorder.initializationChunk,
+      { blob: new Blob([recentPayload], { type: 'video/webm' }), timestamp: now - 1000 }
+    ];
+
+    const clip = await recorder.exportClip('aligned-test.webm');
+    expect(clip).toBeTruthy();
+    const clipBytes = new Uint8Array(await clip.arrayBuffer());
+
+    // Verifica que o cabeçalho termina e é seguido IMEDIATAMENTE pelo marcador de cluster, sem os 10 bytes residuais
+    expect(clipBytes.slice(0, 6)).toEqual(new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02]));
+    expect(clipBytes.slice(6, 10)).toEqual(new Uint8Array(clusterMarker));
+    expect(clipBytes.slice(10)).toEqual(new Uint8Array([0x88, 0x77, 0x66]));
+  });
 });
 
