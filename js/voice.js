@@ -263,9 +263,21 @@ export class VoiceManager {
     };
   }
 
-  addRemoteParticipant(peerId, { name = 'Amigo', role = 'viewer', stream = null } = {}) {
+  addRemoteParticipant(peerId, optionsOrStream = {}) {
     if (!isValidPeerId(peerId) || peerId === this.myPeerId) return false;
     if (!this.participants.has(peerId) && this.participants.size >= MAX_VOICE_PARTICIPANTS) return false;
+
+    let name = 'Amigo';
+    let role = 'viewer';
+    let stream = null;
+
+    if (optionsOrStream && (typeof optionsOrStream.getTracks === 'function' || optionsOrStream._tracks)) {
+      stream = optionsOrStream;
+    } else if (typeof optionsOrStream === 'object' && optionsOrStream !== null) {
+      name = optionsOrStream.name || 'Amigo';
+      role = optionsOrStream.role || 'viewer';
+      stream = optionsOrStream.stream || null;
+    }
 
     if (this.participants.has(peerId)) {
       this.removeRemoteParticipant(peerId);
@@ -284,6 +296,12 @@ export class VoiceManager {
         });
       }
       document.body.appendChild(audioElem);
+      try {
+        const playPromise = audioElem.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch(() => {});
+        }
+      } catch (_) {}
     }
 
     const participant = {
@@ -352,6 +370,8 @@ export class VoiceManager {
       isDeafened: p.isDeafened,
       isSpeaking: p.isSpeaking,
       isLocal: Boolean(p.isLocal),
+      stream: p.stream || null,
+      audioElem: p.audioElem || null,
     }));
   }
 

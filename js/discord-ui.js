@@ -104,6 +104,9 @@ export class DiscordUIController {
       quickMicBtn: document.getElementById('quick-mic-btn'),
       quickDeafBtn: document.getElementById('quick-deaf-btn'),
       quickTuningBtn: document.getElementById('quick-tuning-btn'),
+      sidebarVoiceStatus: document.getElementById('sidebar-voice-status'),
+      sidebarVoiceDot: document.getElementById('sidebar-voice-dot'),
+      sidebarVoiceStatusContainer: document.getElementById('sidebar-voice-status-container'),
       bottomControlDock: document.getElementById('bottom-control-dock'),
       reactionsDock: document.getElementById('reactions-dock'),
       roomStage: document.getElementById('room-stage'),
@@ -578,12 +581,29 @@ export class DiscordUIController {
     const { voiceMuteBtn, voiceDeafBtn, voiceModeBtn, voiceConnectBtn, voiceStatusBar } = this.elements;
 
     if (voiceConnectBtn) {
+      voiceConnectBtn.style.display = 'inline-flex';
       if (state.isInVoice) {
         voiceConnectBtn.textContent = '📞 Desconectar';
         voiceConnectBtn.className = 'voice-dock-btn leave-btn';
       } else {
         voiceConnectBtn.textContent = '📞 Entrar na Voz';
         voiceConnectBtn.className = 'voice-dock-btn join-btn';
+      }
+    }
+
+    if (this.elements.sidebarVoiceStatus) {
+      if (state.isInVoice) {
+        this.elements.sidebarVoiceStatus.textContent = '🟢 Voz Conectada';
+        this.elements.sidebarVoiceStatus.style.color = 'var(--accent-green)';
+        if (this.elements.sidebarVoiceDot) {
+          this.elements.sidebarVoiceDot.style.background = 'var(--accent-green)';
+        }
+      } else {
+        this.elements.sidebarVoiceStatus.textContent = '⚪ Entrar na Voz';
+        this.elements.sidebarVoiceStatus.style.color = 'var(--text-muted)';
+        if (this.elements.sidebarVoiceDot) {
+          this.elements.sidebarVoiceDot.style.background = 'var(--text-muted)';
+        }
       }
     }
 
@@ -681,11 +701,19 @@ export class DiscordUIController {
     } = this.elements;
 
     const handleMicToggle = () => {
+      if (!voiceManager.isInVoice) {
+        this.onJoinVoice();
+        return;
+      }
       const isMuted = voiceManager.toggleMute();
       this.onToggleMic(isMuted);
     };
 
     const handleDeafToggle = () => {
+      if (!voiceManager.isInVoice) {
+        this.onJoinVoice();
+        return;
+      }
       const isDeaf = voiceManager.toggleDeafen();
       this.onToggleDeaf(isDeaf);
     };
@@ -695,6 +723,16 @@ export class DiscordUIController {
 
     if (dockDeafBtn) dockDeafBtn.addEventListener('click', handleDeafToggle);
     if (quickDeafBtn) quickDeafBtn.addEventListener('click', handleDeafToggle);
+
+    if (this.elements.sidebarVoiceStatusContainer) {
+      this.elements.sidebarVoiceStatusContainer.addEventListener('click', () => {
+        if (!voiceManager.isInVoice) {
+          this.onJoinVoice();
+        } else {
+          this.openDrawer('voice');
+        }
+      });
+    }
 
     if (dockStreamBtn) dockStreamBtn.addEventListener('click', () => this.onToggleStream());
     if (dockTuningBtn) dockTuningBtn.addEventListener('click', () => this.onOpenTuning());

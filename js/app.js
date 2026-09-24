@@ -43,7 +43,8 @@ import {
   getCoopState,
   registerCoopPromptHandler,
   registerCoopStateChangeHandler,
-  initCompanionAgentConnection
+  initCompanionAgentConnection,
+  setupGamepadTesterModal
 } from './coop.js';
 import {
   isDesktopApp,
@@ -147,6 +148,7 @@ const directPendingCandidates = new Map();     // HostId -> Array de candidatos 
 const directClipStartTimers = new Map();       // HostId -> timerId de debounce para início do clipping
 const activeNativeViewerPeers = new Set();     // ViewerId -> Set de peers com ponte ativa no Rust (no transmissor)
 const activeDirectSignaling = new Set();       // ViewerId -> Set de peers em negociação (no transmissor)
+const lastShownQualityPerHost = new Map();     // HostId -> string da última qualidade notificada
 let unlistenNativeBridge = null;
 
 // Reconexão exponencial
@@ -487,7 +489,7 @@ window.addEventListener('keydown', (e) => {
 // CONTROLES DE TUNING & PRESETS
 // ==========================================
 
-export function applyLiveBitrateChange() {
+export function applyLiveBitrateChange(isAutomatic = false) {
   let scaleFactor = 1;
   if (localStream) {
     const videoTrack = localStream.getVideoTracks()[0];
@@ -543,7 +545,8 @@ export function applyLiveBitrateChange() {
     preset: qualityPresetSelect ? qualityPresetSelect.value : null,
     bitrate: customBitrateBps,
     fps: selectedProfile.fps,
-    height: selectedProfile.height
+    height: selectedProfile.height,
+    isAutomatic
   };
 
   connectedViewers.forEach((conn) => {
@@ -835,6 +838,18 @@ export function setupRoomSession(id) {
 
     roomManager.on('memberJoined', (member) => {
       if (member && member.peerId && member.peerId !== myId) {
+        // Conexão de voz P2P automática se o usuário local já estiver no canal de voz
+        if (voiceManager && voiceManager.isInVoice && voiceManager.localStream && !activeVoiceCalls.has(member.peerId) && peer && !peer.destroyed) {
+          const call = peer.call(member.peerId, voiceManager.localStream, {
+            metadata: {
+              type: 'VOICE_CHAT',
+              name: roomManager.userName,
+              role: roomManager.isMaster ? 'host' : 'member'
+            }
+          });
+          setupVoiceMediaCall(call, member.peerId);
+        }
+
         if (localStream && isPeerAuthorizedForMedia(member.peerId)) {
           authenticatedViewers.add(member.peerId);
           let conn = connectedViewers.get(member.peerId) || roomManager.meshConnections.get(member.peerId);
@@ -1233,7 +1248,12 @@ export function setupVoiceMediaCall(call, remotePeerId) {
   activeVoiceCalls.set(remotePeerId, call);
 
   call.on('stream', (remoteAudioStream) => {
-    voiceManager.addRemoteParticipant(remotePeerId, remoteAudioStream);
+    const member = roomManager?.members?.get(remotePeerId);
+    voiceManager.addRemoteParticipant(remotePeerId, {
+      name: member?.name || call.metadata?.name || 'Amigo',
+      role: member?.role || call.metadata?.role || (call.metadata?.isMaster ? 'host' : 'member'),
+      stream: remoteAudioStream
+    });
   });
 
   call.on('close', () => {
@@ -1309,13 +1329,17 @@ export function handleIncomingP2PMessage(data, sourceConn) {
         try { call.close(); } catch (e) {}
         activeVoiceCalls.delete(data.peerId);
       }
-    } else if (data.action === 'HOST_VOICE_ACTIVE') {
+    } else if (data.action === 'HOST_VOICE_ACTIVE' || data.action === 'VOICE_JOINED') {
       if (sourceConn?.peer && data.peerId && data.peerId !== sourceConn.peer) {
         console.warn(`[VOICE_SIGNAL] Rejeitando peerId forjado: ${data.peerId} vindo de ${sourceConn.peer}`);
         return;
       }
-      showToast('O Streamer está na sala de voz!', 'info');
-      if (voiceManager.isInVoice && peer) {
+      if (data.action === 'HOST_VOICE_ACTIVE') {
+        showToast('O Streamer está na sala de voz!', 'info');
+      } else {
+        showToast(`${data.name || 'Um amigo'} entrou na sala de voz!`, 'info');
+      }
+      if (voiceManager.isInVoice && voiceManager.localStream && peer && !peer.destroyed && !activeVoiceCalls.has(data.peerId)) {
         const call = peer.call(data.peerId, voiceManager.localStream, {
           metadata: { type: 'VOICE_CHAT', name: voiceManager.myName, role: voiceManager.myRole },
         });
@@ -1592,8 +1616,12 @@ export function initDiscordFeatures() {
       try {
         const isHost = !window.location.pathname.endsWith('viewer.html');
         const coopState = getCoopState();
-        const role = isHost ? 'host' : (coopState.isPlayer2 ? 'player2' : 'viewer');
-        const name = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+        const role = isRoomMode() && roomManager
+          ? (roomManager.isMaster ? 'host' : 'member')
+          : (isHost ? 'host' : (coopState.isPlayer2 ? 'player2' : 'viewer'));
+        const name = isRoomMode() && roomManager
+          ? roomManager.userName
+          : (isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`));
 
         const stream = await voiceManager.joinVoice({
           peerId: myId,
@@ -1601,21 +1629,59 @@ export function initDiscordFeatures() {
           role,
         });
 
-        showToast('Conectado à sala de voz!', 'info');
+        showToast('Conectado à sala de voz!', 'success');
 
-        if (!isHost) {
-          watchingHosts.forEach((hostData, hostId) => {
-            if (hostData.state === 'CONNECTED' && peer) {
-              const call = peer.call(hostId, stream, {
-                metadata: { type: 'VOICE_CHAT', name, role },
+        if (isRoomMode() && roomManager) {
+          roomManager.setLocalVoiceState({
+            isMuted: voiceManager.isMuted,
+            isDeafened: voiceManager.isDeafened,
+            isSpeaking: false
+          });
+
+          broadcastDataMessage({
+            type: 'VOICE_SIGNAL',
+            action: 'VOICE_JOINED',
+            peerId: myId,
+            name,
+            role
+          });
+
+          roomManager.members.forEach((m) => {
+            if (m.peerId && m.peerId !== myId && !activeVoiceCalls.has(m.peerId) && peer && !peer.destroyed) {
+              const call = peer.call(m.peerId, stream, {
+                metadata: { type: 'VOICE_CHAT', name, role }
               });
-              setupVoiceMediaCall(call, hostId);
+              setupVoiceMediaCall(call, m.peerId);
             }
           });
+
+          activeVoiceCalls.forEach((call) => {
+            try {
+              if (call?.peerConnection) {
+                const sender = call.peerConnection.getSenders()?.find(s => s.track?.kind === 'audio' || !s.track);
+                const newAudioTrack = stream.getAudioTracks()[0];
+                if (sender && newAudioTrack) {
+                  sender.replaceTrack(newAudioTrack).catch(() => {});
+                }
+              }
+            } catch (_) {}
+          });
         } else {
-          broadcastDataMessage({ type: 'VOICE_SIGNAL', action: 'HOST_VOICE_ACTIVE', peerId: myId, name, role });
+          if (!isHost) {
+            watchingHosts.forEach((hostData, hostId) => {
+              if (hostData.state === 'CONNECTED' && peer && !activeVoiceCalls.has(hostId)) {
+                const call = peer.call(hostId, stream, {
+                  metadata: { type: 'VOICE_CHAT', name, role },
+                });
+                setupVoiceMediaCall(call, hostId);
+              }
+            });
+          } else {
+            broadcastDataMessage({ type: 'VOICE_SIGNAL', action: 'HOST_VOICE_ACTIVE', peerId: myId, name, role });
+          }
         }
       } catch (err) {
+        console.warn('[Voice] Falha ao acessar microfone:', err);
         showToast('Não foi possível acessar o microfone.', 'error');
       }
     },
@@ -1806,12 +1872,12 @@ function setupIncomingDataConnection(conn) {
               if (roomManager.members.has(m.peerId) && !connectedViewers.has(m.peerId) && !watchingHosts.has(m.peerId)) {
                 const peerConn = peer.connect(m.peerId, { reliable: true });
                 setupIncomingDataConnection(peerConn);
-                if (voiceManager && voiceManager.isInVoice && voiceManager.localStream && !activeVoiceCalls.has(m.peerId)) {
-                  const call = peer.call(m.peerId, voiceManager.localStream, {
-                    metadata: { type: 'VOICE_CHAT', name: roomManager.userName, role: 'member' }
-                  });
-                  setupVoiceMediaCall(call, m.peerId);
-                }
+              }
+              if (voiceManager && voiceManager.isInVoice && voiceManager.localStream && !activeVoiceCalls.has(m.peerId) && peer && !peer.destroyed) {
+                const call = peer.call(m.peerId, voiceManager.localStream, {
+                  metadata: { type: 'VOICE_CHAT', name: roomManager.userName, role: 'member' }
+                });
+                setupVoiceMediaCall(call, m.peerId);
               }
             }
           });
@@ -2687,11 +2753,14 @@ export function watchFriend(rawTargetId) {
         const label = audioLabels[data.audioMode] || data.audioMode;
         showToast(`Fonte de áudio da transmissão: ${label}`, 'info');
       }
-      if (data.preset || data.bitrate) {
+      // Ajustes automáticos do ABR são transparentes e não devem floodar o espectador com toasts
+      if (!data.isAutomatic && (data.preset || data.bitrate)) {
         const mbps = data.bitrate ? `${(data.bitrate / 1000000).toFixed(1)} Mbps` : '';
         const res = data.height ? `${data.height}p` : '';
         const info = [res, mbps].filter(Boolean).join(' • ');
-        if (info) {
+        const prevInfo = lastShownQualityPerHost.get(targetId);
+        if (info && info !== prevInfo) {
+          lastShownQualityPerHost.set(targetId, info);
           showToast(`Qualidade ajustada pelo streamer: ${info}`, 'info');
         }
       }
@@ -3620,7 +3689,7 @@ export function initAdaptiveBitrate() {
     customBitrateBps = newBitrateBps;
     if (bitrateSlider) bitrateSlider.value = Math.round(customBitrateBps / 1000);
     if (bitrateDisplay) bitrateDisplay.innerText = `${(customBitrateBps / 1000000).toFixed(1)} Mbps`;
-    applyLiveBitrateChange();
+    applyLiveBitrateChange(true);
 
     const abrToggleBtn = document.getElementById('abr-toggle-btn');
     if (abrToggleBtn) {
@@ -4295,6 +4364,7 @@ export function initGamerFeatures() {
   initAdaptiveBitrate();
   initFacecam();
   initWhiteboard();
+  setupGamepadTesterModal();
 
   // Botão de Clipping instantâneo ("Clipa isso! - 30s")
   const clipBtn = document.getElementById('clip-btn');

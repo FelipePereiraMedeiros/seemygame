@@ -451,7 +451,7 @@
   </div>
 
   <!-- Modal de Calibração & Teste de Gamepad -->
-  <div id="gamepad-tester-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="gamepad-tester-title">
+  <div id="gamepad-tester-modal" class="modal-overlay" style="display: none; z-index: 10001;" role="dialog" aria-modal="true" aria-labelledby="gamepad-tester-title">
     <div class="modal-content" style="max-width: 520px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <h3 id="gamepad-tester-title" style="margin: 0; display: flex; align-items: center; gap: 8px;">
@@ -743,9 +743,9 @@
           <span id="sidebar-room-name">🔊 Canal de Voz</span>
           <span id="sidebar-members-count" style="font-size: 11px; color: var(--text-muted);">1 online</span>
         </div>
-        <div class="room-sidebar-status">
-          <span class="status-dot"></span>
-          <span id="sidebar-voice-status">Conectado em Alta Fluidez</span>
+        <div class="room-sidebar-status" id="sidebar-voice-status-container" style="cursor: pointer;" title="Clique para entrar ou abrir o canal de voz">
+          <span class="status-dot" id="sidebar-voice-dot"></span>
+          <span id="sidebar-voice-status">Canal de Voz</span>
         </div>
       </div>
 
@@ -905,7 +905,7 @@
         <button id="voice-mode-btn" class="voice-dock-btn" title="Alternar entre Detecção de Voz (VAD) e Push-to-Talk">
           <span>🎤</span> VAD
         </button>
-        <button id="voice-connect-btn" class="voice-dock-btn join-btn" style="display:none;">
+        <button id="voice-connect-btn" class="voice-dock-btn join-btn" style="display: inline-flex;">
           📞 Entrar na Voz
         </button>
       </div>
