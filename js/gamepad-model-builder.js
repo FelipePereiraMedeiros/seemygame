@@ -21,97 +21,154 @@ export function createGamepadModel() {
   // 1. Materiais PBR Gamer de Alta Fidelidade
   // ==========================================
 
-  // Carcaça principal: acabamento grafite acetinado de alta visibilidade
+  // Carcaça principal: policarbonato grafite acetinado com toque premium
   const bodyMaterial = new THREE.MeshStandardMaterial({
-    color: 0x30364a,
-    roughness: 0.35,
-    metalness: 0.22,
+    color: 0x2b3144,
+    roughness: 0.38,
+    metalness: 0.20,
     name: 'Mat_GamepadBody'
   });
 
-  // Placa central / Touchpad: acabamento preto fosco premium
+  // Placa central / Touchpad: acabamento preto fosco sedoso
   const centerFaceMaterial = new THREE.MeshStandardMaterial({
-    color: 0x1d212d,
+    color: 0x161923,
     roughness: 0.50,
-    metalness: 0.18,
+    metalness: 0.16,
     name: 'Mat_CenterFace'
   });
 
-  // Manoplas de aderência (Rubber Grips): borracha texturizada escura
+  // Manoplas de aderência (Rubber Grips): borracha tátil texturizada escura
   const gripMaterial = new THREE.MeshStandardMaterial({
-    color: 0x181a24,
-    roughness: 0.80,
-    metalness: 0.08,
+    color: 0x12141c,
+    roughness: 0.86,
+    metalness: 0.05,
     name: 'Mat_Grip'
   });
 
-  // Hastes dos analógicos e aros: metal cromado reflexivo
+  // Hastes dos analógicos e aros: metal cromado reflexivo polido
   const chromeMaterial = new THREE.MeshStandardMaterial({
-    color: 0xdde2ec,
-    metalness: 0.95,
-    roughness: 0.10,
+    color: 0xedf1f7,
+    metalness: 0.96,
+    roughness: 0.08,
     name: 'Mat_Chrome'
+  });
+
+  // Poço rebaixado dos analógicos (Stick Well): acabamento interno escuro acetinado
+  const stickWellMaterial = new THREE.MeshStandardMaterial({
+    color: 0x10121a,
+    roughness: 0.65,
+    metalness: 0.28,
+    name: 'Mat_StickWell'
   });
 
   // Cabeça dos analógicos: borracha antiderrapante
   const stickRubberMaterial = new THREE.MeshStandardMaterial({
-    color: 0x222634,
-    roughness: 0.70,
-    metalness: 0.12,
+    color: 0x1e2230,
+    roughness: 0.72,
+    metalness: 0.10,
     name: 'Mat_StickRubber'
   });
 
-  // D-Pad direcional: acabamento metálico gunmetal
+  // D-Pad direcional: acabamento metálico gunmetal escovado
   const dpadMaterial = new THREE.MeshStandardMaterial({
-    color: 0x3e455c,
-    metalness: 0.65,
-    roughness: 0.30,
+    color: 0x383e54,
+    metalness: 0.72,
+    roughness: 0.28,
     name: 'Mat_Dpad'
   });
 
-  // Bumpers e Gatilhos: acabamento escovado escuro
-  const shoulderMaterial = new THREE.MeshStandardMaterial({
-    color: 0x262b3a,
+  // Bumpers dos ombros (LB / RB) com material PBR individual
+  const bumperLBMaterial = new THREE.MeshStandardMaterial({
+    color: 0x242838,
     roughness: 0.32,
     metalness: 0.45,
-    name: 'Mat_Shoulder'
+    emissive: 0x000000,
+    emissiveIntensity: 0.0,
+    name: 'Mat_BumperLB'
+  });
+
+  const bumperRBMaterial = new THREE.MeshStandardMaterial({
+    color: 0x242838,
+    roughness: 0.32,
+    metalness: 0.45,
+    emissive: 0x000000,
+    emissiveIntensity: 0.0,
+    name: 'Mat_BumperRB'
+  });
+
+  // Gatilhos analógicos progressivos (LT / RT)
+  const triggerLTMaterial = new THREE.MeshStandardMaterial({
+    color: 0x1f2332,
+    roughness: 0.35,
+    metalness: 0.48,
+    emissive: 0x000000,
+    emissiveIntensity: 0.0,
+    name: 'Mat_TriggerLT'
+  });
+
+  const triggerRTMaterial = new THREE.MeshStandardMaterial({
+    color: 0x1f2332,
+    roughness: 0.35,
+    metalness: 0.48,
+    emissive: 0x000000,
+    emissiveIntensity: 0.0,
+    name: 'Mat_TriggerRT'
   });
 
   // Botões de Ação ABXY com material brilhante e emissivo para feedback
   const btnAMaterial = new THREE.MeshStandardMaterial({
     color: 0x10b981,
-    emissive: 0x065f46,
-    emissiveIntensity: 0.55,
-    roughness: 0.18,
+    emissive: 0x059669,
+    emissiveIntensity: 0.45,
+    roughness: 0.16,
     metalness: 0.15,
     name: 'Mat_ButtonA'
   });
 
   const btnBMaterial = new THREE.MeshStandardMaterial({
     color: 0xef4444,
-    emissive: 0x991b1b,
-    emissiveIntensity: 0.55,
-    roughness: 0.18,
+    emissive: 0xdc2626,
+    emissiveIntensity: 0.45,
+    roughness: 0.16,
     metalness: 0.15,
     name: 'Mat_ButtonB'
   });
 
   const btnXMaterial = new THREE.MeshStandardMaterial({
     color: 0x3b82f6,
-    emissive: 0x1e40af,
-    emissiveIntensity: 0.55,
-    roughness: 0.18,
+    emissive: 0x2563eb,
+    emissiveIntensity: 0.45,
+    roughness: 0.16,
     metalness: 0.15,
     name: 'Mat_ButtonX'
   });
 
   const btnYMaterial = new THREE.MeshStandardMaterial({
     color: 0xf59e0b,
-    emissive: 0x92400e,
-    emissiveIntensity: 0.55,
-    roughness: 0.18,
+    emissive: 0xd97706,
+    emissiveIntensity: 0.45,
+    roughness: 0.16,
     metalness: 0.15,
     name: 'Mat_ButtonY'
+  });
+
+  // Botões do Sistema (Back, Start)
+  const btnBackMaterial = new THREE.MeshStandardMaterial({
+    color: 0x242838,
+    roughness: 0.35,
+    metalness: 0.42,
+    emissive: 0x000000,
+    emissiveIntensity: 0.0,
+    name: 'Mat_ButtonBack'
+  });
+
+  const btnStartMaterial = new THREE.MeshStandardMaterial({
+    color: 0x242838,
+    roughness: 0.35,
+    metalness: 0.42,
+    emissive: 0x000000,
+    emissiveIntensity: 0.0,
+    name: 'Mat_ButtonStart'
   });
 
   // Botão Guide / Nexus com LED central radiante
@@ -120,8 +177,17 @@ export function createGamepadModel() {
     emissive: 0x8b5cf6,
     emissiveIntensity: 0.95,
     roughness: 0.08,
-    metalness: 0.2,
+    metalness: 0.20,
     name: 'Mat_GuideGlow'
+  });
+
+  const guideRingMaterial = new THREE.MeshStandardMaterial({
+    color: 0x22d3ee,
+    emissive: 0x06b6d4,
+    emissiveIntensity: 0.80,
+    roughness: 0.15,
+    metalness: 0.85,
+    name: 'Mat_GuideRing'
   });
 
   // ==========================================
@@ -193,80 +259,117 @@ export function createGamepadModel() {
   rightGripPad.rotation.set(0.35, -0.15, 0.45);
   bodyGroup.add(rightGripPad);
 
-  // Soquete rebaixado para o Analógico Esquerdo
-  const socketGeo = new THREE.TorusGeometry(0.38, 0.045, 16, 32);
+  // Almofadas traseiras ergonômicas para apoio dos dedos na face inferior
+  const rearGripPadGeo = new THREE.CapsuleGeometry(0.18, 0.70, 8, 16);
+  const leftRearGrip = new THREE.Mesh(rearGripPadGeo, gripMaterial);
+  leftRearGrip.position.set(-1.35, -0.18, 0.55);
+  leftRearGrip.rotation.set(0.25, 0.10, -0.40);
+  bodyGroup.add(leftRearGrip);
+
+  const rightRearGrip = new THREE.Mesh(rearGripPadGeo, gripMaterial);
+  rightRearGrip.position.set(1.35, -0.18, 0.55);
+  rightRearGrip.rotation.set(0.25, -0.10, 0.40);
+  bodyGroup.add(rightRearGrip);
+
+  // Poço rebaixado e anel para o Analógico Esquerdo
+  const wellCavityGeo = new THREE.CylinderGeometry(0.38, 0.34, 0.08, 32);
+  const leftWellCavity = new THREE.Mesh(wellCavityGeo, stickWellMaterial);
+  leftWellCavity.position.set(-0.80, 0.19, -0.12);
+  bodyGroup.add(leftWellCavity);
+
+  const socketGeo = new THREE.TorusGeometry(0.395, 0.038, 16, 32);
   const leftSocket = new THREE.Mesh(socketGeo, centerFaceMaterial);
   leftSocket.rotation.x = Math.PI / 2;
   leftSocket.position.set(-0.80, 0.22, -0.12);
   bodyGroup.add(leftSocket);
 
-  // Soquete rebaixado para o Analógico Direito
+  const trimRingGeo = new THREE.TorusGeometry(0.382, 0.014, 12, 32);
+  const leftTrimRing = new THREE.Mesh(trimRingGeo, chromeMaterial);
+  leftTrimRing.rotation.x = Math.PI / 2;
+  leftTrimRing.position.set(-0.80, 0.22, -0.12);
+  bodyGroup.add(leftTrimRing);
+
+  // Poço rebaixado e anel para o Analógico Direito
+  const rightWellCavity = new THREE.Mesh(wellCavityGeo, stickWellMaterial);
+  rightWellCavity.position.set(0.65, 0.19, 0.35);
+  bodyGroup.add(rightWellCavity);
+
   const rightSocket = new THREE.Mesh(socketGeo, centerFaceMaterial);
   rightSocket.rotation.x = Math.PI / 2;
   rightSocket.position.set(0.65, 0.22, 0.35);
   bodyGroup.add(rightSocket);
 
+  const rightTrimRing = new THREE.Mesh(trimRingGeo, chromeMaterial);
+  rightTrimRing.rotation.x = Math.PI / 2;
+  rightTrimRing.position.set(0.65, 0.22, 0.35);
+  bodyGroup.add(rightTrimRing);
+
   root.add(bodyGroup);
 
   // ==========================================
-  // 3. Analógico Esquerdo (Stick_L) - Superior Esquerdo
+  // Função auxiliar para construir Analógicos Ergonômicos
   // ==========================================
-  const stickL = new THREE.Group();
-  stickL.name = 'Stick_L';
-  stickL.position.set(-0.80, 0.22, -0.12); // Ponto de rotação do gimbal esférico
+  const buildAnalogStick = (name, x, z) => {
+    const stick = new THREE.Group();
+    stick.name = name;
+    stick.position.set(x, 0.22, z);
 
-  const stickSphere = new THREE.SphereGeometry(0.30, 20, 16);
-  const stickLBall = new THREE.Mesh(stickSphere, gripMaterial);
-  stickLBall.name = 'Stick_L_Ball';
-  stickL.add(stickLBall);
+    // Gimbal esférico interno
+    const stickSphere = new THREE.SphereGeometry(0.30, 20, 16);
+    const stickBall = new THREE.Mesh(stickSphere, gripMaterial);
+    stickBall.name = `${name}_Ball`;
+    stick.add(stickBall);
 
-  const stickStemGeo = new THREE.CylinderGeometry(0.065, 0.075, 0.25, 16);
-  const stickLStem = new THREE.Mesh(stickStemGeo, chromeMaterial);
-  stickLStem.name = 'Stick_L_Stem';
-  stickLStem.position.y = 0.19;
-  stickL.add(stickLStem);
+    // Haste cromada polida
+    const stickStemGeo = new THREE.CylinderGeometry(0.065, 0.075, 0.25, 16);
+    const stickStem = new THREE.Mesh(stickStemGeo, chromeMaterial);
+    stickStem.name = `${name}_Stem`;
+    stickStem.position.y = 0.19;
+    stick.add(stickStem);
 
-  const stickCapGeo = new THREE.CylinderGeometry(0.34, 0.30, 0.11, 28);
-  const stickLCap = new THREE.Mesh(stickCapGeo, stickRubberMaterial);
-  stickLCap.name = 'Stick_L_Cap';
-  stickLCap.position.y = 0.31;
-  stickL.add(stickLCap);
+    // Corpo da cabeça do analógico em borracha
+    const stickCapGeo = new THREE.CylinderGeometry(0.34, 0.30, 0.11, 28);
+    const stickCap = new THREE.Mesh(stickCapGeo, stickRubberMaterial);
+    stickCap.name = `${name}_Cap`;
+    stickCap.position.y = 0.31;
+    stick.add(stickCap);
 
-  // Anel texturizado antiderrapante no topo do analógico
-  const stickRimGeo = new THREE.TorusGeometry(0.25, 0.032, 12, 24);
-  const stickLRim = new THREE.Mesh(stickRimGeo, bodyMaterial);
-  stickLRim.rotation.x = Math.PI / 2;
-  stickLRim.position.y = 0.36;
-  stickL.add(stickLRim);
+    // Rebaixo côncavo ergonômico no centro da cúpula para o polegar
+    const thumbDishGeo = new THREE.CylinderGeometry(0.24, 0.20, 0.025, 24);
+    const thumbDish = new THREE.Mesh(thumbDishGeo, centerFaceMaterial);
+    thumbDish.name = `${name}_Dish`;
+    thumbDish.position.y = 0.355;
+    stick.add(thumbDish);
 
+    // Anel texturizado antiderrapante no topo do analógico
+    const stickRimGeo = new THREE.TorusGeometry(0.26, 0.028, 12, 32);
+    const stickRim = new THREE.Mesh(stickRimGeo, stickRubberMaterial);
+    stickRim.name = `${name}_Rim`;
+    stickRim.rotation.x = Math.PI / 2;
+    stickRim.position.y = 0.365;
+    stick.add(stickRim);
+
+    // Ranhuras antiderrapantes nos 4 pontos cardeais da borda
+    const grooveGeo = new THREE.BoxGeometry(0.04, 0.02, 0.07);
+    const angles = [0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2];
+    for (let i = 0; i < angles.length; i++) {
+      const angle = angles[i];
+      const groove = new THREE.Mesh(grooveGeo, bodyMaterial);
+      groove.name = `${name}_Groove_${i}`;
+      groove.position.set(Math.sin(angle) * 0.26, 0.37, Math.cos(angle) * 0.26);
+      groove.rotation.y = angle;
+      stick.add(groove);
+    }
+
+    return stick;
+  };
+
+  // 3. Analógico Esquerdo (Stick_L) - Superior Esquerdo
+  const stickL = buildAnalogStick('Stick_L', -0.80, -0.12);
   root.add(stickL);
 
-  // ==========================================
   // 4. Analógico Direito (Stick_R) - Inferior Direito
-  // ==========================================
-  const stickR = new THREE.Group();
-  stickR.name = 'Stick_R';
-  stickR.position.set(0.65, 0.22, 0.35);
-
-  const stickRBall = new THREE.Mesh(stickSphere, gripMaterial);
-  stickRBall.name = 'Stick_R_Ball';
-  stickR.add(stickRBall);
-
-  const stickRStem = new THREE.Mesh(stickStemGeo, chromeMaterial);
-  stickRStem.name = 'Stick_R_Stem';
-  stickRStem.position.y = 0.19;
-  stickR.add(stickRStem);
-
-  const stickRCap = new THREE.Mesh(stickCapGeo, stickRubberMaterial);
-  stickRCap.name = 'Stick_R_Cap';
-  stickRCap.position.y = 0.31;
-  stickR.add(stickRCap);
-
-  const stickRRim = new THREE.Mesh(stickRimGeo, bodyMaterial);
-  stickRRim.rotation.x = Math.PI / 2;
-  stickRRim.position.y = 0.36;
-  stickR.add(stickRRim);
-
+  const stickR = buildAnalogStick('Stick_R', 0.65, 0.35);
   root.add(stickR);
 
   // ==========================================
@@ -281,7 +384,7 @@ export function createGamepadModel() {
   dpadBase.name = 'Dpad_Base';
   dpadGroup.add(dpadBase);
 
-  // Braços da cruz com entalhes direcionais
+  // Braços da cruz com entalhes direcionais e materiais PBR gunmetal
   const dpadUp = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.11, 0.28), dpadMaterial);
   dpadUp.name = 'Dpad_Up';
   dpadUp.position.set(0, 0.06, -0.15);
@@ -351,12 +454,12 @@ export function createGamepadModel() {
   // ==========================================
   // 7. Botões do Sistema (Back, Start, Guide)
   // ==========================================
-  const btnBack = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.06, 16), shoulderMaterial);
+  const btnBack = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.06, 16), btnBackMaterial);
   btnBack.name = 'Button_Back';
   btnBack.position.set(-0.28, 0.24, -0.04);
   root.add(btnBack);
 
-  const btnStart = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.06, 16), shoulderMaterial);
+  const btnStart = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.06, 16), btnStartMaterial);
   btnStart.name = 'Button_Start';
   btnStart.position.set(0.28, 0.24, -0.04);
   root.add(btnStart);
@@ -364,26 +467,31 @@ export function createGamepadModel() {
   const btnGuide = new THREE.Group();
   btnGuide.name = 'Button_Guide';
   btnGuide.position.set(0, 0.24, -0.02);
+
   const guideDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.07, 32), guideGlowMaterial);
+  guideDisc.name = 'Button_Guide_Disc';
   guideDisc.position.y = 0.04;
   btnGuide.add(guideDisc);
-  const guideRing = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.022, 12, 32), chromeMaterial);
+
+  const guideRing = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.022, 12, 32), guideRingMaterial);
+  guideRing.name = 'Button_Guide_Ring';
   guideRing.rotation.x = Math.PI / 2;
   guideRing.position.y = 0.05;
   btnGuide.add(guideRing);
+
   root.add(btnGuide);
 
   // ==========================================
   // 8. Bumpers dos Ombros (LB / RB) - Borda Superior (-Z)
   // ==========================================
   const bumperGeo = new THREE.BoxGeometry(0.70, 0.17, 0.30);
-  const bumperLB = new THREE.Mesh(bumperGeo, shoulderMaterial);
+  const bumperLB = new THREE.Mesh(bumperGeo, bumperLBMaterial);
   bumperLB.name = 'Bumper_LB';
   bumperLB.position.set(-0.85, 0.16, -0.68);
   bumperLB.rotation.set(-0.22, 0.08, 0.10);
   root.add(bumperLB);
 
-  const bumperRB = new THREE.Mesh(bumperGeo, shoulderMaterial);
+  const bumperRB = new THREE.Mesh(bumperGeo, bumperRBMaterial);
   bumperRB.name = 'Bumper_RB';
   bumperRB.position.set(0.85, 0.16, -0.68);
   bumperRB.rotation.set(-0.22, -0.08, -0.10);
@@ -392,14 +500,15 @@ export function createGamepadModel() {
   // ==========================================
   // 9. Gatilhos Analógicos (Trigger_LT / Trigger_RT)
   // ==========================================
-  const createTrigger = (name, x) => {
+  const createTrigger = (name, mat, x) => {
     const triggerGroup = new THREE.Group();
     triggerGroup.name = name;
     // O ponto de rotação (pivô da dobradiça) fica no topo superior
     triggerGroup.position.set(x, 0.14, -0.88);
 
     const bladeGeo = new THREE.BoxGeometry(0.42, 0.32, 0.26);
-    const blade = new THREE.Mesh(bladeGeo, shoulderMaterial);
+    const blade = new THREE.Mesh(bladeGeo, mat);
+    blade.name = `${name}_Blade`;
     blade.position.set(0, -0.12, -0.06);
     blade.rotation.x = -0.28;
     triggerGroup.add(blade);
@@ -407,8 +516,8 @@ export function createGamepadModel() {
     return triggerGroup;
   };
 
-  const triggerLT = createTrigger('Trigger_LT', -0.88);
-  const triggerRT = createTrigger('Trigger_RT', 0.88);
+  const triggerLT = createTrigger('Trigger_LT', triggerLTMaterial, -0.88);
+  const triggerRT = createTrigger('Trigger_RT', triggerRTMaterial, 0.88);
   root.add(triggerLT);
   root.add(triggerRT);
 

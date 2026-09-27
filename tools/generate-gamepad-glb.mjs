@@ -30,8 +30,16 @@ async function exportGamepadGLB() {
         const outFile = path.join(outDir, 'gamepad.glb');
         const buffer = Buffer.from(gltf);
         fs.writeFileSync(outFile, buffer);
-        console.log(`[GLTFExporter] Sucesso: Gamepad 3D gerado em ${outFile} (${(buffer.length / 1024).toFixed(1)} KB)`);
-        resolve(outFile);
+
+        const distDir = path.resolve('dist', 'css', 'assets');
+        if (!fs.existsSync(distDir)) {
+          fs.mkdirSync(distDir, { recursive: true });
+        }
+        const distFile = path.join(distDir, 'gamepad.glb');
+        fs.writeFileSync(distFile, buffer);
+
+        console.log(`[GLTFExporter] Sucesso: Gamepad 3D gerado em ${outFile} e ${distFile} (${(buffer.length / 1024).toFixed(1)} KB)`);
+        resolve({ outFile, distFile });
       },
       (err) => {
         console.error('[GLTFExporter] Erro ao exportar GLB:', err);

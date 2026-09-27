@@ -1461,10 +1461,17 @@ export function setupGamepadTesterModal() {
       if (viewer3D) {
         viewer3D.updateInputs({
           axes: gp.axes,
-          buttons: mappedButtons.map((pressed, i) => ({
-            pressed,
-            value: typeof gp.buttons?.[i] === 'object' ? gp.buttons[i].value : (gp.buttons?.[i] ? 1 : 0)
-          }))
+          buttons: mappedButtons.map((pressed, i) => {
+            const physicalIdx = currentGamepadMapping.indexOf(i);
+            const srcIdx = physicalIdx !== -1 ? physicalIdx : i;
+            const btnObj = gp.buttons?.[srcIdx];
+            const rawVal = typeof btnObj === 'object' ? btnObj.value : (btnObj ? 1 : 0);
+            return {
+              pressed,
+              value: pressed && rawVal <= 0 ? 1.0 : rawVal
+            };
+          }),
+          connected: true
         });
       }
     } else if (selectedNativeIndex !== null) {
@@ -1474,6 +1481,9 @@ export function setupGamepadTesterModal() {
       if (sticksLabel) sticksLabel.textContent = 'Leitura dos botões indisponível neste WebView';
       if (triggersLabel) triggersLabel.textContent = 'LT: — | RT: —';
       if (buttonsLabel) buttonsLabel.textContent = 'Windows detectou o controle';
+      if (viewer3D) {
+        viewer3D.updateInputs({ axes: [0, 0, 0, 0], buttons: [], connected: true });
+      }
     } else {
       gamepadVisual?.classList.remove('is-connected');
       gamepadVisual?.setAttribute('aria-label', 'Ilustração 3D do controle; nenhum controle conectado');
@@ -1483,7 +1493,7 @@ export function setupGamepadTesterModal() {
       if (buttonsLabel) buttonsLabel.textContent = 'Nenhum controle conectado';
       stickCaps.forEach((cap) => cap.setAttribute('transform', 'translate(0 0)'));
       if (viewer3D) {
-        viewer3D.updateInputs({ axes: [0, 0, 0, 0], buttons: [] });
+        viewer3D.updateInputs({ axes: [0, 0, 0, 0], buttons: [], connected: false });
       }
     }
 
@@ -1510,6 +1520,14 @@ export function setupGamepadTesterModal() {
   openBtn?.addEventListener('click', openModal);
   closeBtn?.addEventListener('click', closeModal);
   doneBtn?.addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.style.display !== 'none') closeModal();
+    });
+  }
 
   testRumbleBtn?.addEventListener('click', async () => {
     viewer3D?.triggerRumble(1.0);
