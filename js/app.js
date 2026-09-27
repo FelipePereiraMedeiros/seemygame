@@ -2114,17 +2114,13 @@ export function initDiscordFeatures() {
         await tuningAudioControls.refreshDevices(true).catch(() => {});
       }
     },
-    onOpenWhiteboard: (e) => {
-      if (e) e._smgWhiteboardHandled = true;
+    onOpenWhiteboard: () => {
       if (typeof toggleWhiteboardModal === 'function') {
         toggleWhiteboardModal();
       } else {
         const toggleBtn = document.getElementById('toggle-whiteboard-btn');
-        const dockBtn = document.getElementById('dock-whiteboard-btn');
-        if (toggleBtn) {
-          toggleBtn.click();
-        } else if (dockBtn) {
-          dockBtn.click();
+        if (toggleBtn && typeof toggleBtn.onclick === 'function') {
+          toggleBtn.onclick();
         } else {
           const wbModal = document.getElementById('whiteboard-modal');
           if (wbModal) wbModal.style.display = wbModal.style.display === 'flex' ? 'none' : 'flex';
@@ -4823,13 +4819,8 @@ export function initWhiteboard() {
     toggleBtn.onclick = toggleWhiteboard;
   }
 
-  if (dockBtn && !dockBtn._wbBound) {
-    dockBtn._wbBound = true;
-    dockBtn.addEventListener('click', (e) => {
-      if (e && e._smgWhiteboardHandled) return;
-      if (e) e._smgWhiteboardHandled = true;
-      toggleWhiteboard();
-    });
+  if (dockBtn && !dockBtn.onclick) {
+    dockBtn.onclick = toggleWhiteboard;
   }
 
   window.addEventListener('keydown', (e) => {
