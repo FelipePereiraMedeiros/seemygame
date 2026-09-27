@@ -18,6 +18,12 @@ describe('Módulo: relay.js (P2P Tree Mesh)', () => {
     });
   });
 
+  it('deve usar DEFAULT_MAX_DIRECT_VIEWERS = 3 por padrão', () => {
+    expect(DEFAULT_MAX_DIRECT_VIEWERS).toBe(3);
+    const defaultManager = new RelayManager({ originPeerId: 'host' });
+    expect(defaultManager.maxDirectViewers).toBe(3);
+  });
+
   it('deve inicializar com o nó de origem raiz configurado', () => {
     const topo = manager.getTopology();
     expect(topo.origin).toBe('streamer-host');

@@ -1,19 +1,19 @@
 /**
  * SeeMyGame - Gerenciador de P2P Relay (Tree Mesh)
  * 
- * Permite escalar transmissões para 3 ou mais espectadores sem sobrecarregar
+ * Permite escalar transmissões para 4 ou mais espectadores sem sobrecarregar
  * o upload residencial do streamer. O streamer envia para até N espectadores
- * diretos (Nível 1), que por sua vez retransmitem as trilhas de vídeo/áudio
+ * diretos (Nível 1, padrão: 3), que por sua vez retransmitem as trilhas de vídeo/áudio
  * para os demais espectadores (Nível 2+), com failover automático.
  */
 
-export const DEFAULT_MAX_DIRECT_VIEWERS = 2;
+export const DEFAULT_MAX_DIRECT_VIEWERS = 3;
 
 export class RelayManager {
   /**
    * @param {Object} options
    * @param {string} [options.originPeerId=null] - ID do streamer (Origem raiz)
-   * @param {number} [options.maxDirectViewers=2] - Número máximo de uploads diretos da origem
+   * @param {number} [options.maxDirectViewers=3] - Número máximo de uploads diretos da origem
    * @param {Function} [options.onTopologyChange=null]
    * @param {Function} [options.onFailover=null]
    */

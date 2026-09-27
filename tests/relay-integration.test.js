@@ -170,7 +170,7 @@ describe('Integração de P2P Tree Relay Mesh na Sala', () => {
     expect(app.isTreeRelayEnabled).toBe(true);
   });
 
-  it('quando 3 espectadores entram, o 3º deve ser alocado como RELAY sob o melhor espectador direto', async () => {
+  it('quando 4 espectadores entram, os 3 primeiros são diretos e o 4º deve ser alocado como RELAY sob o melhor espectador direto', async () => {
     const roomId = 'sala-relay-test';
     const masterId = getRoomMasterPeerId(roomId);
 
@@ -188,9 +188,10 @@ describe('Integração de P2P Tree Relay Mesh na Sala', () => {
       getDisplayMedia: vi.fn().mockResolvedValue(mockStream)
     };
 
-    // Simula 2 espectadores diretos (v1 e v2)
+    // Simula 3 espectadores diretos (v1, v2 e v3)
     const v1Id = 'viewer-direto-1';
     const v2Id = 'viewer-direto-2';
+    const v3Id = 'viewer-direto-3';
 
     const connV1 = new MockDataConnection(v1Id);
     room.meshConnections.set(v1Id, connV1);
@@ -202,33 +203,39 @@ describe('Integração de P2P Tree Relay Mesh na Sala', () => {
     room.members.set(v2Id, { peerId: v2Id, name: 'V2', isMaster: false, isStreaming: false });
     room.authenticatedPeers.add(v2Id);
 
-    // Inicia stream
-    await app.startLocalStream();
-    expect(app.roomRelayManager).not.toBeNull();
-
-    // Registra telemetria: V1 tem RTT menor (20ms) que V2 (70ms)
-    app.roomRelayManager.updateTelemetry(v1Id, { rtt: 20 });
-    app.roomRelayManager.updateTelemetry(v2Id, { rtt: 70 });
-
-    // 3º espectador entra (v3)
-    const v3Id = 'viewer-relay-3';
     const connV3 = new MockDataConnection(v3Id);
     room.meshConnections.set(v3Id, connV3);
     room.members.set(v3Id, { peerId: v3Id, name: 'V3', isMaster: false, isStreaming: false });
     room.authenticatedPeers.add(v3Id);
 
-    // Host despacha início de stream para v3
-    app.initiateMediaCallToViewer(v3Id);
+    // Inicia stream
+    await app.startLocalStream();
+    expect(app.roomRelayManager).not.toBeNull();
 
-    // V3 deve ter sido delegado via RELAY_FORWARD_REQUEST para V1 (menor RTT)!
+    // Registra telemetria: V1 tem RTT menor (20ms) que V2 (70ms) e V3 (45ms)
+    app.roomRelayManager.updateTelemetry(v1Id, { rtt: 20 });
+    app.roomRelayManager.updateTelemetry(v2Id, { rtt: 70 });
+    app.roomRelayManager.updateTelemetry(v3Id, { rtt: 45 });
+
+    // 4º espectador entra (v4)
+    const v4Id = 'viewer-relay-4';
+    const connV4 = new MockDataConnection(v4Id);
+    room.meshConnections.set(v4Id, connV4);
+    room.members.set(v4Id, { peerId: v4Id, name: 'V4', isMaster: false, isStreaming: false });
+    room.authenticatedPeers.add(v4Id);
+
+    // Host despacha início de stream para v4
+    app.initiateMediaCallToViewer(v4Id);
+
+    // V4 deve ter sido delegado via RELAY_FORWARD_REQUEST para V1 (menor RTT)!
     expect(connV1.send).toHaveBeenCalledWith(expect.objectContaining({
       type: 'RELAY_FORWARD_REQUEST',
-      targetPeerId: v3Id,
+      targetPeerId: v4Id,
       hostPeerId: masterId
     }));
 
-    // V3 deve ter sido notificado sobre seu nó pai
-    expect(connV3.send).toHaveBeenCalledWith(expect.objectContaining({
+    // V4 deve ter sido notificado sobre seu nó pai
+    expect(connV4.send).toHaveBeenCalledWith(expect.objectContaining({
       type: 'RELAY_UPSTREAM_ASSIGNED',
       parentPeerId: v1Id,
       hostPeerId: masterId
@@ -236,18 +243,18 @@ describe('Integração de P2P Tree Relay Mesh na Sala', () => {
 
     // Verifica topologia calculada pela árvore
     const topo = app.roomRelayManager.getTopology();
-    expect(topo.totalViewers).toBe(3);
-    expect(topo.directCount).toBe(2);
+    expect(topo.totalViewers).toBe(4);
+    expect(topo.directCount).toBe(3);
     expect(topo.relayedCount).toBe(1);
     expect(topo.relayed[0].parentPeerId).toBe(v1Id);
 
-    // Economia de banda do Host: para 3 viewers a 7.5 Mbps:
-    // Full Mesh = 3 * 7.5 = 22.5 Mbps
-    // Tree = 2 * 7.5 = 15.0 Mbps
-    // Economia = 7.5 Mbps (33%)
+    // Economia de banda do Host: para 4 viewers a 7.5 Mbps:
+    // Full Mesh = 4 * 7.5 = 30.0 Mbps
+    // Tree = 3 * 7.5 = 22.5 Mbps
+    // Economia = 7.5 Mbps (25%)
     const savings = app.roomRelayManager.calculateBandwidthSavings(7500000);
-    expect(savings.fullMeshUploadBps).toBe(22500000);
-    expect(savings.treeUploadBps).toBe(15000000);
-    expect(savings.percentSaved).toBe(33);
+    expect(savings.fullMeshUploadBps).toBe(30000000);
+    expect(savings.treeUploadBps).toBe(22500000);
+    expect(savings.percentSaved).toBe(25);
   });
 });
