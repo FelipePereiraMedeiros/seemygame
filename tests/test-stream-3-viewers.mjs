@@ -237,8 +237,11 @@ async function run() {
 
       await v.page.waitForFunction(() => {
         const vid = document.querySelector('.video-card video');
-        if (vid && vid.paused) {
-          vid.play().catch(() => {});
+        if (vid) {
+          vid.muted = true;
+          if (vid.paused) {
+            vid.play().catch(() => {});
+          }
         }
         return Boolean(vid && !vid.paused && vid.readyState >= 2 && vid.videoWidth > 0);
       }, { timeout: 35000 });

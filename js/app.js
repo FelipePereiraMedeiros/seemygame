@@ -17,7 +17,7 @@ import {
   swapStreamAudioTrack
 } from './webrtc.js';
 import { initAudioAnalyser, stopAudioAnalyser, applyMicrophoneProcessing } from './audio.js';
-import { startStatsMonitor, stopStatsMonitor } from './stats.js';
+import { startStatsMonitor, stopStatsMonitor, getLastMetrics } from './stats.js';
 import { 
   showToast, 
   initTermsModal, 
@@ -167,6 +167,8 @@ if (typeof window !== 'undefined') {
   window.isTreeRelayEnabled = () => isTreeRelayEnabled;
   window.getTreeRelayTopology = () => roomRelayManager ? roomRelayManager.getTopology() : null;
   window.getTreeRelaySavings = () => roomRelayManager ? roomRelayManager.calculateBandwidthSavings(customBitrateBps) : null;
+  window.getLastMetrics = getLastMetrics;
+  window.getPeer = () => peer;
 }
 
 // Stream direto GStreamer / webrtcbin (Alternativa 1)
@@ -1338,7 +1340,7 @@ export function initPeer() {
     return null;
   }
 
-  if (peer && !peer.destroyed && !peer.disconnected) {
+  if (peer && !peer.destroyed) {
     return peer;
   }
 
@@ -1520,7 +1522,7 @@ export function initPeer() {
           try { peer.destroy(); } catch (e) {}
           peer = null;
         }
-        setTimeout(() => initPeer(), 100);
+        initPeer();
         return;
       }
 
@@ -5187,9 +5189,9 @@ export async function initGreenRoomLobby() {
       if (greenRoomModal) {
         greenRoomModal.style.display = 'none';
       }
-      if (!peer || peer.destroyed || peer.disconnected) {
+      if (!peer || peer.destroyed) {
         initPeer();
-      } else if (roomManager && !roomManager.isInRoom) {
+      } else if (peer.open && roomManager && !roomManager.isInRoom) {
         setupRoomSession(peer.id);
       }
     };

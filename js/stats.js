@@ -190,6 +190,25 @@ export function startStatsMonitor(peerId, pc, isLocal = false, onTelemetry = nul
         qualityElem.innerText = qualityReason === 'none' ? 'Normal' : qualityReason.toUpperCase();
       }
 
+      if (!lastMetrics[peerId]) lastMetrics[peerId] = {};
+      lastMetrics[peerId] = {
+        ...lastMetrics[peerId],
+        peerId,
+        rtt,
+        fps,
+        bitrateMbps: parseFloat(bitrateMbps) || 0,
+        bytes,
+        width,
+        height,
+        packetsLost,
+        packetLossRate,
+        qualityReason,
+        encodeTimeMs,
+        packetSendDelayMs,
+        decodeTimeMs,
+        jitterBufferDelayMs
+      };
+
       if (typeof onTelemetry === 'function') {
         onTelemetry({
           peerId,
@@ -210,6 +229,16 @@ export function startStatsMonitor(peerId, pc, isLocal = false, onTelemetry = nul
   }, 1000);
 
   statsIntervals.set(peerId, intervalId);
+}
+
+/**
+ * Retorna as últimas métricas coletadas de um ou de todos os peers
+ * @param {string|null} [peerId=null]
+ * @returns {Object|null}
+ */
+export function getLastMetrics(peerId = null) {
+  if (peerId) return lastMetrics[peerId] || null;
+  return { ...lastMetrics };
 }
 
 /**
