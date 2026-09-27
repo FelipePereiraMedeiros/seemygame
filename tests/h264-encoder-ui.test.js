@@ -59,3 +59,75 @@ describe('H.264 Encoder UI & Provider Integration', () => {
     expect(result.session.h264Encoder).toBe('auto');
   });
 });
+
+describe('syncMediaControlsEnvironment (Web vs Desktop)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <select id="video-codec-select">
+        <option value="h264">H.264</option>
+        <option value="av1">AV1</option>
+        <option value="hevc">HEVC</option>
+      </select>
+      <div id="video-codec-note"></div>
+      <div id="h264-encoder-group" style="display: block;">
+        <select id="h264-encoder-select">
+          <option value="auto">Auto</option>
+          <option value="cpu">CPU</option>
+        </select>
+      </div>
+    `;
+    delete globalThis.__TAURI_INTERNALS__;
+    delete globalThis.__TAURI__;
+  });
+
+  afterEach(() => {
+    delete globalThis.__TAURI_INTERNALS__;
+    delete globalThis.__TAURI__;
+  });
+
+  it('no ambiente Web (navegador): oculta encoder, trava H.264 e desabilita AV1/HEVC', async () => {
+    const { syncMediaControlsEnvironment } = await import('../js/app.js');
+    syncMediaControlsEnvironment();
+
+    const encoderGroup = document.getElementById('h264-encoder-group');
+    const codecSelect = document.getElementById('video-codec-select');
+    const note = document.getElementById('video-codec-note');
+
+    expect(encoderGroup.style.display).toBe('none');
+    expect(codecSelect.value).toBe('h264');
+
+    const optAv1 = Array.from(codecSelect.options).find(o => o.value === 'av1');
+    const optHevc = Array.from(codecSelect.options).find(o => o.value === 'hevc');
+    const optH264 = Array.from(codecSelect.options).find(o => o.value === 'h264');
+
+    expect(optAv1.disabled).toBe(true);
+    expect(optHevc.disabled).toBe(true);
+    expect(optH264.disabled).toBe(false);
+    expect(note.textContent).toContain('No navegador');
+  });
+
+  it('no ambiente Desktop: exibe encoder quando H.264 e permite todos os codecs', async () => {
+    globalThis.__TAURI_INTERNALS__ = { invoke: vi.fn() };
+    const { syncMediaControlsEnvironment, syncH264EncoderVisibility } = await import('../js/app.js');
+
+    syncMediaControlsEnvironment();
+
+    const encoderGroup = document.getElementById('h264-encoder-group');
+    const codecSelect = document.getElementById('video-codec-select');
+    const note = document.getElementById('video-codec-note');
+
+    expect(encoderGroup.style.display).toBe('block');
+
+    const optAv1 = Array.from(codecSelect.options).find(o => o.value === 'av1');
+    const optHevc = Array.from(codecSelect.options).find(o => o.value === 'hevc');
+    expect(optAv1.disabled).toBe(false);
+    expect(optHevc.disabled).toBe(false);
+    expect(note.textContent).toContain('Pipeline nativo');
+
+    // Se trocar para AV1 no desktop, o encoder group de H.264 se oculta
+    codecSelect.value = 'av1';
+    syncH264EncoderVisibility();
+    expect(encoderGroup.style.display).toBe('none');
+  });
+});
+

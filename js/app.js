@@ -219,17 +219,91 @@ try {
   }
 } catch (e) {}
 
-function syncH264EncoderVisibility() {
-  if (h264EncoderGroup && videoCodecSelect) {
-    h264EncoderGroup.style.display = videoCodecSelect.value === 'h264' ? 'block' : 'none';
+export function syncH264EncoderVisibility() {
+  const encoderGroup = document.getElementById('h264-encoder-group') || h264EncoderGroup;
+  const codecSelect = document.getElementById('video-codec-select') || videoCodecSelect;
+  if (encoderGroup) {
+    const isDesktop = isDesktopApp();
+    if (!isDesktop) {
+      encoderGroup.style.display = 'none';
+      return;
+    }
+    encoderGroup.style.display = (codecSelect && codecSelect.value === 'h264') ? 'block' : 'none';
+  }
+}
+
+export function syncMediaControlsEnvironment() {
+  const isDesktop = isDesktopApp();
+  const videoCodecNote = document.getElementById('video-codec-note');
+  const encoderGroup = document.getElementById('h264-encoder-group') || h264EncoderGroup;
+  const codecSelect = document.getElementById('video-codec-select') || videoCodecSelect;
+
+  if (!isDesktop) {
+    // 🌐 AMBIENTE WEB:
+    // 1. Oculta o seletor de encoder, pois o navegador é uma sandbox/caixa-preta (não permite forçar NVENC/CPU/MF).
+    if (encoderGroup) {
+      encoderGroup.style.display = 'none';
+    }
+
+    // 2. Trava no H.264 acelerado por hardware do navegador.
+    // Desabilita opções que causariam travamento de CPU ou incompatibilidade de rede no WebRTC.
+    if (codecSelect) {
+      Array.from(codecSelect.options).forEach((opt) => {
+        if (opt.value === 'av1') {
+          opt.disabled = true;
+          opt.text = 'AV1 (Exclusivo App Desktop - CPU pesada na Web)';
+        } else if (opt.value === 'hevc') {
+          opt.disabled = true;
+          opt.text = 'HEVC / H.265 (Exclusivo App Desktop - Sem suporte WebRTC)';
+        } else if (opt.value === 'h264') {
+          opt.disabled = false;
+          opt.text = 'H.264 / AVC (Padrão Web acelerado por hardware)';
+        }
+      });
+      codecSelect.value = 'h264';
+    }
+
+    if (videoCodecNote) {
+      videoCodecNote.textContent = '🌐 No navegador, o codec H.264 e a aceleração gráfica são gerenciados automaticamente pelo browser para máxima fluidez. Encoders dedicados (NVENC/Media Foundation/HEVC/AV1) estão disponíveis no App Desktop.';
+      videoCodecNote.style.color = 'var(--text-muted)';
+    }
+  } else {
+    // 🖥️ AMBIENTE DESKTOP (Tauri v2 + Rust + GStreamer):
+    if (codecSelect) {
+      Array.from(codecSelect.options).forEach((opt) => {
+        opt.disabled = false;
+        if (opt.value === 'av1') {
+          opt.text = 'AV1 (Próxima Geração - 30% menos banda com alta nitidez)';
+        } else if (opt.value === 'hevc') {
+          opt.text = 'HEVC / H.265 (Alta Eficiência)';
+        } else if (opt.value === 'h264') {
+          opt.text = 'H.264 / AVC (Padrão e Máxima Compatibilidade)';
+        }
+      });
+    }
+
+    if (videoCodecNote) {
+      videoCodecNote.textContent = '🖥️ Pipeline nativo desktop ativo com controle direto de aceleração de hardware.';
+      videoCodecNote.style.color = 'var(--accent-purple, #a855f7)';
+    }
+
+    syncH264EncoderVisibility();
   }
 }
 
 if (videoCodecSelect) {
   let activeConfirmedCodec = localStorage.getItem('seemygame_video_codec') || 'h264';
+  if (!isDesktopApp()) {
+    activeConfirmedCodec = 'h264';
+  }
   videoCodecSelect.value = activeConfirmedCodec;
 
   videoCodecSelect.addEventListener('change', async (e) => {
+    if (!isDesktopApp() && e.target.value !== 'h264') {
+      e.target.value = 'h264';
+      showToast('⚠️ No navegador, utilize H.264. Encoders avançados (AV1/HEVC) exigem o App Desktop.', 'warning');
+      return;
+    }
     const targetCodec = e.target.value;
     const isLiveNative = isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId;
 
@@ -240,7 +314,7 @@ if (videoCodecSelect) {
       } catch (err) {
         console.warn('Falha ao reconfigurar codec nativo:', err);
         videoCodecSelect.value = activeConfirmedCodec;
-        syncH264EncoderVisibility();
+        syncMediaControlsEnvironment();
         const msg = err?.message || 'A troca de codec de vídeo durante a transmissão requer reiniciar a transmissão.';
         showToast(`⚠️ ${msg}`, 'error', 6000);
         return;
@@ -249,7 +323,7 @@ if (videoCodecSelect) {
       activeConfirmedCodec = targetCodec;
     }
 
-    syncH264EncoderVisibility();
+    syncMediaControlsEnvironment();
     try { localStorage.setItem('seemygame_video_codec', activeConfirmedCodec); } catch (err) {}
 
     const isCurrentlyStreaming = Boolean(localStream || (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId));
@@ -264,7 +338,7 @@ if (videoCodecSelect) {
     }
     showToast(`Codec de vídeo alterado: ${activeConfirmedCodec.toUpperCase()}`, 'info');
   });
-  syncH264EncoderVisibility();
+  syncMediaControlsEnvironment();
 }
 
 if (h264EncoderSelect) {
@@ -2110,6 +2184,7 @@ export function initDiscordFeatures() {
     onOpenTuning: async () => {
       const modal = document.getElementById('tuning-modal');
       if (modal) modal.style.display = 'flex';
+      syncMediaControlsEnvironment();
       if (tuningAudioControls) {
         await tuningAudioControls.refreshDevices(true).catch(() => {});
       }
