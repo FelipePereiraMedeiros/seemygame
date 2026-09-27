@@ -89,10 +89,25 @@ import {
 } from './audio-meme.js';
 import { whiteboardManager, WHITEBOARD_TOOLS, WHITEBOARD_COLORS } from './whiteboard.js';
 import { RoomManager, sanitizeRoomId, getRoomMasterPeerId } from './room.js';
+import { RelayManager, DEFAULT_MAX_DIRECT_VIEWERS } from './relay.js';
 
 // Estado da Aplicação
 export let roomManager = null;
 let isRoomMasterAttempt = true;
+
+// Gerenciamento de Árvore P2P Relay (Tree Mesh)
+export let roomRelayManager = null;
+export let isTreeRelayEnabled = true;
+const lastViewerTelemetry = new Map(); // peerId -> { rtt, packetLoss }
+const savedRemoteStreams = new Map();  // hostId -> MediaStream
+const pendingRelayRequests = [];       // Array<{ targetPeerId, hostPeerId }>
+
+export function setTreeRelayEnabled(enabled) {
+  isTreeRelayEnabled = Boolean(enabled);
+  if (!isTreeRelayEnabled) {
+    roomRelayManager = null;
+  }
+}
 
 export function isRoomMode() {
   return typeof window !== 'undefined' && window.location ? window.location.pathname.endsWith('room.html') : false;
@@ -142,6 +157,17 @@ const activeMediaCalls = new Map(); // PeerId -> MediaConnection
 const activeVoiceCalls = new Map(); // PeerId -> MediaConnection (Voz)
 const watchingHosts = new Map();    // HostId -> { state: 'CONNECTING'|'CONNECTED'|'CANCELLED'|'CLOSED', conn, call, timeoutTimer }
 export let discordUI = null;
+
+if (typeof window !== 'undefined') {
+  window.activeMediaCalls = activeMediaCalls;
+  window.watchingHosts = watchingHosts;
+  window.savedRemoteStreams = savedRemoteStreams;
+  window.getRoomRelayManager = () => roomRelayManager;
+  window.setTreeRelayEnabled = setTreeRelayEnabled;
+  window.isTreeRelayEnabled = () => isTreeRelayEnabled;
+  window.getTreeRelayTopology = () => roomRelayManager ? roomRelayManager.getTopology() : null;
+  window.getTreeRelaySavings = () => roomRelayManager ? roomRelayManager.calculateBandwidthSavings(customBitrateBps) : null;
+}
 
 // Stream direto GStreamer / webrtcbin (Alternativa 1)
 const directViewerPeerConnections = new Map(); // HostId -> RTCPeerConnection (no espectador)
@@ -1195,6 +1221,26 @@ export function setupRoomSession(id) {
         connectedViewers.delete(member.peerId);
         stopStatsMonitor(member.peerId);
         updateViewerCountUI();
+
+        // Failover automático na árvore de relay caso o membro fosse pai de outros nós
+        if (roomRelayManager) {
+          const failovers = roomRelayManager.unregisterViewer(member.peerId);
+          failovers.forEach(({ childPeerId, newParentPeerId, role }) => {
+            console.log(`[RelayTree] Failover para ${childPeerId}: novo destino = ${newParentPeerId} (${role})`);
+            if (role === 'direct') {
+              initiateMediaCallToViewer(childPeerId);
+            } else if (newParentPeerId) {
+              const parentConn = roomManager?.meshConnections?.get(newParentPeerId);
+              if (parentConn && parentConn.open) {
+                parentConn.send({
+                  type: 'RELAY_FORWARD_REQUEST',
+                  targetPeerId: childPeerId,
+                  hostPeerId: peer.id
+                });
+              }
+            }
+          });
+        }
       }
     });
   }
@@ -2310,6 +2356,47 @@ function setupIncomingDataConnection(conn) {
       return;
     }
 
+    // Sinalização da Árvore P2P Relay (Tree Mesh)
+    if (data.type === 'RELAY_FORWARD_REQUEST') {
+      const { targetPeerId, hostPeerId } = data;
+      console.log(`[RelayTree] Solicitado retransmitir stream de ${hostPeerId} para ${targetPeerId}`);
+
+      const streamToRelay = savedRemoteStreams.get(hostPeerId) || watchingHosts.get(hostPeerId)?.call?.remoteStream;
+      if (streamToRelay && peer && !peer.destroyed) {
+        console.log(`[RelayTree] Iniciando chamada de relay para ${targetPeerId}`);
+        const relayCall = peer.call(targetPeerId, streamToRelay, {
+          metadata: { type: 'RELAY_STREAM', hostPeerId }
+        });
+        if (relayCall) {
+          activeMediaCalls.set(targetPeerId, relayCall);
+          if (relayCall.peerConnection) {
+            applyTransceiverOptimizations(relayCall.peerConnection);
+          }
+        }
+      } else {
+        console.log(`[RelayTree] Stream de ${hostPeerId} ainda não recebida. Enfileirando solicitação para ${targetPeerId}`);
+        pendingRelayRequests.push({ targetPeerId, hostPeerId });
+      }
+      return;
+    }
+
+    if (data.type === 'RELAY_UPSTREAM_ASSIGNED') {
+      const { parentPeerId, hostPeerId } = data;
+      console.log(`[RelayTree] Atribuído nó pai de relay: ${parentPeerId} para assistir ${hostPeerId}`);
+      if (!watchingHosts.has(hostPeerId)) {
+        createPlaceholderCard(hostPeerId, `Amigo ${hostPeerId.slice(0, 6)}`);
+        watchingHosts.set(hostPeerId, {
+          state: 'CONNECTING',
+          conn: roomManager?.meshConnections?.get(hostPeerId) || null,
+          call: null,
+          timeoutTimer: null,
+          isRelayed: true,
+          relayParentPeerId: parentPeerId
+        });
+      }
+      return;
+    }
+
     if (data.type === 'CHAT_MESSAGE' || data.type === 'VOICE_STATE_UPDATE' || data.type === 'VOICE_SIGNAL' ||
         data.type === 'TACTICAL_PING' || data.type === 'TACTICAL_LASER' || data.type === 'EMOJI_REACTION' || data.type === 'SOUNDBOARD_PLAY') {
       handleIncomingP2PMessage(data, conn);
@@ -2801,6 +2888,35 @@ export function initiateMediaCallToViewer(viewerPeerId) {
     }
   }
 
+  // Árvore P2P Relay (Tree Mesh): se exceder uploads diretos, delega retransmissão para o melhor peer
+  if (isRoomMode() && isTreeRelayEnabled && roomRelayManager && peer) {
+    const telemetry = lastViewerTelemetry.get(viewerPeerId) || { rtt: 50, packetLoss: 0 };
+    const allocation = roomRelayManager.registerViewer(viewerPeerId, telemetry);
+
+    if (allocation && allocation.role === 'relay' && allocation.parentPeerId) {
+      console.log(`[RelayTree] Espectador ${viewerPeerId} alocado como RELAY sob o nó pai ${allocation.parentPeerId}`);
+
+      const parentConn = roomManager?.meshConnections?.get(allocation.parentPeerId);
+      if (parentConn && parentConn.open) {
+        parentConn.send({
+          type: 'RELAY_FORWARD_REQUEST',
+          targetPeerId: viewerPeerId,
+          hostPeerId: peer.id
+        });
+      }
+
+      const viewerConn = roomManager?.meshConnections?.get(viewerPeerId);
+      if (viewerConn && viewerConn.open) {
+        viewerConn.send({
+          type: 'RELAY_UPSTREAM_ASSIGNED',
+          parentPeerId: allocation.parentPeerId,
+          hostPeerId: peer.id
+        });
+      }
+      return; // Economiza upload direto do streamer!
+    }
+  }
+
   console.log(`Iniciando chamada com foco em alta fluidez para: ${viewerPeerId}`);
   const call = peer.call(viewerPeerId, localStream);
   
@@ -2812,6 +2928,18 @@ export function initiateMediaCallToViewer(viewerPeerId) {
       applyTransceiverOptimizations(call.peerConnection);
 
       startStatsMonitor(viewerPeerId, call.peerConnection, true, (sample) => {
+        if (sample && typeof sample.rtt === 'number') {
+          lastViewerTelemetry.set(viewerPeerId, {
+            rtt: sample.rtt,
+            packetLoss: sample.packetLossRate || 0
+          });
+          if (roomRelayManager) {
+            roomRelayManager.updateTelemetry(viewerPeerId, {
+              rtt: sample.rtt,
+              packetLoss: sample.packetLossRate || 0
+            });
+          }
+        }
         if (adaptiveBitrateController.isEnabled) {
           adaptiveBitrateController.processSample({
             packetLossRate: sample.packetLossRate || 0,
@@ -2875,8 +3003,11 @@ function handleIncomingMediaCall(call) {
     return;
   }
 
+  const isRelayedCall = Boolean(call.metadata?.type === 'RELAY_STREAM');
+  const originHostId = call.metadata?.hostPeerId || call.peer;
+
   // Rejeição de chamadas não solicitadas: só aceita se o host estiver cadastrado em watchingHosts ou na sala (roomManager)
-  if (!watchingHosts.has(call.peer) && !(roomManager && roomManager.members.has(call.peer))) {
+  if (!watchingHosts.has(call.peer) && !watchingHosts.has(originHostId) && !(roomManager && (roomManager.members.has(call.peer) || roomManager.members.has(originHostId)))) {
     console.warn(`Chamada de mídia não solicitada rejeitada de: ${call.peer}`);
     try {
       call.close();
@@ -2884,13 +3015,17 @@ function handleIncomingMediaCall(call) {
     return;
   }
 
-  if (!watchingHosts.has(call.peer) && roomManager && roomManager.members.has(call.peer)) {
-    watchingHosts.set(call.peer, {
-      state: 'CONNECTED',
-      conn: roomManager.meshConnections.get(call.peer) || null,
-      call: call,
-      timeoutTimer: null
-    });
+  if (roomManager && (roomManager.members.has(call.peer) || roomManager.members.has(originHostId))) {
+    if (!watchingHosts.has(originHostId)) {
+      watchingHosts.set(originHostId, {
+        state: 'CONNECTED',
+        conn: roomManager.meshConnections.get(originHostId) || null,
+        call: call,
+        timeoutTimer: null,
+        isRelayed: isRelayedCall,
+        relayParentPeerId: isRelayedCall ? call.peer : null
+      });
+    }
   }
 
   // Se já existe uma chamada antiga desse host, fecha a anterior antes de aceitar a nova
@@ -2913,27 +3048,57 @@ function handleIncomingMediaCall(call) {
   }
 
   call.on('stream', (remoteStream) => {
-    console.log(`Stream remoto recebido de ${call.peer}`);
-    
+    console.log(`Stream remoto recebido de ${call.peer}${isRelayedCall ? ` (Relay originário de ${originHostId})` : ''}`);
+
+    // Salva a stream remota para permitir que este nó retransmita para outros na árvore
+    savedRemoteStreams.set(call.peer, remoteStream);
+    savedRemoteStreams.set(originHostId, remoteStream);
+
+    // Se haviam pedidos pendentes de retransmissão para este host, atende-os agora:
+    if (pendingRelayRequests.length > 0) {
+      const remaining = [];
+      for (const req of pendingRelayRequests) {
+        if ((req.hostPeerId === call.peer || req.hostPeerId === originHostId) && peer && !peer.destroyed) {
+          console.log(`[RelayTree] Atendendo pedido de relay pendente para ${req.targetPeerId}`);
+          const relayCall = peer.call(req.targetPeerId, remoteStream, {
+            metadata: { type: 'RELAY_STREAM', hostPeerId: req.hostPeerId }
+          });
+          if (relayCall) {
+            activeMediaCalls.set(req.targetPeerId, relayCall);
+          }
+        } else {
+          remaining.push(req);
+        }
+      }
+      pendingRelayRequests.length = 0;
+      pendingRelayRequests.push(...remaining);
+    }
+
+    const displayHostId = originHostId;
+    hideCardLoading(displayHostId);
     hideCardLoading(call.peer);
+    setCardStreamPaused(displayHostId, false);
     setCardStreamPaused(call.peer, false);
 
     if (discordUI) {
       discordUI.syncStageView(true);
     }
 
-    clipRecorder.start(remoteStream, call.peer);
+    clipRecorder.start(remoteStream, displayHostId);
     const reactionsDock = document.getElementById('reactions-dock');
     if (reactionsDock) reactionsDock.style.display = 'flex';
 
-    const hostConn = watchingHosts.get(call.peer)?.conn;
+    const hostConn = watchingHosts.get(displayHostId)?.conn || watchingHosts.get(call.peer)?.conn;
+    const label = isRelayedCall
+      ? `🎮 Tela de ${displayHostId.slice(0, 6)} (Relay via ${call.peer.slice(0, 4)})`
+      : `🎮 Tela de ${displayHostId.slice(0, 6)}`;
 
     addOrUpdateVideoCard({
       stream: remoteStream,
-      peerId: call.peer,
-      label: `🎮 Tela de ${call.peer.slice(0, 6)}`,
+      peerId: displayHostId,
+      label,
       isLocal: false,
-      onDisconnect: () => disconnectHost(call.peer),
+      onDisconnect: () => disconnectHost(displayHostId),
       onCoopClick: (hostId) => {
         const state = getCoopState();
         if (state.isPlayer2) {
@@ -2946,10 +3111,12 @@ function handleIncomingMediaCall(call) {
     
     if (call.peerConnection) {
       applyTransceiverOptimizations(call.peerConnection);
-      startStatsMonitor(call.peer, call.peerConnection, false);
+      startStatsMonitor(displayHostId, call.peerConnection, false);
     }
 
-    showToast(`Transmissão de ${call.peer.slice(0, 6)} conectada em alta fluidez!`, 'success');
+    showToast(isRelayedCall
+      ? `Transmissão de ${displayHostId.slice(0, 6)} conectada via Relay (${call.peer.slice(0, 4)})!`
+      : `Transmissão de ${call.peer.slice(0, 6)} conectada em alta fluidez!`, 'success');
   });
 
   call.on('close', () => {
@@ -3411,6 +3578,23 @@ export async function startLocalStream(options = {}) {
     }
 
     if (roomManager) {
+      if (isTreeRelayEnabled && peer) {
+        if (!roomRelayManager) {
+          roomRelayManager = new RelayManager({
+            originPeerId: peer.id,
+            maxDirectViewers: DEFAULT_MAX_DIRECT_VIEWERS,
+            onTopologyChange: (topo) => {
+              console.log(`[RelayTree] Topologia atualizada: ${topo.directCount} diretos, ${topo.relayedCount} relays. Total: ${topo.totalViewers}`);
+            },
+            onFailover: (childId, newParentId, role) => {
+              console.log(`[RelayTree] Failover para ${childId}: novo pai = ${newParentId} (${role})`);
+            }
+          });
+        } else {
+          roomRelayManager.setOrigin(peer.id);
+        }
+      }
+
       roomManager.setLocalStreaming(true, {
         title: 'Jogo / Tela',
         preset: selectedProfile.id,
@@ -3537,6 +3721,10 @@ export function stopLocalStream() {
 
   if (roomManager) {
     roomManager.setLocalStreaming(false);
+  }
+
+  if (roomRelayManager) {
+    roomRelayManager = null;
   }
 
   connectedViewers.forEach((conn) => {
