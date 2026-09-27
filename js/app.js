@@ -2114,9 +2114,22 @@ export function initDiscordFeatures() {
         await tuningAudioControls.refreshDevices(true).catch(() => {});
       }
     },
-    onOpenWhiteboard: () => {
-      const wbModal = document.getElementById('whiteboard-modal');
-      if (wbModal) wbModal.style.display = 'flex';
+    onOpenWhiteboard: (e) => {
+      if (e) e._smgWhiteboardHandled = true;
+      if (typeof toggleWhiteboardModal === 'function') {
+        toggleWhiteboardModal();
+      } else {
+        const toggleBtn = document.getElementById('toggle-whiteboard-btn');
+        const dockBtn = document.getElementById('dock-whiteboard-btn');
+        if (toggleBtn) {
+          toggleBtn.click();
+        } else if (dockBtn) {
+          dockBtn.click();
+        } else {
+          const wbModal = document.getElementById('whiteboard-modal');
+          if (wbModal) wbModal.style.display = wbModal.style.display === 'flex' ? 'none' : 'flex';
+        }
+      }
     },
     onLeaveRoom: () => {
       if (roomManager) roomManager.leave();
@@ -2190,7 +2203,7 @@ export function initDiscordFeatures() {
 }
 
 // Controle: Transmissor recebe pedido de espectador
-function setupIncomingDataConnection(conn) {
+export function setupIncomingDataConnection(conn) {
   if (!conn) return;
   if (conn._smg_incoming_bound) return;
   conn._smg_incoming_bound = true;
@@ -2419,7 +2432,8 @@ function setupIncomingDataConnection(conn) {
     }
 
     if (data.type === 'CHAT_MESSAGE' || data.type === 'VOICE_STATE_UPDATE' || data.type === 'VOICE_SIGNAL' ||
-        data.type === 'TACTICAL_PING' || data.type === 'TACTICAL_LASER' || data.type === 'EMOJI_REACTION' || data.type === 'SOUNDBOARD_PLAY') {
+        data.type === 'TACTICAL_PING' || data.type === 'TACTICAL_LASER' || data.type === 'EMOJI_REACTION' || data.type === 'SOUNDBOARD_PLAY' ||
+        (data.type && data.type.startsWith('WHITEBOARD_'))) {
       handleIncomingP2PMessage(data, conn);
       return;
     }
@@ -3280,7 +3294,8 @@ export function watchFriend(rawTargetId) {
     }
 
     if (data.type === 'CHAT_MESSAGE' || data.type === 'VOICE_STATE_UPDATE' || data.type === 'VOICE_SIGNAL' ||
-        data.type === 'TACTICAL_PING' || data.type === 'TACTICAL_LASER' || data.type === 'EMOJI_REACTION' || data.type === 'SOUNDBOARD_PLAY') {
+        data.type === 'TACTICAL_PING' || data.type === 'TACTICAL_LASER' || data.type === 'EMOJI_REACTION' || data.type === 'SOUNDBOARD_PLAY' ||
+        (data.type && data.type.startsWith('WHITEBOARD_'))) {
       handleIncomingP2PMessage(data, conn);
       return;
     }
@@ -4719,11 +4734,19 @@ export async function openClipPostModal(clipBlob) {
   }
 }
 
+export let openWhiteboardModal = null;
+export let closeWhiteboardModal = null;
+export let toggleWhiteboardModal = null;
+
 export function initWhiteboard() {
   const toggleBtn = document.getElementById('toggle-whiteboard-btn');
+  const dockBtn = document.getElementById('dock-whiteboard-btn');
   const modal = document.getElementById('whiteboard-modal');
   const canvas = document.getElementById('whiteboard-canvas');
   if (!modal || !canvas) return;
+
+  // Pré-vincula canvas ao whiteboardManager imediatamente
+  whiteboardManager.setCanvas(canvas);
 
   // Conecta callbacks P2P do WhiteboardManager
   whiteboardManager.onElementCreated = (element) => {
@@ -4772,23 +4795,48 @@ export function initWhiteboard() {
     resizeCanvas();
     whiteboardManager.setCanvas(canvas);
     whiteboardManager.render();
+    toggleBtn?.classList.add('active');
+    dockBtn?.classList.add('is-active');
     // Solicita sincronização com peers na sala
     broadcastDataMessage({ type: 'WHITEBOARD_REQUEST_SYNC' });
   };
 
   const closeWhiteboard = () => {
     modal.style.display = 'none';
+    toggleBtn?.classList.remove('active');
+    dockBtn?.classList.remove('is-active');
   };
 
+  const toggleWhiteboard = () => {
+    if (modal.style.display === 'flex') {
+      closeWhiteboard();
+    } else {
+      openWhiteboard();
+    }
+  };
+
+  openWhiteboardModal = openWhiteboard;
+  closeWhiteboardModal = closeWhiteboard;
+  toggleWhiteboardModal = toggleWhiteboard;
+
   if (toggleBtn) {
-    toggleBtn.addEventListener('click', () => {
-      if (modal.style.display === 'flex') {
-        closeWhiteboard();
-      } else {
-        openWhiteboard();
-      }
+    toggleBtn.onclick = toggleWhiteboard;
+  }
+
+  if (dockBtn && !dockBtn._wbBound) {
+    dockBtn._wbBound = true;
+    dockBtn.addEventListener('click', (e) => {
+      if (e && e._smgWhiteboardHandled) return;
+      if (e) e._smgWhiteboardHandled = true;
+      toggleWhiteboard();
     });
   }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal.style.display === 'flex') {
+      closeWhiteboard();
+    }
+  });
 
   // Fechar
   const closeBtn = document.getElementById('wb-close-btn');

@@ -737,7 +737,7 @@ export class DiscordUIController {
     if (dockStreamBtn) dockStreamBtn.addEventListener('click', () => this.onToggleStream());
     if (dockTuningBtn) dockTuningBtn.addEventListener('click', () => this.onOpenTuning());
     if (quickTuningBtn) quickTuningBtn.addEventListener('click', () => this.onOpenTuning());
-    if (dockWhiteboardBtn) dockWhiteboardBtn.addEventListener('click', () => this.onOpenWhiteboard());
+    if (dockWhiteboardBtn) dockWhiteboardBtn.addEventListener('click', (e) => this.onOpenWhiteboard(e));
     if (dockLeaveBtn) dockLeaveBtn.addEventListener('click', () => this.onLeaveRoom());
   }
 

@@ -333,6 +333,12 @@ export class WhiteboardManager {
       }
     };
 
+    if (this._pointerUpHandler) {
+      window.removeEventListener('mouseup', this._pointerUpHandler);
+      window.removeEventListener('touchend', this._pointerUpHandler);
+    }
+    this._pointerUpHandler = handlePointerUp;
+
     this.canvas.onmousedown = handlePointerDown;
     this.canvas.onmousemove = handlePointerMove;
     window.addEventListener('mouseup', handlePointerUp);
