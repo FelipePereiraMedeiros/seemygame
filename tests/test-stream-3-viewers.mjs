@@ -8,7 +8,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
 const PORT = 3003;
-const ARTIFACT_DIR = 'C:\\Users\\diogo\\.gemini\\antigravity\\brain\\1dcd93eb-1e09-4570-856b-4ee876bf9f9b';
+const ARTIFACT_DIR = process.env.ARTIFACT_DIR || path.join(root, 'output', 'artifacts');
+if (!fs.existsSync(ARTIFACT_DIR)) {
+  fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+}
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -142,7 +145,11 @@ async function run() {
       '--use-fake-ui-for-media-stream',
       '--use-fake-device-for-media-stream',
       '--disable-web-security',
-      '--allow-file-access-from-files'
+      '--allow-file-access-from-files',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-features=CalculateNativeWinOcclusion'
     ]
   });
 
@@ -217,34 +224,16 @@ async function run() {
 
     for (const v of viewers) {
       console.log(`[E2E] Aguardando vídeo no ${v.name}...`);
-      const videoLoc = v.page.locator('.video-card video');
-      await videoLoc.waitFor({ state: 'attached', timeout: 35000 });
-
-      // Inspeciona estado atual
-      const stateBefore = await v.page.evaluate(() => {
-        const vid = document.querySelector('.video-card video');
-        return {
-          found: Boolean(vid),
-          paused: vid?.paused,
-          readyState: vid?.readyState,
-          videoWidth: vid?.videoWidth,
-          srcObject: Boolean(vid?.srcObject),
-          currentTime: vid?.currentTime,
-          error: vid?.error ? { code: vid.error.code, message: vid.error.message } : null
-        };
-      });
-      console.log(`[E2E Diag ${v.name}] Estado inicial do video:`, JSON.stringify(stateBefore));
-
+      await v.page.bringToFront().catch(() => {});
       await v.page.waitForFunction(() => {
         const vid = document.querySelector('.video-card video');
         if (vid) {
           vid.muted = true;
-          if (vid.paused) {
-            vid.play().catch(() => {});
-          }
+          if (vid.paused) vid.play().catch(() => {});
+          return vid.readyState >= 2 && vid.videoWidth > 0 && !vid.paused;
         }
-        return Boolean(vid && !vid.paused && vid.readyState >= 2 && vid.videoWidth > 0);
-      }, { timeout: 35000 });
+        return false;
+      }, null, { polling: 250, timeout: 35000 });
       console.log(`✅ ${v.name} está reproduzindo o vídeo do Host com sucesso!`);
     }
 
@@ -252,12 +241,10 @@ async function run() {
     console.log('[E2E] Capturando screenshots instantâneos via CDP...');
     async function captureCdpScreenshot(page, filePath) {
       try {
-        const client = await page.context().newCDPSession(page);
-        const { data } = await client.send('Page.captureScreenshot', { format: 'png' });
-        fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
-        await client.detach();
+        await page.bringToFront().catch(() => {});
+        await page.screenshot({ path: filePath, timeout: 5000 });
       } catch (err) {
-        console.warn(`[CDP Screenshot] Falha em ${path.basename(filePath)}:`, err);
+        console.warn(`[Screenshot] Falha em ${path.basename(filePath)}:`, err.message);
       }
     }
 

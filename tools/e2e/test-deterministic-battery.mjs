@@ -662,8 +662,16 @@ const runIsolationSuite = async () => {
         dedicatedUnmutedContext = await dedicatedUnmutedBrowser.newContext();
         await setupContext(dedicatedUnmutedContext);
         activeViewerPage = await dedicatedUnmutedContext.newPage();
-        await activeViewerPage.goto(`http://127.0.0.1:${port}/index.html${roomHash}`);
-        await activeViewerPage.waitForSelector('#app', { state: 'visible', timeout: 15000 });
+        await joinRoom(activeViewerPage, `${webOrigin}/room.html${roomHash}`, 'Espectador Desmutado');
+        const unmutedViewerId = await activeViewerPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
+        await waitApp(hostPage, async id => {
+          const r = (await import('/js/app.js')).roomManager;
+          return r?.members?.has(id) && r.isPeerAuthorized(id);
+        }, unmutedViewerId, 30000);
+        await waitApp(activeViewerPage, async id => {
+          const r = (await import('/js/app.js')).roomManager;
+          return r?.members?.has(id) && r.isPeerAuthorized(id);
+        }, hostId, 30000);
         currentTargetViewerPage = activeViewerPage;
       } else {
         currentTargetViewerPage = viewerPage;
@@ -1462,10 +1470,10 @@ const runIsolationSuite = async () => {
   if (nativeCaps?.supports_process_audio) {
     await runScenarioAndRecord('c5_audioProcesso', {
       id: 'c5',
-      name: 'Cenário 5: Áudio por Processo (Isolamento WASAPI por PID, Instância de Navegador Desmutada)',
+      name: 'Cenário 5: Áudio por Processo (Isolamento WASAPI por PID)',
       audioMode: 'process',
       audioIsolation: 'wasapi_process_tree',
-      browserGloballyMuted: false,
+      browserGloballyMuted: true,
       expectAudible: true,
       expectedElementMuted: false,
       expectedElementVolume: 1.0,

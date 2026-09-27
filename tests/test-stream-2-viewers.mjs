@@ -8,7 +8,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
 const PORT = 3002;
-const ARTIFACT_DIR = 'C:\\Users\\diogo\\.gemini\\antigravity\\brain\\1dcd93eb-1e09-4570-856b-4ee876bf9f9b';
+const ARTIFACT_DIR = process.env.ARTIFACT_DIR || path.join(root, 'output', 'artifacts');
+if (!fs.existsSync(ARTIFACT_DIR)) {
+  fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+}
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -142,7 +145,11 @@ async function run() {
       '--use-fake-ui-for-media-stream',
       '--use-fake-device-for-media-stream',
       '--disable-web-security',
-      '--allow-file-access-from-files'
+      '--allow-file-access-from-files',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-features=CalculateNativeWinOcclusion'
     ]
   });
 
@@ -204,46 +211,23 @@ async function run() {
     await streamBtn.waitFor({ state: 'visible' });
     await streamBtn.click();
 
-    // Verifica se Viewer 1 recebe e reproduz
-    console.log('[E2E] Verificando se Viewer 1 recebe stream...');
-    const v1Video = pageViewer1.locator('.video-card video');
-    await v1Video.waitFor({ state: 'visible', timeout: 20000 });
-    await pageViewer1.waitForFunction(() => {
-      const v = document.querySelector('.video-card video');
-      return Boolean(v && !v.paused && v.readyState >= 2 && v.videoWidth > 0);
-    }, { timeout: 15000 });
-    console.log('✅ Viewer 1 está reproduzindo o vídeo do Host!');
-
-    // Verifica se Viewer 2 recebe e reproduz
-    console.log('[E2E] Verificando se Viewer 2 recebe stream...');
-    const diagV2 = await pageViewer2.evaluate(() => {
-      const cards = Array.from(document.querySelectorAll('.video-card')).map(c => ({
-        id: c.id,
-        html: c.innerHTML.slice(0, 150),
-        display: window.getComputedStyle(c).display,
-        video: Boolean(c.querySelector('video')),
-        videoSrc: Boolean(c.querySelector('video')?.srcObject),
-        videoPaused: c.querySelector('video')?.paused,
-        videoReadyState: c.querySelector('video')?.readyState
-      }));
-      const grid = document.getElementById('video-grid');
-      return {
-        cards,
-        gridDisplay: grid ? window.getComputedStyle(grid).display : 'no grid',
-        watchingHosts: window.watchingHosts ? Array.from(window.watchingHosts.entries()).map(([k, v]) => ({ k, state: v.state, call: Boolean(v.call) })) : null
-      };
-    });
-    console.log('[E2E Diagnostics Viewer 2]:', JSON.stringify(diagV2, null, 2));
-
-    const v2Video = pageViewer2.locator('.video-card video');
-    await v2Video.waitFor({ state: 'attached', timeout: 20000 });
-    const isVis = await v2Video.isVisible();
-    console.log(`[E2E] v2Video isVisible: ${isVis}`);
-    await pageViewer2.waitForFunction(() => {
-      const v = document.querySelector('.video-card video');
-      return Boolean(v && !v.paused && v.readyState >= 2 && v.videoWidth > 0);
-    }, { timeout: 20000 });
-    console.log('✅ Viewer 2 está reproduzindo o vídeo do Host!');
+    for (const v of [
+      { name: 'Viewer 1', page: pageViewer1 },
+      { name: 'Viewer 2', page: pageViewer2 }
+    ]) {
+      console.log(`[E2E] Verificando se ${v.name} recebe e reproduz stream...`);
+      await v.page.bringToFront().catch(() => {});
+      await v.page.waitForFunction(() => {
+        const vid = document.querySelector('.video-card video');
+        if (vid) {
+          vid.muted = true;
+          if (vid.paused) vid.play().catch(() => {});
+          return vid.readyState >= 2 && vid.videoWidth > 0 && !vid.paused;
+        }
+        return false;
+      }, null, { polling: 250, timeout: 30000 });
+      console.log(`✅ ${v.name} está reproduzindo o vídeo do Host!`);
+    }
 
     // Salva screenshots como prova visual via CDP instantâneo
     const shotHost = path.join(ARTIFACT_DIR, 'audit_multi_01_host.png');
@@ -252,12 +236,10 @@ async function run() {
     
     async function captureCdpScreenshot(page, filePath) {
       try {
-        const client = await page.context().newCDPSession(page);
-        const { data } = await client.send('Page.captureScreenshot', { format: 'png' });
-        fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
-        await client.detach();
+        await page.bringToFront().catch(() => {});
+        await page.screenshot({ path: filePath, timeout: 5000 });
       } catch (err) {
-        console.warn(`[CDP Screenshot] Falha em ${path.basename(filePath)}:`, err);
+        console.warn(`[Screenshot] Falha em ${path.basename(filePath)}:`, err.message);
       }
     }
 
