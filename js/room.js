@@ -201,6 +201,18 @@ export class RoomManager {
     if (!isValidPeerId(peerId) || peerId === this.myPeerId) return false;
     if (!this.members.has(peerId) && this.members.size >= MAX_ROOM_MEMBERS) return false;
 
+    // Se já temos uma conexão de malha aberta e autenticada com este peer, mantém a existente
+    const existingMesh = this.meshConnections.get(peerId);
+    if (existingMesh && existingMesh.open && this.authenticatedPeers.has(peerId)) {
+      return true;
+    }
+
+    // Se já temos uma conexão pendente aberta (ex: masterConn de saída), não a substitua por conexão reversa
+    const existingPending = this.pendingConnections.get(peerId);
+    if (existingPending && existingPending !== conn && existingPending.open) {
+      return true;
+    }
+
     // Every room connection starts pending. Public rooms still need the room
     // admission handshake; otherwise a peer could connect directly to a
     // guest and bypass the coordinator's membership list.
@@ -215,13 +227,11 @@ export class RoomManager {
 
   promoteConnection(peerId, conn, initialInfo = {}) {
     if (!isValidPeerId(peerId) || peerId === this.myPeerId || !conn) return false;
-    const pendingConn = this.pendingConnections.get(peerId);
-    if (pendingConn && pendingConn !== conn) return false;
     if (!this.members.has(peerId) && this.members.size >= MAX_ROOM_MEMBERS) return false;
 
     this.authenticatedPeers.add(peerId);
     this.pendingConnections.delete(peerId);
-    this.meshConnections.set(peerId, conn || pendingConn);
+    this.meshConnections.set(peerId, conn);
 
     if (!this.members.has(peerId)) {
       const newMember = {
@@ -324,16 +334,21 @@ export class RoomManager {
       'ROOM_SYNC_ALL',
       'ROOM_MEMBER_AUTH',
       'ROOM_MEMBER_AUTH_ACCEPTED',
-      'ROOM_HEARTBEAT'
+      'ROOM_HEARTBEAT',
+      'ROOM_MEMBER_JOINED'
     ].includes(message.type);
     if (isJoinOrAuthMessage && message.roomId && sanitizeRoomId(message.roomId) !== this.roomId) return true;
     if (isJoinOrAuthMessage && !this.authenticatedPeers.has(senderPeerId) &&
-        !['ROOM_JOIN_REQUEST', 'ROOM_SYNC_ALL', 'ROOM_MEMBER_AUTH', 'ROOM_MEMBER_AUTH_ACCEPTED', 'ROOM_PIN_REQUIRED', 'ROOM_PIN_ACCEPTED', 'ROOM_KEY_REQUIRED', 'ROOM_JOIN_REJECTED'].includes(message.type)) {
+        !['ROOM_JOIN_REQUEST', 'ROOM_SYNC_ALL', 'ROOM_MEMBER_AUTH', 'ROOM_MEMBER_AUTH_ACCEPTED', 'ROOM_PIN_REQUIRED', 'ROOM_PIN_ACCEPTED', 'ROOM_KEY_REQUIRED', 'ROOM_JOIN_REJECTED', 'ROOM_MEMBER_JOINED'].includes(message.type)) {
       return true;
     }
     if (!isJoinOrAuthMessage && !this.authenticatedPeers.has(senderPeerId)) {
-      console.warn(`[RoomManager] Mensagem de peer não autenticado rejeitada: ${senderPeerId}`);
-      return true;
+      if (senderPeerId === this.masterPeerId) {
+        this.authenticatedPeers.add(senderPeerId);
+      } else {
+        console.warn(`[RoomManager] Mensagem de peer não autenticado rejeitada: ${senderPeerId}`);
+        return true;
+      }
     }
 
     const senderMember = this.members.get(senderPeerId);
@@ -462,11 +477,12 @@ export class RoomManager {
           return true;
         }
         const pendingConn = this.pendingConnections.get(senderPeerId);
-        if (!pendingConn || (conn && pendingConn !== conn)) {
-          console.warn(`[RoomManager] ROOM_PIN_ACCEPTED sem conexão pendente válida: ${senderPeerId}`);
+        const targetConn = conn || pendingConn;
+        if (!targetConn) {
+          console.warn(`[RoomManager] ROOM_PIN_ACCEPTED sem conexão válida: ${senderPeerId}`);
           return true;
         }
-        if (!this.promoteConnection(senderPeerId, pendingConn || conn, { isMaster: true })) return true;
+        if (!this.promoteConnection(senderPeerId, targetConn, { isMaster: true })) return true;
         if (!this.members.has(senderPeerId)) {
           const member = {
             peerId: senderPeerId,
@@ -605,41 +621,57 @@ export class RoomManager {
       case 'ROOM_STREAM_PUBLISHED': {
         // SEGURANÇA (A03): Apenas o próprio streamer publica sua stream, ou o Master retransmite
         const peerId = (senderPeerId === this.masterPeerId && message.peerId) ? message.peerId : senderPeerId;
-        const member = this.members.get(peerId);
-        if (member) {
+        let member = this.members.get(peerId);
+        if (!member) {
+          member = {
+            peerId,
+            name: peerId === this.masterPeerId ? 'Host' : `Amigo ${peerId.slice(-4)}`,
+            isStreaming: true,
+            streamDetails: message.details || null
+          };
+          this.members.set(peerId, member);
+        } else {
           member.isStreaming = true;
           member.streamDetails = message.details || null;
-          if (this.isMaster) {
-            this.broadcast({
-              type: 'ROOM_STREAM_PUBLISHED',
-              peerId,
-              details: member.streamDetails
-            }, senderPeerId);
-          }
-          this.emit('streamPublished', { peerId, details: member.streamDetails, member });
-          this.emit('membersUpdated', this.getMembersList());
-          this.notifyState();
         }
+        if (this.isMaster) {
+          this.broadcast({
+            type: 'ROOM_STREAM_PUBLISHED',
+            peerId,
+            details: member.streamDetails
+          }, senderPeerId);
+        }
+        this.emit('streamPublished', { peerId, details: member.streamDetails, member });
+        this.emit('membersUpdated', this.getMembersList());
+        this.notifyState();
         return true;
       }
 
       case 'ROOM_STREAM_UNPUBLISHED': {
         // SEGURANÇA (A03): Apenas o próprio streamer despublica sua stream, ou o Master retransmite
         const peerId = (senderPeerId === this.masterPeerId && message.peerId) ? message.peerId : senderPeerId;
-        const member = this.members.get(peerId);
-        if (member) {
+        let member = this.members.get(peerId);
+        if (!member) {
+          member = {
+            peerId,
+            name: peerId === this.masterPeerId ? 'Host' : `Amigo ${peerId.slice(-4)}`,
+            isStreaming: false,
+            streamDetails: null
+          };
+          this.members.set(peerId, member);
+        } else {
           member.isStreaming = false;
           member.streamDetails = null;
-          if (this.isMaster) {
-            this.broadcast({
-              type: 'ROOM_STREAM_UNPUBLISHED',
-              peerId
-            }, senderPeerId);
-          }
-          this.emit('streamUnpublished', { peerId, member });
-          this.emit('membersUpdated', this.getMembersList());
-          this.notifyState();
         }
+        if (this.isMaster) {
+          this.broadcast({
+            type: 'ROOM_STREAM_UNPUBLISHED',
+            peerId
+          }, senderPeerId);
+        }
+        this.emit('streamUnpublished', { peerId, member });
+        this.emit('membersUpdated', this.getMembersList());
+        this.notifyState();
         return true;
       }
 
