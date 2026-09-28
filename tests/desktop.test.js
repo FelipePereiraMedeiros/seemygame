@@ -209,5 +209,75 @@ describe('Módulo: desktop.js (Tauri v2 / Rust Integration)', () => {
         await stopNativeViewer();
         expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('stop_native_viewer');
     });
+
+    it('getAudioExclusionCandidates deve retornar lista normalizada de candidatos no desktop', async () => {
+        const { getAudioExclusionCandidates } = await import('../js/desktop.js');
+        const mockCandidates = [
+            { id: 'seemygame', label: '🎮 SeeMyGame (Ignorar Voz)', process_name: 'seemygame.exe', process_id: 1234, is_running: true },
+            { id: 'discord', label: '🎧 Discord', process_name: 'Discord.exe', process_id: 5678, is_running: true },
+            { id: 'pid:9999', label: '📱 Spotify (Spotify.exe)', process_name: 'Spotify.exe', process_id: 9999, is_running: true }
+        ];
+        window.__TAURI_INTERNALS__ = {
+            invoke: vi.fn().mockResolvedValue(mockCandidates)
+        };
+
+        const result = await getAudioExclusionCandidates();
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('list_audio_exclusion_candidates');
+        expect(result).toHaveLength(3);
+        expect(result[0]).toEqual({
+            id: 'seemygame',
+            label: '🎮 SeeMyGame (Ignorar Voz)',
+            processName: 'seemygame.exe',
+            processId: 1234,
+            isRunning: true
+        });
+        expect(result[1].processId).toBe(5678);
+    });
+
+    it('startNativeCapture e reconfigureNativeCapture devem repassar excludeApp e normalizar estado', async () => {
+        const { startNativeCapture, reconfigureNativeCapture } = await import('../js/desktop.js');
+        const mockState = {
+            state: 'live',
+            session_id: 'session-42',
+            source_id: 'capture_1_window_0',
+            audio_mode: 'system',
+            exclude_app: 'seemygame',
+            exclude_pid: 1234
+        };
+        window.__TAURI_INTERNALS__ = {
+            invoke: vi.fn().mockImplementation((cmd, args) => {
+                if (cmd === 'start_native_capture') {
+                    return Promise.resolve({ ...mockState, exclude_app: args.excludeApp });
+                }
+                if (cmd === 'reconfigure_native_capture') {
+                    return Promise.resolve({ ...mockState, exclude_app: args.excludeApp, exclude_pid: 5678 });
+                }
+                return Promise.resolve(null);
+            })
+        };
+
+        const started = await startNativeCapture({
+            sourceId: 'capture_1_window_0',
+            audioMode: 'system',
+            excludeApp: 'discord'
+        });
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('start_native_capture', expect.objectContaining({
+            sourceId: 'capture_1_window_0',
+            audioMode: 'system',
+            excludeApp: 'discord'
+        }));
+        expect(started.excludeApp).toBe('discord');
+
+        const reconfigured = await reconfigureNativeCapture({
+            sessionId: 'session-42',
+            excludeApp: 'none'
+        });
+        expect(window.__TAURI_INTERNALS__.invoke).toHaveBeenCalledWith('reconfigure_native_capture', {
+            sessionId: 'session-42',
+            excludeApp: 'none'
+        });
+        expect(reconfigured.excludeApp).toBe('none');
+        expect(reconfigured.excludePid).toBe(5678);
+    });
 });
 

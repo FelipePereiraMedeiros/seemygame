@@ -94,6 +94,8 @@ pub struct NativeCaptureState {
     pub h264_encoder: Option<String>,
     pub video_rtp_port: Option<u16>,
     pub audio_rtp_port: Option<u16>,
+    pub exclude_app: Option<String>,
+    pub exclude_pid: Option<u32>,
     pub error: Option<String>,
 }
 
@@ -403,6 +405,12 @@ pub fn get_native_capture_capabilities() -> CaptureCapabilities {
 
 #[cfg(not(test))]
 #[tauri::command]
+pub fn list_audio_exclusion_candidates() -> Vec<crate::windows_list::AudioExclusionCandidate> {
+    crate::windows_list::get_audio_exclusion_candidates()
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 pub fn get_native_capture_state() -> Result<NativeCaptureState, String> {
     let guard = active_session()
         .lock()
@@ -423,6 +431,8 @@ pub fn get_native_capture_state() -> Result<NativeCaptureState, String> {
             h264_encoder: None,
             video_rtp_port: None,
             audio_rtp_port: None,
+            exclude_app: None,
+            exclude_pid: None,
             error: None,
         }))
 }
@@ -440,12 +450,31 @@ pub fn start_native_capture(
     height: Option<u32>,
     fps: Option<u32>,
     bitrate_kbps: Option<u32>,
+    exclude_app: Option<String>,
 ) -> Result<NativeCaptureState, String> {
     let validated = resolve_capture_source(&source_id)?;
     let audio_mode = audio_mode.unwrap_or_else(|| "none".to_string());
     if !matches!(audio_mode.as_str(), "none" | "system" | "process" | "mic") {
         return Err("Modo de áudio inválido".to_string());
     }
+
+    let (exclude_app_name, exclude_pid) = match exclude_app.as_deref() {
+        Some("none") | Some("off") => (Some("none".to_string()), None),
+        Some(target) => {
+            let pid = crate::windows_list::find_process_id_by_name(target);
+            (Some(target.to_string()), pid)
+        }
+        None => {
+            if audio_mode == "system" {
+                (
+                    Some("seemygame".to_string()),
+                    crate::windows_list::find_process_id_by_name("seemygame"),
+                )
+            } else {
+                (None, None)
+            }
+        }
+    };
 
     {
         let guard = active_session()
@@ -478,6 +507,8 @@ pub fn start_native_capture(
         h264_encoder: None,
         video_rtp_port: None,
         audio_rtp_port: None,
+        exclude_app: exclude_app_name.clone(),
+        exclude_pid,
         error: None,
     };
 
@@ -533,6 +564,9 @@ pub fn start_native_capture(
     if let Some(b) = bitrate_kbps {
         config.bitrate_kbps = b.clamp(256, 50_000);
     }
+    if audio_mode == "system" {
+        config.exclude_process_id = exclude_pid;
+    }
     let mut worker = match NativeMediaWorker::start(&validated, config) {
         Ok(worker) => worker,
         Err(error) => return fail_start(&app, &starting_state, &error),
@@ -557,6 +591,8 @@ pub fn start_native_capture(
         h264_encoder: Some(worker.config.h264_encoder.as_str().to_string()),
         video_rtp_port: Some(worker.video_rtp_port),
         audio_rtp_port: worker.audio_rtp_port,
+        exclude_app: exclude_app_name,
+        exclude_pid: worker.config.exclude_process_id,
         ..starting_state
     };
     {
@@ -689,6 +725,7 @@ pub fn reconfigure_native_capture(
     height: Option<u32>,
     fps: Option<u32>,
     bitrate_kbps: Option<u32>,
+    exclude_app: Option<String>,
 ) -> Result<NativeCaptureState, String> {
     let mut guard = active_session()
         .lock()
@@ -707,6 +744,19 @@ pub fn reconfigure_native_capture(
     let video_rtp_port = current_worker.video_rtp_port;
     let audio_rtp_port = current_worker.audio_rtp_port;
     let mut new_config = current_worker.config.clone();
+
+    if let Some(target) = exclude_app.as_deref() {
+        if target.eq_ignore_ascii_case("none") || target.eq_ignore_ascii_case("off") {
+            new_config.exclude_process_id = None;
+            session.state.exclude_app = Some("none".to_string());
+            session.state.exclude_pid = None;
+        } else {
+            let pid = crate::windows_list::find_process_id_by_name(target);
+            new_config.exclude_process_id = pid;
+            session.state.exclude_app = Some(target.to_string());
+            session.state.exclude_pid = pid;
+        }
+    }
 
     if let Some(mode) = audio_mode.as_deref() {
         if matches!(mode, "none" | "system" | "process" | "mic") {
@@ -811,6 +861,8 @@ pub fn reconfigure_native_capture(
         h264_encoder: Some(new_worker.config.h264_encoder.as_str().to_string()),
         video_rtp_port: Some(video_rtp_port),
         audio_rtp_port: target_audio_rtp_port,
+        exclude_app: session.state.exclude_app.clone(),
+        exclude_pid: new_worker.config.exclude_process_id,
         error: None,
     };
 
@@ -895,6 +947,8 @@ pub fn stop_native_capture(
         h264_encoder: previous.as_ref().and_then(|s| s.state.h264_encoder.clone()),
         video_rtp_port: previous.as_ref().and_then(|s| s.state.video_rtp_port),
         audio_rtp_port: previous.as_ref().and_then(|s| s.state.audio_rtp_port),
+        exclude_app: previous.as_ref().and_then(|s| s.state.exclude_app.clone()),
+        exclude_pid: previous.as_ref().and_then(|s| s.state.exclude_pid),
         error: None,
     };
     drop(guard);

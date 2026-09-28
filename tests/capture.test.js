@@ -98,6 +98,33 @@ describe('Abstração de captura browser/native', () => {
     await provider.stop();
   });
 
+  it('encaminha excludeApp ao worker nativo via NativeCaptureProvider', async () => {
+    const invoke = vi.fn()
+      .mockResolvedValueOnce({ sessionId: 'native-exclude', state: 'live', exclude_app: 'discord' })
+      .mockResolvedValueOnce({ state: 'idle' });
+    window.__TAURI_INTERNALS__ = { invoke };
+    const provider = new NativeCaptureProvider({
+      mediaBridge: {
+        createStream: vi.fn().mockResolvedValue(new MockMediaStream([
+          new MockMediaStreamTrack('video')
+        ]))
+      }
+    });
+
+    await provider.start({
+      sourceId: 'capture_1_monitor_0',
+      audioMode: 'system',
+      excludeApp: 'discord'
+    });
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'start_native_capture', {
+      sourceId: 'capture_1_monitor_0',
+      audioMode: 'system',
+      excludeApp: 'discord'
+    });
+    await provider.stop();
+  });
+
   it('mantém estados explícitos e não faz fallback implícito do native para browser', async () => {
     const invoke = vi.fn().mockRejectedValue(new Error('backend indisponível'));
     window.__TAURI_INTERNALS__ = { invoke };

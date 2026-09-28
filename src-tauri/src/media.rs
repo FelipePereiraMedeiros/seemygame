@@ -165,6 +165,7 @@ pub struct MediaWorkerConfig {
     pub height: Option<u32>,
     pub gop_size: Option<u32>,
     pub capture_api: Option<String>,
+    pub exclude_process_id: Option<u32>,
 }
 
 impl Default for MediaWorkerConfig {
@@ -180,6 +181,7 @@ impl Default for MediaWorkerConfig {
             height: None,
             gop_size: None,
             capture_api: None,
+            exclude_process_id: None,
         }
     }
 }
@@ -244,6 +246,11 @@ impl MediaWorkerConfig {
             let api = value.trim().to_ascii_lowercase();
             if api == "dxgi" || api == "wgc" {
                 config.capture_api = Some(api);
+            }
+        }
+        if let Ok(value) = env::var("SEEMYGAME_NATIVE_EXCLUDE_PID") {
+            if let Ok(pid) = value.trim().parse::<u32>() {
+                config.exclude_process_id = Some(pid);
             }
         }
         Ok(config)
@@ -533,6 +540,10 @@ impl NativeMediaWorker {
         }
         if resolved_config.audio_mode == AudioMode::Process && source.process_id.is_none() {
             return Err("A captura de áudio da janela exige uma janela com processo (PID) válido selecionado.".to_string());
+        }
+        if resolved_config.exclude_process_id.is_some() && !capabilities.process_audio_available {
+            log::warn!("[Capture] Exclusão de processo de áudio não suportada nesta versão do Windows; ignorando");
+            resolved_config.exclude_process_id = None;
         }
         Ok((runtime, resolved_config))
     }
@@ -1162,6 +1173,11 @@ fn build_pipeline(
                 "loopback-mode=include-process-tree".to_string(),
                 format!("loopback-target-pid={pid}"),
             ]);
+        } else if let Some(exclude_pid) = config.exclude_process_id {
+            args.extend([
+                "loopback-mode=exclude-process-tree".to_string(),
+                format!("loopback-target-pid={exclude_pid}"),
+            ]);
         }
         args.extend([
             "!".to_string(),
@@ -1444,6 +1460,27 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "perfect-timestamp=true"));
         assert!(args.iter().all(|arg| arg != "hard-resync=true"));
         assert!(args.iter().any(|arg| arg == "rtph265pay"));
+    }
+
+    #[test]
+    fn builds_system_audio_pipeline_with_process_exclusion() {
+        let args = build_pipeline(
+            &source("monitor"),
+            &MediaWorkerConfig {
+                codec: VideoCodec::H264,
+                audio_mode: AudioMode::System,
+                exclude_process_id: Some(1337),
+                ..MediaWorkerConfig::default()
+            },
+            5000,
+            Some(5001),
+        )
+        .unwrap();
+        assert!(args.iter().any(|arg| arg == "wasapi2src"));
+        assert!(args
+            .iter()
+            .any(|arg| arg == "loopback-mode=exclude-process-tree"));
+        assert!(args.iter().any(|arg| arg == "loopback-target-pid=1337"));
     }
 
     #[test]

@@ -119,6 +119,8 @@ export function normalizeNativeCaptureState(state = {}) {
         audioRtpPort: state.audioRtpPort == null && state.audio_rtp_port == null
             ? null
             : Number(state.audioRtpPort ?? state.audio_rtp_port),
+        excludeApp: state.excludeApp || state.exclude_app || null,
+        excludePid: state.excludePid ?? state.exclude_pid ?? null,
         error: state.error || null
     };
 }
@@ -175,7 +177,24 @@ export async function getNativeCaptureState() {
     return normalizeNativeCaptureState(await invokeDesktopCommand('get_native_capture_state'));
 }
 
-export async function startNativeCapture({ sourceId, audioMode = 'none', videoCodec = null, h264Encoder = null, showCursor = undefined, width, height, fps, bitrateKbps } = {}) {
+export async function getAudioExclusionCandidates() {
+    if (!isDesktopApp()) return [];
+    try {
+        const candidates = await invokeDesktopCommand('list_audio_exclusion_candidates', {}, { omitArgs: true });
+        return Array.isArray(candidates) ? candidates.map(c => ({
+            id: c.id,
+            label: c.label,
+            processName: c.processName || c.process_name || '',
+            processId: c.processId ?? c.process_id ?? null,
+            isRunning: Boolean(c.isRunning ?? c.is_running)
+        })) : [];
+    } catch (err) {
+        console.warn('[Desktop] Falha ao listar candidatos a exclusão de áudio:', err);
+        return [];
+    }
+}
+
+export async function startNativeCapture({ sourceId, audioMode = 'none', videoCodec = null, h264Encoder = null, showCursor = undefined, width, height, fps, bitrateKbps, excludeApp } = {}) {
     if (!isDesktopApp()) throw new Error('Captura nativa só está disponível no app desktop');
     const args = {
         sourceId: requireSourceId(sourceId),
@@ -188,13 +207,14 @@ export async function startNativeCapture({ sourceId, audioMode = 'none', videoCo
     if (height != null) args.height = Number(height);
     if (fps != null) args.fps = Number(fps);
     if (bitrateKbps != null) args.bitrateKbps = Number(bitrateKbps);
+    if (excludeApp !== undefined && excludeApp !== null) args.excludeApp = String(excludeApp);
     const state = await invokeDesktopCommand('start_native_capture', args);
     return normalizeNativeCaptureState(state);
 }
 
 export async function reconfigureNativeCapture(options = {}) {
     if (!isDesktopApp()) return null;
-    const { sessionId, audioMode, videoCodec, h264Encoder, showCursor, width, height, fps, bitrateKbps } = options;
+    const { sessionId, audioMode, videoCodec, h264Encoder, showCursor, width, height, fps, bitrateKbps, excludeApp } = options;
     if (!sessionId) throw new Error('Sessão de captura nativa inválida para reconfiguração');
     const args = { sessionId };
     if (audioMode !== undefined) args.audioMode = String(audioMode);
@@ -205,6 +225,7 @@ export async function reconfigureNativeCapture(options = {}) {
     if (height != null) args.height = Number(height);
     if (fps != null) args.fps = Number(fps);
     if (bitrateKbps != null) args.bitrateKbps = Number(bitrateKbps);
+    if (excludeApp !== undefined && excludeApp !== null) args.excludeApp = String(excludeApp);
 
     const state = await invokeDesktopCommand('reconfigure_native_capture', args);
     return normalizeNativeCaptureState(state);

@@ -74,6 +74,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             system::set_high_priority,
             capture::get_native_capture_capabilities,
+            capture::list_audio_exclusion_candidates,
             capture::get_native_capture_state,
             capture::start_native_capture,
             capture::reconfigure_native_capture,

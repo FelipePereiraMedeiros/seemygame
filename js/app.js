@@ -51,6 +51,7 @@ import {
   getCapturableWindows,
   getCapturableSources,
   getNativeCaptureCapabilities,
+  getAudioExclusionCandidates,
   setHighPriority,
   createNativeViewerPeer,
   addNativeViewerIceCandidate,
@@ -198,6 +199,9 @@ const qualityPresetSelect = document.getElementById('quality-preset');
 const bitrateSlider = document.getElementById('bitrate-slider');
 const bitrateDisplay = document.getElementById('bitrate-display');
 const audioModeSelect = document.getElementById('audio-mode-select');
+const audioExcludeSelect = document.getElementById('audio-exclude-select');
+const desktopAudioExclusionGroup = document.getElementById('desktop-audio-exclusion-group');
+const pickerAudioExcludeSelect = document.getElementById('picker-audio-exclude-select');
 const audioTipBanner = document.getElementById('audio-tip-banner');
 const closeBannerBtn = document.getElementById('close-banner-btn');
 const viewerCountBadge = document.getElementById('viewer-count');
@@ -220,6 +224,11 @@ try {
   if (savedCursor !== null && captureCursorToggle) {
     captureCursorToggle.checked = savedCursor === 'true';
   }
+  const savedExclude = localStorage.getItem('seemygame_audio_exclude_app');
+  if (savedExclude) {
+    if (audioExcludeSelect) audioExcludeSelect.value = savedExclude;
+    if (pickerAudioExcludeSelect) pickerAudioExcludeSelect.value = savedExclude;
+  }
 } catch (e) {}
 
 export function syncH264EncoderVisibility() {
@@ -240,6 +249,11 @@ export function syncMediaControlsEnvironment() {
   const videoCodecNote = document.getElementById('video-codec-note');
   const encoderGroup = document.getElementById('h264-encoder-group') || h264EncoderGroup;
   const codecSelect = document.getElementById('video-codec-select') || videoCodecSelect;
+  const exclusionGroup = document.getElementById('desktop-audio-exclusion-group') || desktopAudioExclusionGroup;
+
+  if (exclusionGroup) {
+    exclusionGroup.style.display = (isDesktop && (audioModeSelect?.value === 'system')) ? 'block' : 'none';
+  }
 
   if (!isDesktop) {
     // 🌐 AMBIENTE WEB:
@@ -829,6 +843,134 @@ export async function syncAudioModeCapabilities() {
     processOption.text = '🎮 Áudio da Janela (Isolado da Janela)';
     processOption.title = 'Captura exclusivamente o som emitido pela janela selecionada.';
   }
+
+  await syncAudioExclusionOptions().catch(() => {});
+}
+
+export async function syncAudioExclusionOptions() {
+  const audioExcludeSelect = document.getElementById('audio-exclude-select');
+  const pickerExcludeSelect = document.getElementById('picker-audio-exclude-select');
+  const desktopAudioExclusionGroup = document.getElementById('desktop-audio-exclusion-group');
+  const pickerBar = document.getElementById('picker-audio-exclusion-bar');
+
+  if (!isDesktopApp()) {
+    if (desktopAudioExclusionGroup) desktopAudioExclusionGroup.style.display = 'none';
+    if (pickerBar) pickerBar.style.display = 'none';
+    return;
+  }
+
+  if (pickerBar) pickerBar.style.display = 'block';
+
+  if (desktopAudioExclusionGroup) {
+    const currentMode = audioModeSelect ? audioModeSelect.value : 'system';
+    desktopAudioExclusionGroup.style.display = currentMode === 'system' ? 'block' : 'none';
+  }
+
+  let candidates = [];
+  try {
+    candidates = await getAudioExclusionCandidates();
+  } catch (err) {
+    console.warn('[Desktop] Falha ao obter candidatos a exclusão de áudio:', err);
+  }
+
+  const savedPref = (() => {
+    try {
+      return localStorage.getItem('seemygame_audio_exclude_app') || 'seemygame';
+    } catch (_) {
+      return 'seemygame';
+    }
+  })();
+
+  const populateSelect = (selectEl) => {
+    if (!selectEl) return;
+    const currentVal = selectEl.value || savedPref;
+    selectEl.innerHTML = '';
+
+    // 1. SeeMyGame (recomendado)
+    const optSelf = document.createElement('option');
+    optSelf.value = 'seemygame';
+    optSelf.textContent = '🎮 SeeMyGame (Ignorar Voz da Sala / Recomendado)';
+    selectEl.appendChild(optSelf);
+
+    // 2. Discord
+    const discordCand = candidates.find(c => c.id === 'discord');
+    const optDiscord = document.createElement('option');
+    optDiscord.value = 'discord';
+    optDiscord.textContent = discordCand ? discordCand.label : '🎧 Discord (Ignorar Chamada Externa)';
+    selectEl.appendChild(optDiscord);
+
+    // 3. Outras janelas
+    candidates.forEach(c => {
+      if (c.id !== 'seemygame' && c.id !== 'discord') {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.label;
+        selectEl.appendChild(opt);
+      }
+    });
+
+    // 4. Nenhum
+    const optNone = document.createElement('option');
+    optNone.value = 'none';
+    optNone.textContent = '🌐 Nenhum (Capturar todos os sons do PC)';
+    selectEl.appendChild(optNone);
+
+    const match = Array.from(selectEl.options).some(o => o.value === currentVal);
+    selectEl.value = match ? currentVal : 'seemygame';
+  };
+
+  populateSelect(audioExcludeSelect);
+  populateSelect(pickerExcludeSelect);
+}
+
+export function getSelectedAudioExclusionApp() {
+  const pickerExcludeSelect = document.getElementById('picker-audio-exclude-select');
+  if (pickerExcludeSelect && pickerExcludeSelect.value) {
+    return pickerExcludeSelect.value;
+  }
+  const audioExcludeSelect = document.getElementById('audio-exclude-select');
+  if (audioExcludeSelect && audioExcludeSelect.value) {
+    return audioExcludeSelect.value;
+  }
+  try {
+    const saved = localStorage.getItem('seemygame_audio_exclude_app');
+    if (saved) return saved;
+  } catch (_) {}
+  return 'seemygame';
+}
+
+export function handleAudioExcludeChange(newVal) {
+  try {
+    localStorage.setItem('seemygame_audio_exclude_app', newVal);
+  } catch (_) {}
+  const audioExcludeSelect = document.getElementById('audio-exclude-select');
+  const pickerExcludeSelect = document.getElementById('picker-audio-exclude-select');
+  if (audioExcludeSelect && audioExcludeSelect.value !== newVal) {
+    audioExcludeSelect.value = newVal;
+  }
+  if (pickerExcludeSelect && pickerExcludeSelect.value !== newVal) {
+    pickerExcludeSelect.value = newVal;
+  }
+
+  if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
+    activeNativeCaptureProvider.reconfigure({ excludeApp: newVal })
+      .then(() => {
+        const label = newVal === 'seemygame'
+          ? 'SeeMyGame (Voz da Sala)'
+          : (newVal === 'discord' ? 'Discord' : (newVal === 'none' ? 'Nenhum' : newVal));
+        showToast(`🛡️ Anti-eco atualizado: ignorando sons de ${label}`, 'info', 3000);
+      })
+      .catch(err => {
+        console.warn('Falha ao atualizar aplicativo ignorado no áudio nativo:', err);
+      });
+  }
+}
+
+if (audioExcludeSelect) {
+  audioExcludeSelect.addEventListener('change', (e) => handleAudioExcludeChange(e.target.value));
+}
+if (pickerAudioExcludeSelect) {
+  pickerAudioExcludeSelect.addEventListener('change', (e) => handleAudioExcludeChange(e.target.value));
 }
 
 // Hot Swapping dinâmico de fonte de áudio ao vivo sem desconectar espectadores
@@ -840,6 +982,10 @@ if (audioModeSelect) {
     let newMode = e.target.value;
     const processOption = audioModeSelect.querySelector('option[value="process"]');
     const isLiveNative = isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId;
+    const desktopAudioExclusionGroup = document.getElementById('desktop-audio-exclusion-group');
+    if (desktopAudioExclusionGroup) {
+      desktopAudioExclusionGroup.style.display = (isDesktopApp() && newMode === 'system') ? 'block' : 'none';
+    }
 
     if (newMode === 'process') {
       if (processOption && processOption.disabled) {
@@ -3700,6 +3846,7 @@ export async function startLocalStream(options = {}) {
       const chosenCodec = videoCodecSelect ? videoCodecSelect.value : (options.videoCodec || null);
       const chosenEncoder = h264EncoderSelect ? h264EncoderSelect.value : (options.h264Encoder || null);
       const chosenCursor = captureCursorToggle ? captureCursorToggle.checked : (options.showCursor !== false);
+      const chosenExcludeApp = options.excludeApp || getSelectedAudioExclusionApp();
       const result = await nativeProvider.start({
         sourceId: options.sourceId,
         sourceType: options.sourceType || 'window',
@@ -3710,7 +3857,8 @@ export async function startLocalStream(options = {}) {
         width: selectedProfile.width,
         height: selectedProfile.height,
         fps: selectedProfile.fps || 60,
-        bitrateKbps: Math.round(customBitrateBps / 1000) || 8000
+        bitrateKbps: Math.round(customBitrateBps / 1000) || 8000,
+        excludeApp: chosenExcludeApp
       });
       capturedDisplayStream = result.stream;
       activeNativeCaptureProvider = nativeProvider;
@@ -4005,6 +4153,8 @@ export async function initDesktopSupport() {
     if (!desktopWindowsList) return;
     desktopWindowsList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 20px;">🔍 Buscando jogos e janelas ativas no Windows...</div>';
 
+    await syncAudioExclusionOptions().catch(() => {});
+
     const pickerNativeStatus = document.getElementById('picker-native-status');
     try {
       const caps = await getNativeCaptureCapabilities();
@@ -4052,7 +4202,7 @@ export async function initDesktopSupport() {
         `;
         item.addEventListener('click', () => {
           if (desktopPickerModal) desktopPickerModal.style.display = 'none';
-          startLocalStream({ sourceId: mon.sourceId || mon.id, sourceType: 'monitor' });
+          startLocalStream({ sourceId: mon.sourceId || mon.id, sourceType: 'monitor', excludeApp: getSelectedAudioExclusionApp() });
         });
         desktopWindowsList.appendChild(item);
       });
@@ -4078,7 +4228,7 @@ export async function initDesktopSupport() {
         `;
         item.addEventListener('click', () => {
           if (desktopPickerModal) desktopPickerModal.style.display = 'none';
-          startLocalStream({ sourceId: win.sourceId || win.id, sourceType: 'window' });
+          startLocalStream({ sourceId: win.sourceId || win.id, sourceType: 'window', excludeApp: getSelectedAudioExclusionApp() });
         });
         desktopWindowsList.appendChild(item);
       });
@@ -4103,11 +4253,11 @@ export async function initDesktopSupport() {
         if (!sources || sources.length === 0) sources = await getCapturableWindows().catch(() => []);
         const mon = sources?.find(s => s.sourceType === 'monitor' || s.source_type === 'monitor');
         if (mon) {
-          startLocalStream({ sourceId: mon.sourceId || mon.id, sourceType: 'monitor' });
+          startLocalStream({ sourceId: mon.sourceId || mon.id, sourceType: 'monitor', excludeApp: getSelectedAudioExclusionApp() });
           return;
         }
       } catch (_) {}
-      startLocalStream();
+      startLocalStream({ excludeApp: getSelectedAudioExclusionApp() });
     });
   }
 
