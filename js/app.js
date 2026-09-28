@@ -1796,10 +1796,12 @@ export function handleIncomingP2PMessage(data, sourceConn) {
   const msgId = data.msgId || data.message?.id;
   if (msgId && isDuplicateMessage(msgId)) return;
 
+  const shouldRelay = !isRoomMode() && connectedViewers.size > 0;
+
   if (data.type === 'CHAT_MESSAGE') {
     if (data.message) {
       chatManager.addMessage(data.message);
-      if (connectedViewers.size > 0) {
+      if (shouldRelay) {
         broadcastDataMessage(data, sourceConn?.peer);
       }
     }
@@ -1812,7 +1814,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
       isMuted: data.isMuted,
       isDeafened: data.isDeafened,
     });
-    if (connectedViewers.size > 0) {
+    if (shouldRelay) {
       broadcastDataMessage(data, sourceConn?.peer);
     }
     return;
@@ -1843,7 +1845,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
         setupVoiceMediaCall(call, data.peerId);
       }
     }
-    if (connectedViewers.size > 0) {
+    if (shouldRelay) {
       broadcastDataMessage(data, sourceConn?.peer);
     }
     return;
@@ -1852,7 +1854,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
   if (data.type === 'TACTICAL_PING') {
     if (data.ping) {
       tacticalPingManager.addPing(data.ping);
-      if (connectedViewers.size > 0) {
+      if (shouldRelay) {
         broadcastDataMessage(data, sourceConn?.peer);
       }
     }
@@ -1862,7 +1864,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
   if (data.type === 'TACTICAL_LASER') {
     if (data.point) {
       tacticalPingManager.addLaserPoint(data.point);
-      if (connectedViewers.size > 0) {
+      if (shouldRelay) {
         broadcastDataMessage(data, sourceConn?.peer);
       }
     }
@@ -1875,7 +1877,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
       xPercent: data.xPercent,
       senderName: data.senderName
     });
-    if (connectedViewers.size > 0) {
+    if (shouldRelay) {
       broadcastDataMessage(data, sourceConn?.peer);
     }
     return;
@@ -1884,7 +1886,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
   if (data.type === 'SOUNDBOARD_PLAY') {
     soundboardManager.playSound(data.soundId);
     showToast(`🔊 ${data.senderName || 'Alguém'} tocou um som no soundboard!`, 'info', 2500);
-    if (connectedViewers.size > 0) {
+    if (shouldRelay) {
       broadcastDataMessage(data, sourceConn?.peer);
     }
     return;
@@ -1906,7 +1908,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
     }
     const effectLabel = data.effectName ? ` (${data.effectName})` : '';
     showToast(`🎙️ ${data.senderName || 'Alguém'} disparou um áudio meme${effectLabel}!`, 'info', 3000);
-    if (connectedViewers.size > 0) {
+    if (shouldRelay) {
       broadcastDataMessage(data, sourceConn?.peer);
     }
     return;
@@ -1916,7 +1918,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
     const exists = whiteboardManager.elements.some(el => el.id === data.element?.id);
     if (!exists && data.element) {
       whiteboardManager.addElement(data.element, false);
-      if (!isRoomMode() && connectedViewers.size > 0) {
+      if (shouldRelay) {
         broadcastDataMessage(data, sourceConn?.peer);
       }
     }
@@ -1927,7 +1929,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
     const exists = whiteboardManager.elements.some(el => el.id === data.elementId);
     if (exists) {
       whiteboardManager.removeElement(data.elementId, false);
-      if (!isRoomMode() && connectedViewers.size > 0) {
+      if (shouldRelay) {
         broadcastDataMessage(data, sourceConn?.peer);
       }
     }
@@ -1937,7 +1939,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
   if (data.type === 'WHITEBOARD_CLEAR') {
     if (whiteboardManager.elements.length > 0) {
       whiteboardManager.clear(false);
-      if (!isRoomMode() && connectedViewers.size > 0) {
+      if (shouldRelay) {
         broadcastDataMessage(data, sourceConn?.peer);
       }
     }
@@ -1951,7 +1953,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
       userName: data.userName,
       color: data.color
     });
-    if (!isRoomMode() && connectedViewers.size > 0) {
+    if (shouldRelay) {
       broadcastDataMessage(data, sourceConn?.peer);
     }
     return;
@@ -2419,8 +2421,17 @@ export function setupIncomingDataConnection(conn) {
                 watchFriend(m.peerId);
               }
               if (roomManager.members.has(m.peerId) && !connectedViewers.has(m.peerId) && !watchingHosts.has(m.peerId)) {
-                const peerConn = peer.connect(m.peerId, { reliable: true });
-                setupIncomingDataConnection(peerConn);
+                if (m.peerId !== roomManager.masterPeerId && !roomManager.meshConnections.has(m.peerId) && !roomManager.pendingConnections.has(m.peerId)) {
+                  if (myId < m.peerId) {
+                    const peerConn = peer.connect(m.peerId, { reliable: true });
+                    setupIncomingDataConnection(peerConn);
+                    peerConn.on('open', () => {
+                      try {
+                        peerConn.send({ type: 'ROOM_MEMBER_AUTH', roomId: roomManager.roomId, roomKey: roomManager.roomKey });
+                      } catch (_) {}
+                    });
+                  }
+                }
               }
               if (voiceManager && voiceManager.isInVoice && voiceManager.localStream && !activeVoiceCalls.has(m.peerId) && peer && !peer.destroyed) {
                 const call = peer.call(m.peerId, voiceManager.localStream, {
@@ -2508,6 +2519,10 @@ export function setupIncomingDataConnection(conn) {
     }
 
     if (data.type === 'STREAM_STOPPED') {
+      if (isRoomMode()) {
+        disconnectHost(conn.peer);
+        return;
+      }
       if (watchingHosts.has(conn.peer)) {
         showToast('O amigo pausou a transmissão.', 'info');
         setCardStreamPaused(conn.peer, true, 'Transmissão pausada pelo streamer.');
@@ -3449,6 +3464,10 @@ export function watchFriend(rawTargetId) {
         updateCardStatus(targetId, 'Sincronizando stream em tempo real...');
       }
     } else if (data.type === 'STREAM_STOPPED') {
+      if (isRoomMode()) {
+        disconnectHost(targetId);
+        return;
+      }
       showToast('O amigo pausou a transmissão.', 'info');
       setCardStreamPaused(targetId, true, 'Transmissão pausada pelo streamer.');
       const directPc = directViewerPeerConnections.get(targetId);
