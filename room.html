@@ -481,6 +481,24 @@
         </div>
 
         <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label for="clip-buffer-duration-select" style="font-size: 12.5px; color: var(--text-muted); margin: 0;">⏱️ Tempo do Buffer de Clipes (Replay Instantâneo):</label>
+            <span id="clip-buffer-duration-val" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan);">30s</span>
+          </div>
+          <select id="clip-buffer-duration-select" class="custom-id-field">
+            <option value="15">15 segundos (Buffer rápido)</option>
+            <option value="30" selected>30 segundos (Padrão)</option>
+            <option value="60">1 minuto (60s)</option>
+            <option value="120">2 minutos (120s)</option>
+            <option value="300">5 minutos (300s)</option>
+            <option value="0">Full / Toda a Sessão (Gravar tudo sem corte)</option>
+          </select>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4;">
+            Tempo da transmissão retido em memória local para download e memes ao acionar o botão Gravar Clip.
+          </div>
+        </div>
+
+        <div>
           <label for="coop-mode-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Modo Co-op na Sala:</label>
           <select id="coop-mode-select" class="custom-id-field">
             <option value="enabled_4p" selected>Ativado: 4 Players (Host P1 + até 3 amigos nos controles P2, P3, P4)</option>
@@ -588,6 +606,17 @@
           <span>🎬</span> <span id="clip-post-title">Clip Gravado! (30s)</span>
         </div>
         <div class="clip-header-right">
+          <div class="clip-duration-config-pill" title="Configurar tempo de gravação do buffer de replay">
+            <label for="clip-modal-duration-select">⏱️ Buffer:</label>
+            <select id="clip-modal-duration-select" class="clip-duration-select">
+              <option value="15">15s</option>
+              <option value="30" selected>30s</option>
+              <option value="60">1 min</option>
+              <option value="120">2 min</option>
+              <option value="300">5 min</option>
+              <option value="0">Full</option>
+            </select>
+          </div>
           <span class="clip-format-badge">WebM HD</span>
           <button id="clip-post-close-btn" class="drawer-close-btn" title="Fechar modal" aria-label="Fechar modal">✕</button>
         </div>
@@ -601,7 +630,7 @@
         <div class="clip-video-info">
           <div class="clip-video-meta">
             <span class="clip-meta-title">📹 <strong>Vídeo Original Completo</strong></span>
-            <span class="clip-meta-sub">Últimos 30 segundos da transmissão capturados em alta fluidez</span>
+            <span id="clip-meta-sub" class="clip-meta-sub">Últimos 30 segundos da transmissão capturados em alta fluidez</span>
           </div>
           <button id="clip-download-video-btn" class="btn-primary clip-download-main-btn" title="Baixar arquivo de vídeo completo (.webm)">
             <span>📥</span> Baixar Vídeo (.webm)
@@ -642,7 +671,8 @@
             <button type="button" class="btn-preset-quick" data-preset-range="first3">Primeiros 3s</button>
             <button type="button" class="btn-preset-quick" data-preset-range="last3">Últimos 3s</button>
             <button type="button" class="btn-preset-quick" data-preset-range="last5">Últimos 5s</button>
-            <button type="button" class="btn-preset-quick" data-preset-range="all">Áudio Todo</button>
+            <button type="button" class="btn-preset-quick" data-preset-range="last10">Últimos 10s</button>
+            <button type="button" class="btn-preset-quick" data-preset-range="all">Áudio Todo (Full)</button>
           </div>
         </div>
 
@@ -661,6 +691,9 @@
           </button>
           <button id="clip-download-wav-btn" class="btn-primary" title="Baixar arquivo de áudio WAV para WhatsApp, Discord ou Soundboard">
             <span>💾</span> Baixar Áudio (.wav)
+          </button>
+          <button id="clip-save-soundboard-btn" class="btn-secondary clip-save-soundboard-btn" title="Salvar este meme diretamente no Soundboard do SeeMyGame">
+            <span>⭐</span> Salvar no Soundboard
           </button>
           <button id="clip-broadcast-voice-btn" class="btn-accent" title="Transmitir áudio meme instantaneamente para a sala de voz dos amigos">
             <span>🔊</span> Tocar na Sala de Voz

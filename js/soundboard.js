@@ -3,6 +3,8 @@
  * Sintetizador gamer via Web Audio API, sem arquivos externos e sincronizado via WebRTC.
  */
 
+export const SOUNDBOARD_STORAGE_KEY = 'seemygame_custom_sounds';
+
 export const SOUNDBOARD_PRESETS = [
   { id: 'victory', name: '🎺 Vitória', icon: '🎺' },
   { id: 'hitmark', name: '🎯 Headshot', icon: '🎯' },
@@ -12,11 +14,130 @@ export const SOUNDBOARD_PRESETS = [
   { id: 'gg', name: '👏 GG', icon: '👏' }
 ];
 
+export function base64ToArrayBuffer(base64) {
+  if (!base64) return new ArrayBuffer(0);
+  const clean = base64.includes(',') ? base64.split(',')[1] : base64;
+  if (typeof atob === 'function') {
+    const binary = atob(clean);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+  if (typeof Buffer !== 'undefined') {
+    const buf = Buffer.from(clean, 'base64');
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  }
+  return new ArrayBuffer(0);
+}
+
 export class SoundboardManager {
   constructor(options = {}) {
     this.audioContext = null;
     this.cooldownMs = options.cooldownMs || 1200;
     this.lastTriggerTime = 0;
+    this.changeListeners = new Set();
+    this.customSounds = this._loadCustomSounds();
+  }
+
+  _loadCustomSounds() {
+    if (typeof window === 'undefined' || !window.localStorage) return [];
+    try {
+      const data = window.localStorage.getItem(SOUNDBOARD_STORAGE_KEY);
+      if (!data) return [];
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.warn('[Soundboard] Erro ao carregar sons customizados:', e);
+      return [];
+    }
+  }
+
+  _saveCustomSounds() {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      window.localStorage.setItem(SOUNDBOARD_STORAGE_KEY, JSON.stringify(this.customSounds));
+    } catch (e) {
+      console.warn('[Soundboard] Erro ao salvar sons customizados no localStorage:', e);
+    }
+  }
+
+  getCustomSounds() {
+    return [...this.customSounds];
+  }
+
+  addCustomSound({ name, audioBase64, icon = '🎙️', duration = 0 }) {
+    if (!audioBase64) throw new Error('audioBase64 é obrigatório para salvar o som no Soundboard');
+    const safeName = (name && String(name).trim()) || 'Meme Custom';
+    const id = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const newSound = {
+      id,
+      name: safeName,
+      icon: icon || '🎙️',
+      audioBase64,
+      duration: Math.max(0, Number(duration) || 0),
+      createdAt: Date.now()
+    };
+    this.customSounds.unshift(newSound);
+    if (this.customSounds.length > 40) {
+      this.customSounds = this.customSounds.slice(0, 40);
+    }
+    this._saveCustomSounds();
+    this._notifyChange();
+    return newSound;
+  }
+
+  deleteCustomSound(soundId) {
+    const prevLen = this.customSounds.length;
+    this.customSounds = this.customSounds.filter(s => s.id !== soundId);
+    if (this.customSounds.length !== prevLen) {
+      this._saveCustomSounds();
+      this._notifyChange();
+      return true;
+    }
+    return false;
+  }
+
+  onChange(callback) {
+    if (typeof callback === 'function') {
+      this.changeListeners.add(callback);
+      return () => this.changeListeners.delete(callback);
+    }
+    return () => {};
+  }
+
+  _notifyChange() {
+    this.changeListeners.forEach(cb => {
+      try { cb(this.getCustomSounds()); } catch (_) {}
+    });
+  }
+
+  async playCustomSound(soundIdOrObject) {
+    const sound = typeof soundIdOrObject === 'string'
+      ? this.customSounds.find(s => s.id === soundIdOrObject)
+      : soundIdOrObject;
+    if (!sound || !sound.audioBase64) return false;
+
+    const ctx = this._getAudioContext();
+    if (!ctx) return false;
+
+    try {
+      const arrayBuf = base64ToArrayBuffer(sound.audioBase64);
+      if (typeof ctx.decodeAudioData !== 'function') return false;
+      const audioBuffer = await ctx.decodeAudioData(arrayBuf);
+      if (!audioBuffer) return false;
+      if (typeof ctx.createBufferSource === 'function') {
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(ctx.destination);
+        source.start(0);
+      }
+      return true;
+    } catch (err) {
+      console.warn('[Soundboard] Erro ao reproduzir som customizado:', err);
+      return false;
+    }
   }
 
   _getAudioContext() {
@@ -46,6 +167,15 @@ export class SoundboardManager {
    * @param {string} soundId
    */
   playSound(soundId) {
+    if (typeof soundId === 'string' && soundId.startsWith('custom_')) {
+      const sound = this.customSounds.find(s => s.id === soundId);
+      if (sound) {
+        this.playCustomSound(sound);
+        return true;
+      }
+      return false;
+    }
+
     const ctx = this._getAudioContext();
     if (!ctx) return false;
 

@@ -5,7 +5,7 @@
 
 export class ClipRecorder {
   constructor(options = {}) {
-    this.maxDurationSeconds = options.maxDurationSeconds || 30;
+    this.maxDurationSeconds = options.maxDurationSeconds !== undefined ? Number(options.maxDurationSeconds) : 30;
     this.timesliceMs = Number(options.timesliceMs) || 3000;
     this.chunks = []; // Array de { blob, timestamp }
     this.initializationChunk = null;
@@ -297,8 +297,10 @@ export class ClipRecorder {
 
         this.chunks.sort((a, b) => a.timestamp - b.timestamp || a.sequence - b.sequence);
 
-        const cutoff = now - (this.maxDurationSeconds * 1000);
-        this.chunks = this.chunks.filter((item) => item === this.initializationChunk || item.timestamp >= cutoff);
+        if (this.maxDurationSeconds && this.maxDurationSeconds > 0) {
+          const cutoff = now - (this.maxDurationSeconds * 1000);
+          this.chunks = this.chunks.filter((item) => item === this.initializationChunk || item.timestamp >= cutoff);
+        }
       }
     };
 
@@ -427,14 +429,15 @@ export class ClipRecorder {
 
     const orderedChunks = [...this.chunks].sort((a, b) => a.timestamp - b.timestamp || (a.sequence || 0) - (b.sequence || 0));
     const actualMimeType = this.mediaRecorder?.mimeType || this.mimeType || 'video/webm';
-    const cutoff = Date.now() - (this.maxDurationSeconds * 1000);
+    const hasCutoff = this.maxDurationSeconds && this.maxDurationSeconds > 0;
+    const cutoff = hasCutoff ? Date.now() - (this.maxDurationSeconds * 1000) : 0;
 
     // MediaRecorder's first WebM chunk contains both the EBML/track header
     // and the first Cluster. Keeping that whole chunk forever resurrects old
     // frames in a long-running replay. Removing the obsolete Cluster must be
     // asynchronous because Blob bytes are only available through
     // arrayBuffer() in the browser.
-    const staleInitializationChunk = this.initializationChunk &&
+    const staleInitializationChunk = hasCutoff && this.initializationChunk &&
       this.initializationChunk.timestamp < cutoff && actualMimeType.includes('webm');
     if (staleInitializationChunk) {
       return this._exportWithoutStaleInitializationCluster(
@@ -599,10 +602,46 @@ export class ClipRecorder {
  */
 export class ClipRecorderRegistry {
   constructor(options = {}) {
-    this.options = options;
+    let savedDuration = 30;
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const item = window.localStorage.getItem('seemygame_clip_duration');
+        if (item !== null) {
+          const parsed = Number(item);
+          if (!isNaN(parsed) && parsed >= 0) savedDuration = parsed;
+        }
+      } catch (_) {}
+    }
+    this.options = { maxDurationSeconds: savedDuration, ...options };
     this.recorders = new Map();
     this.activeSourceId = null;
     this._compatRecordingOverride = null;
+  }
+
+  setMaxDurationSeconds(seconds) {
+    const parsed = Number(seconds);
+    const val = isNaN(parsed) || parsed < 0 ? 30 : parsed;
+    this.options = { ...this.options, maxDurationSeconds: val };
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem('seemygame_clip_duration', String(val));
+      } catch (_) {}
+    }
+    for (const recorder of this.recorders.values()) {
+      if (recorder) {
+        recorder.maxDurationSeconds = val;
+        if (val > 0) {
+          const now = Date.now();
+          const cutoff = now - (val * 1000);
+          recorder.chunks = recorder.chunks.filter((item) => item === recorder.initializationChunk || item.timestamp >= cutoff);
+        }
+      }
+    }
+    return val;
+  }
+
+  getMaxDurationSeconds() {
+    return this.options?.maxDurationSeconds !== undefined ? this.options.maxDurationSeconds : 30;
   }
 
   _normalizeSourceId(sourceId = 'default') {

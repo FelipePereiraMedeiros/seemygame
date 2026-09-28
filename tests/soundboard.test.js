@@ -71,4 +71,46 @@ describe('Módulo: soundboard.js (SoundboardManager)', () => {
   it('playSound() deve retornar false se id de som for desconhecido', () => {
     expect(manager.playSound('non-existent')).toBe(false);
   });
+
+  it('deve adicionar, listar e persistir sons customizados no localStorage', () => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.clear();
+    }
+
+    const mgr = new SoundboardManager();
+    const changeSpy = vi.fn();
+    mgr.onChange(changeSpy);
+
+    const sound = mgr.addCustomSound({
+      name: 'Meme Esquilo',
+      audioBase64: 'UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=',
+      icon: '🐿️',
+      duration: 2.5
+    });
+
+    expect(sound.id).toMatch(/^custom_/);
+    expect(sound.name).toBe('Meme Esquilo');
+    expect(sound.icon).toBe('🐿️');
+    expect(sound.duration).toBe(2.5);
+    expect(changeSpy).toHaveBeenCalled();
+
+    const list = mgr.getCustomSounds();
+    expect(list.length).toBe(1);
+    expect(list[0].id).toBe(sound.id);
+
+    // Instancia novo manager para checar persistência a partir do localStorage
+    const mgr2 = new SoundboardManager();
+    expect(mgr2.getCustomSounds().length).toBe(1);
+    expect(mgr2.getCustomSounds()[0].name).toBe('Meme Esquilo');
+
+    // Toca o som customizado
+    mgr2.playCustomSound = vi.fn().mockResolvedValue(true);
+    expect(mgr2.playSound(sound.id)).toBe(true);
+    expect(mgr2.playCustomSound).toHaveBeenCalled();
+
+    // Deleta o som
+    const deleted = mgr2.deleteCustomSound(sound.id);
+    expect(deleted).toBe(true);
+    expect(mgr2.getCustomSounds().length).toBe(0);
+  });
 });

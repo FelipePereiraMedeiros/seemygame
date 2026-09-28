@@ -4,7 +4,7 @@
 
 import { chatManager } from './chat.js';
 import { voiceManager } from './voice.js';
-import { SOUNDBOARD_PRESETS } from './soundboard.js';
+import { SOUNDBOARD_PRESETS, soundboardManager } from './soundboard.js';
 
 export const EMOJI_REACTION_PRESETS = [
   { emoji: '🔥', name: 'Hype', desc: 'Jogada de mestre' },
@@ -23,6 +23,7 @@ export class DiscordUIController {
     onJoinVoice,
     onLeaveVoice,
     onPlaySound,
+    onPlayCustomSound,
     onSendReaction,
     onToggleMic,
     onToggleDeaf,
@@ -35,6 +36,9 @@ export class DiscordUIController {
     this.onJoinVoice = onJoinVoice || (() => {});
     this.onLeaveVoice = onLeaveVoice || (() => {});
     this.onPlaySound = onPlaySound || (() => {});
+    this.onPlayCustomSound = onPlayCustomSound || ((sound) => {
+      this.onPlaySound(sound.id);
+    });
     this.onSendReaction = onSendReaction || (() => {});
     this.onToggleMic = onToggleMic || (() => {});
     this.onToggleDeaf = onToggleDeaf || (() => {});
@@ -124,6 +128,9 @@ export class DiscordUIController {
     this.initSoundboard();
     this.initEmojis();
     this.initStageDockAutoHide();
+    soundboardManager.onChange(() => {
+      this.initSoundboard();
+    });
   }
 
   bindEvents() {
@@ -392,6 +399,14 @@ export class DiscordUIController {
     const grid = this.elements.soundboardGrid;
     if (!grid) return;
     grid.innerHTML = '';
+
+    // Seção 1: Presets Gamer Sintetizados
+    const presetSection = document.createElement('div');
+    presetSection.className = 'soundboard-section';
+    presetSection.innerHTML = `<div class="soundboard-section-title"><span>🔊</span> Sons Gamer Rápidos</div>`;
+    const presetGrid = document.createElement('div');
+    presetGrid.className = 'soundboard-grid';
+
     SOUNDBOARD_PRESETS.forEach((preset) => {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -404,8 +419,71 @@ export class DiscordUIController {
       btn.addEventListener('click', () => {
         this.onPlaySound(preset.id);
       });
-      grid.appendChild(btn);
+      presetGrid.appendChild(btn);
     });
+    presetSection.appendChild(presetGrid);
+    grid.appendChild(presetSection);
+
+    // Seção 2: Memes Customizados Salvos no SeeMyGame
+    const customSection = document.createElement('div');
+    customSection.className = 'soundboard-section soundboard-custom-section';
+    const customSounds = soundboardManager.getCustomSounds();
+
+    customSection.innerHTML = `
+      <div class="soundboard-section-title">
+        <span>⭐</span> Meus Memes Salvos (${customSounds.length})
+      </div>
+    `;
+
+    if (customSounds.length === 0) {
+      const emptyHint = document.createElement('div');
+      emptyHint.className = 'soundboard-empty-hint';
+      emptyHint.innerHTML = `
+        <span>💡</span> Grave um clipe na sala e clique em <strong>"⭐ Salvar no Soundboard"</strong> para guardar seus memes aqui!
+      `;
+      customSection.appendChild(emptyHint);
+    } else {
+      const customGrid = document.createElement('div');
+      customGrid.className = 'soundboard-grid soundboard-custom-grid';
+
+      customSounds.forEach((sound) => {
+        const item = document.createElement('div');
+        item.className = 'soundboard-custom-item';
+
+        const durText = sound.duration ? `${sound.duration.toFixed(1)}s` : '';
+        item.innerHTML = `
+          <button type="button" class="soundboard-btn soundboard-custom-btn" data-sound-id="${sound.id}" title="Tocar ${sound.name} na sala de voz">
+            <span class="sound-emoji">${sound.icon || '🎙️'}</span>
+            <span class="sound-name">${sound.name}</span>
+            ${durText ? `<span class="sound-duration-tag">${durText}</span>` : ''}
+          </button>
+          <button type="button" class="soundboard-delete-btn" data-sound-id="${sound.id}" title="Excluir este meme">✕</button>
+        `;
+
+        const playBtn = item.querySelector('.soundboard-custom-btn');
+        if (playBtn) {
+          playBtn.addEventListener('click', () => {
+            this.onPlayCustomSound(sound);
+          });
+        }
+
+        const deleteBtn = item.querySelector('.soundboard-delete-btn');
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const shouldDelete = typeof confirm === 'function' ? confirm(`Excluir o som "${sound.name}" do Soundboard?`) : true;
+            if (shouldDelete) {
+              soundboardManager.deleteCustomSound(sound.id);
+            }
+          });
+        }
+
+        customGrid.appendChild(item);
+      });
+      customSection.appendChild(customGrid);
+    }
+
+    grid.appendChild(customSection);
   }
 
   initEmojis() {

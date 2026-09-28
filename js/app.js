@@ -210,6 +210,22 @@ const videoCodecSelect = document.getElementById('video-codec-select');
 const h264EncoderSelect = document.getElementById('h264-encoder-select');
 const h264EncoderGroup = document.getElementById('h264-encoder-group');
 const captureCursorToggle = document.getElementById('capture-cursor-toggle');
+const clipBufferDurationSelect = document.getElementById('clip-buffer-duration-select');
+const clipBufferDurationVal = document.getElementById('clip-buffer-duration-val');
+
+export function syncClipDurationUI(seconds) {
+  const num = Number(seconds);
+  const valStr = String(isNaN(num) || num < 0 ? 30 : num);
+  const displayLabel = num === 0 ? 'Full (Toda a Sessão)' : `${num}s`;
+
+  const bufferSelect = document.getElementById('clip-buffer-duration-select') || clipBufferDurationSelect;
+  const bufferVal = document.getElementById('clip-buffer-duration-val') || clipBufferDurationVal;
+  const modalSelect = document.getElementById('clip-modal-duration-select');
+
+  if (bufferSelect) bufferSelect.value = valStr;
+  if (bufferVal) bufferVal.textContent = displayLabel;
+  if (modalSelect) modalSelect.value = valStr;
+}
 
 try {
   const savedCodec = localStorage.getItem('seemygame_video_codec');
@@ -229,7 +245,25 @@ try {
     if (audioExcludeSelect) audioExcludeSelect.value = savedExclude;
     if (pickerAudioExcludeSelect) pickerAudioExcludeSelect.value = savedExclude;
   }
+  const savedClipDuration = localStorage.getItem('seemygame_clip_duration');
+  if (savedClipDuration !== null) {
+    const parsed = Number(savedClipDuration);
+    if (!isNaN(parsed) && parsed >= 0) {
+      clipRecorder.setMaxDurationSeconds(parsed);
+      syncClipDurationUI(parsed);
+    }
+  }
 } catch (e) {}
+
+if (clipBufferDurationSelect) {
+  clipBufferDurationSelect.addEventListener('change', () => {
+    const val = Number(clipBufferDurationSelect.value);
+    clipRecorder.setMaxDurationSeconds(val);
+    syncClipDurationUI(val);
+    const label = val === 0 ? 'Full (Toda a Sessão)' : `${val}s`;
+    showToast(`⏱️ Buffer de gravação alterado para ${label}`, 'info');
+  });
+}
 
 export function syncH264EncoderVisibility() {
   const encoderGroup = document.getElementById('h264-encoder-group') || h264EncoderGroup;
@@ -2318,6 +2352,21 @@ export function initDiscordFeatures() {
         showToast('Aguarde um instante antes de disparar outro som.', 'info');
         return;
       }
+      if (typeof soundId === 'string' && soundId.startsWith('custom_')) {
+        const sound = soundboardManager.getCustomSounds().find(s => s.id === soundId);
+        if (sound) {
+          soundboardManager.playCustomSound(sound);
+          const senderName = getLocalUserDisplayName();
+          broadcastDataMessage({
+            type: 'SOUNDBOARD_PLAY_CUSTOM',
+            soundId: sound.id,
+            effectName: sound.name,
+            audioBase64: sound.audioBase64,
+            senderName
+          });
+          return;
+        }
+      }
       soundboardManager.playSound(soundId);
       const senderName = getLocalUserDisplayName();
       broadcastDataMessage({
@@ -2325,6 +2374,22 @@ export function initDiscordFeatures() {
         soundId,
         senderName
       });
+    },
+    onPlayCustomSound: (sound) => {
+      if (!soundboardManager.canPlay()) {
+        showToast('Aguarde um instante antes de disparar outro som.', 'info');
+        return;
+      }
+      soundboardManager.playCustomSound(sound);
+      const senderName = getLocalUserDisplayName();
+      broadcastDataMessage({
+        type: 'SOUNDBOARD_PLAY_CUSTOM',
+        soundId: sound.id,
+        effectName: sound.name,
+        audioBase64: sound.audioBase64,
+        senderName
+      });
+      showToast(`🎙️ Você tocou o meme "${sound.name}"!`, 'info', 2000);
     },
     onSendReaction: (emoji) => {
       if (!floatingReactionsManager.canSend()) return;
@@ -4816,6 +4881,9 @@ export async function openClipPostModal(clipBlob) {
   const closeBtn = document.getElementById('clip-post-close-btn');
   const downloadVideoBtn = document.getElementById('clip-download-video-btn');
   const statusPill = document.getElementById('clip-audio-status');
+  const titleEl = document.getElementById('clip-post-title');
+  const metaSubEl = document.getElementById('clip-meta-sub');
+  const clipModalDurSelect = document.getElementById('clip-modal-duration-select');
   const startSlider = document.getElementById('clip-trim-start-slider');
   const endSlider = document.getElementById('clip-trim-end-slider');
   const startVal = document.getElementById('clip-trim-start-val');
@@ -4824,10 +4892,23 @@ export async function openClipPostModal(clipBlob) {
   const effectsGrid = document.getElementById('clip-effects-grid');
   const previewBtn = document.getElementById('clip-preview-audio-btn');
   const downloadWavBtn = document.getElementById('clip-download-wav-btn');
+  const saveSoundboardBtn = document.getElementById('clip-save-soundboard-btn');
   const broadcastVoiceBtn = document.getElementById('clip-broadcast-voice-btn');
 
   if (closeBtn) {
     closeBtn.onclick = () => closeClipPostModal();
+  }
+
+  // Sincroniza seletor de duração do buffer no cabeçalho do modal
+  if (clipModalDurSelect) {
+    clipModalDurSelect.value = String(clipRecorder.getMaxDurationSeconds());
+    clipModalDurSelect.onchange = () => {
+      const newSec = Number(clipModalDurSelect.value);
+      clipRecorder.setMaxDurationSeconds(newSec);
+      syncClipDurationUI(newSec);
+      const label = newSec === 0 ? 'Full (Toda a Sessão)' : `${newSec}s`;
+      showToast(`⏱️ Buffer de gravação alterado para ${label}`, 'info');
+    };
   }
 
   // Seção 1: Download do Vídeo Original
@@ -4885,7 +4966,7 @@ export async function openClipPostModal(clipBlob) {
     let end = parseFloat(endSlider?.value) || 3;
     if (start >= end) {
       start = Math.max(0, end - 0.2);
-      if (startSlider) startSlider.value = start;
+      if (startSlider) startSlider.value = start.toFixed(1);
     }
     const dur = Math.max(0.1, end - start);
     if (startVal) startVal.textContent = `${start.toFixed(1)}s`;
@@ -4896,7 +4977,7 @@ export async function openClipPostModal(clipBlob) {
   if (startSlider) startSlider.oninput = updateTrimLabels;
   if (endSlider) endSlider.oninput = updateTrimLabels;
 
-  // Botões de atalho rápido (presets de range)
+  // Botões de atalho rápido (presets de range dinâmicos)
   const presetBtns = modal.querySelectorAll('.btn-preset-quick');
   presetBtns.forEach(btn => {
     btn.onclick = () => {
@@ -4904,16 +4985,19 @@ export async function openClipPostModal(clipBlob) {
       const type = btn.dataset.presetRange;
       if (type === 'first3') {
         if (startSlider) startSlider.value = 0;
-        if (endSlider) endSlider.value = Math.min(3, maxDur);
+        if (endSlider) endSlider.value = Math.min(3, maxDur).toFixed(1);
       } else if (type === 'last3') {
-        if (startSlider) startSlider.value = Math.max(0, maxDur - 3);
-        if (endSlider) endSlider.value = maxDur;
+        if (startSlider) startSlider.value = Math.max(0, maxDur - 3).toFixed(1);
+        if (endSlider) endSlider.value = maxDur.toFixed(1);
       } else if (type === 'last5') {
-        if (startSlider) startSlider.value = Math.max(0, maxDur - 5);
-        if (endSlider) endSlider.value = maxDur;
+        if (startSlider) startSlider.value = Math.max(0, maxDur - 5).toFixed(1);
+        if (endSlider) endSlider.value = maxDur.toFixed(1);
+      } else if (type === 'last10') {
+        if (startSlider) startSlider.value = Math.max(0, maxDur - 10).toFixed(1);
+        if (endSlider) endSlider.value = maxDur.toFixed(1);
       } else if (type === 'all') {
         if (startSlider) startSlider.value = 0;
-        if (endSlider) endSlider.value = maxDur;
+        if (endSlider) endSlider.value = maxDur.toFixed(1);
       }
       updateTrimLabels();
     };
@@ -4935,16 +5019,33 @@ export async function openClipPostModal(clipBlob) {
 
   if (activeAudioBuffer) {
     const totalDuration = activeAudioBuffer.duration || (activeAudioBuffer.length / activeAudioBuffer.sampleRate);
+    const formatDur = (sec) => {
+      if (!sec || isNaN(sec)) return '30s';
+      if (sec >= 60) {
+        const m = Math.floor(sec / 60);
+        const s = Math.round(sec % 60);
+        return s > 0 ? `${m}m ${s}s` : `${m}m`;
+      }
+      return `${Math.round(sec)}s`;
+    };
+    const durLabel = formatDur(totalDuration);
+    if (titleEl) titleEl.textContent = `Clip Gravado! (${durLabel})`;
+    if (metaSubEl) metaSubEl.textContent = `Últimos ${durLabel} da transmissão capturados em alta fluidez`;
+
     if (statusPill) {
       statusPill.textContent = '✓ Pronto para recortar';
       statusPill.classList.add('ready');
     }
     if (startSlider) {
+      startSlider.min = '0';
       startSlider.max = totalDuration.toFixed(1);
-      startSlider.value = Math.max(0, totalDuration - 3.0).toFixed(1);
+      startSlider.step = totalDuration > 60 ? '0.5' : '0.1';
+      startSlider.value = Math.max(0, totalDuration - Math.min(5.0, totalDuration)).toFixed(1);
     }
     if (endSlider) {
+      endSlider.min = '0';
       endSlider.max = totalDuration.toFixed(1);
+      endSlider.step = totalDuration > 60 ? '0.5' : '0.1';
       endSlider.value = totalDuration.toFixed(1);
     }
     updateTrimLabels();
@@ -5035,6 +5136,48 @@ export async function openClipPostModal(clipBlob) {
       } finally {
         downloadWavBtn.disabled = false;
         downloadWavBtn.innerHTML = prevText;
+      }
+    };
+  }
+
+  // Salvar no Soundboard do SeeMyGame
+  if (saveSoundboardBtn) {
+    saveSoundboardBtn.onclick = async () => {
+      if (!activeAudioBuffer) {
+        showToast('Nenhuma trilha de áudio disponível para salvar no soundboard.', 'warning');
+        return;
+      }
+
+      const prevText = saveSoundboardBtn.innerHTML;
+      saveSoundboardBtn.disabled = true;
+      saveSoundboardBtn.innerHTML = '<span>⏳</span> Salvando...';
+      try {
+        const startSec = parseFloat(startSlider?.value) || 0;
+        const endSec = parseFloat(endSlider?.value) || activeAudioBuffer.duration;
+        const trimmed = trimAudioBuffer(activeAudioBuffer, startSec, endSec, audioCtx);
+        const processed = await applyMemeEffect(trimmed, activeEffectId, audioCtx);
+        const wavBlob = audioBufferToWavBlob(processed);
+        const base64 = await wavBlobToBase64(wavBlob);
+
+        const effectObj = AUDIO_MEME_EFFECTS.find(e => e.id === activeEffectId);
+        const defaultName = effectObj && effectObj.id !== 'none' ? `Meme ${effectObj.name}` : 'Meme Clip';
+        const promptName = typeof prompt === 'function' ? prompt('Dê um nome para este meme no Soundboard do SeeMyGame:', defaultName) : defaultName;
+        const finalName = (promptName && promptName.trim()) || defaultName;
+
+        const savedSound = soundboardManager.addCustomSound({
+          name: finalName,
+          audioBase64: base64,
+          icon: effectObj?.icon || '🎙️',
+          duration: processed.duration
+        });
+
+        showToast(`⭐ Som "${savedSound.name}" salvo no Soundboard do SeeMyGame!`, 'success', 3500);
+      } catch (err) {
+        console.error('Erro ao salvar no soundboard:', err);
+        showToast('Erro ao salvar áudio no Soundboard.', 'error');
+      } finally {
+        saveSoundboardBtn.disabled = false;
+        saveSoundboardBtn.innerHTML = prevText;
       }
     };
   }

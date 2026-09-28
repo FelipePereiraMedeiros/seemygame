@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ClipRecorder } from '../js/clipping.js';
+import { ClipRecorder, ClipRecorderRegistry } from '../js/clipping.js';
 
 class MockMediaRecorder {
   constructor(stream, options) {
@@ -173,6 +173,45 @@ describe('Módulo: clipping.js (ClipRecorder)', () => {
     expect(clipBytes.slice(0, 6)).toEqual(new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02]));
     expect(clipBytes.slice(6, 10)).toEqual(new Uint8Array(clusterMarker));
     expect(clipBytes.slice(10)).toEqual(new Uint8Array([0x88, 0x77, 0x66]));
+  });
+
+  it('deve manter todos os chunks quando maxDurationSeconds for 0 (Full / Toda a Sessão)', () => {
+    const recorder = new ClipRecorder({ maxDurationSeconds: 0 });
+    const mockStream = { id: 'test-full-stream', getTracks: () => [] };
+    recorder.start(mockStream);
+
+    const instance = MockMediaRecorder.lastInstance;
+    const now = Date.now();
+
+    // Injeta chunks antigos (de 10 minutos atrás)
+    recorder.chunks.push({ blob: new Blob(['chunk-10min']), timestamp: now - 600000 });
+    recorder.chunks.push({ blob: new Blob(['chunk-5min']), timestamp: now - 300000 });
+
+    instance.emitData(new Blob(['new-chunk']));
+
+    // Nenhum chunk deve ser descartado pois maxDurationSeconds é 0 (Full)
+    expect(recorder.chunks.length).toBe(3);
+  });
+
+  it('ClipRecorderRegistry deve permitir alterar maxDurationSeconds dinamicamente', () => {
+    const registry = new ClipRecorderRegistry({ maxDurationSeconds: 30 });
+    expect(registry.getMaxDurationSeconds()).toBe(30);
+
+    const mockStream = { id: 'stream-1', getTracks: () => [] };
+    registry.start(mockStream, 'cam1');
+
+    const rec = registry.getRecorder('cam1');
+    expect(rec.maxDurationSeconds).toBe(30);
+
+    // Altera para 60 segundos
+    registry.setMaxDurationSeconds(60);
+    expect(registry.getMaxDurationSeconds()).toBe(60);
+    expect(rec.maxDurationSeconds).toBe(60);
+
+    // Altera para 0 (Full)
+    registry.setMaxDurationSeconds(0);
+    expect(registry.getMaxDurationSeconds()).toBe(0);
+    expect(rec.maxDurationSeconds).toBe(0);
   });
 });
 
