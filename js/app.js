@@ -87,7 +87,7 @@ import {
   base64ToWavBlob,
   playAudioBuffer
 } from './audio-meme.js';
-import { whiteboardManager, WHITEBOARD_TOOLS, WHITEBOARD_COLORS, getPeerCursorColor } from './whiteboard.js';
+import { whiteboardManager, WHITEBOARD_TOOLS, WHITEBOARD_COLORS, getPeerCursorColor, processImageFile } from './whiteboard.js';
 if (typeof window !== 'undefined') {
   window.whiteboardManager = whiteboardManager;
 }
@@ -1911,6 +1911,16 @@ export function handleIncomingP2PMessage(data, sourceConn) {
     const exists = whiteboardManager.elements.some(el => el.id === data.element?.id);
     if (!exists && data.element) {
       whiteboardManager.addElement(data.element, false);
+      if (shouldRelay) {
+        broadcastDataMessage(data, sourceConn?.peer);
+      }
+    }
+    return;
+  }
+
+  if (data.type === 'WHITEBOARD_ELEMENT_UPDATE') {
+    if (data.element) {
+      whiteboardManager.updateElement(data.element, false);
       if (shouldRelay) {
         broadcastDataMessage(data, sourceConn?.peer);
       }
@@ -4900,6 +4910,9 @@ export function initWhiteboard() {
   whiteboardManager.onElementCreated = (element) => {
     broadcastDataMessage({ type: 'WHITEBOARD_ELEMENT_ADD', element });
   };
+  whiteboardManager.onElementUpdated = (element) => {
+    broadcastDataMessage({ type: 'WHITEBOARD_ELEMENT_UPDATE', element });
+  };
   whiteboardManager.onElementDeleted = (element) => {
     broadcastDataMessage({ type: 'WHITEBOARD_ELEMENT_DELETE', elementId: element.id });
   };
@@ -4992,11 +5005,43 @@ export function initWhiteboard() {
   const toolBtns = modal.querySelectorAll('.wb-tool-btn');
   toolBtns.forEach(btn => {
     btn.onclick = () => {
+      const tool = btn.dataset.tool;
+      if (tool === 'image') {
+        const imageInput = document.getElementById('wb-image-input');
+        if (imageInput) imageInput.click();
+        return;
+      }
       toolBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      whiteboardManager.setTool(btn.dataset.tool);
+      whiteboardManager.setTool(tool);
     };
   });
+
+  // Notificação de ferramenta alterada (ex: após colar imagem ativa select)
+  whiteboardManager.onToolChanged = (toolId) => {
+    toolBtns.forEach(b => b.classList.toggle('active', b.dataset.tool === toolId));
+  };
+
+  // Upload de Imagem via input de arquivo
+  const imageInput = document.getElementById('wb-image-input');
+  if (imageInput) {
+    imageInput.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        try {
+          const dataUrl = await processImageFile(file);
+          if (dataUrl) {
+            await whiteboardManager.addImageFromDataUrl(dataUrl);
+            showToast('🖼️ Imagem inserida na lousa!', 'success');
+          }
+        } catch (err) {
+          console.error('Erro ao processar imagem:', err);
+          showToast('Erro ao carregar imagem na lousa.', 'error');
+        }
+        imageInput.value = '';
+      }
+    };
+  }
 
   // Paleta de Cores
   const colorDots = modal.querySelectorAll('.wb-color-dot');
@@ -5134,6 +5179,69 @@ export function initWhiteboard() {
     };
   }
 
+  // Suporte a arrastar e soltar (drag & drop) arquivos de imagem na lousa
+  const handleWbDragOver = (e) => {
+    if (modal.style.display !== 'flex') return;
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleWbDrop = async (e) => {
+    if (modal.style.display !== 'flex') return;
+    e.preventDefault();
+
+    const files = Array.from(e.dataTransfer?.files || []);
+    const imgFile = files.find(f => f.type && f.type.startsWith('image/'));
+    if (!imgFile) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1)));
+    const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / (rect.height || 1)));
+    const dropX = Math.round(normX * 1920);
+    const dropY = Math.round(normY * 1080);
+
+    try {
+      const dataUrl = await processImageFile(imgFile);
+      if (dataUrl) {
+        await whiteboardManager.addImageFromDataUrl(dataUrl, dropX, dropY);
+        showToast('🖼️ Imagem inserida na lousa!', 'success');
+      }
+    } catch (err) {
+      console.error('Erro ao soltar imagem na lousa:', err);
+      showToast('Erro ao carregar imagem solta na lousa.', 'error');
+    }
+  };
+
+  modal.addEventListener('dragover', handleWbDragOver);
+  modal.addEventListener('drop', handleWbDrop);
+
+  // Suporte a colar imagem da área de transferência (Ctrl+V)
+  window.addEventListener('paste', async (e) => {
+    if (modal.style.display !== 'flex') return;
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItem = items.find(item => item.type && item.type.startsWith('image/'));
+    if (imageItem) {
+      e.preventDefault();
+      const file = imageItem.getAsFile();
+      if (file) {
+        try {
+          const dataUrl = await processImageFile(file);
+          if (dataUrl) {
+            await whiteboardManager.addImageFromDataUrl(dataUrl);
+            showToast('🖼️ Imagem colada na lousa!', 'success');
+          }
+        } catch (err) {
+          console.error('Erro ao colar imagem na lousa:', err);
+          showToast('Erro ao processar imagem colada.', 'error');
+        }
+      }
+    }
+  });
+
   // Atalhos de Teclado
   window.addEventListener('keydown', (e) => {
     if (modal.style.display !== 'flex') return;
@@ -5142,6 +5250,16 @@ export function initWhiteboard() {
     if (e.key === 'Escape') {
       closeWhiteboard();
       return;
+    }
+
+    // Excluir elemento selecionado (Delete ou Backspace)
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (whiteboardManager.selectedElementId) {
+        e.preventDefault();
+        whiteboardManager.deleteSelected();
+        showToast('🗑️ Objeto removido da lousa', 'info', 1500);
+        return;
+      }
     }
 
     if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
@@ -5160,7 +5278,17 @@ export function initWhiteboard() {
       return;
     }
 
+    const key = e.key.toLowerCase();
+    if (key === 'i') {
+      e.preventDefault();
+      const imgInput = document.getElementById('wb-image-input');
+      if (imgInput) imgInput.click();
+      return;
+    }
+
     const toolMap = {
+      v: 'select',
+      s: 'select',
       p: 'pencil',
       r: 'rectangle',
       d: 'diamond',
@@ -5170,7 +5298,6 @@ export function initWhiteboard() {
       t: 'text',
       e: 'eraser'
     };
-    const key = e.key.toLowerCase();
     if (toolMap[key]) {
       whiteboardManager.setTool(toolMap[key]);
       toolBtns.forEach(b => {

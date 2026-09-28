@@ -1,10 +1,12 @@
 /**
  * SeeMyGame - Módulo de Lousa Branca Interativa Colaborativa (Estilo Excalidraw)
  * Suporta desenho livre e formas geométricas com estilo rascunho (hand-drawn),
+ * arrastar/mover objetos desenhados, colar imagens (clipboard / drag & drop),
  * desfazer/refazer, dot grid, modo overlay sobre o jogo e sincronização P2P via WebRTC.
  */
 
 export const WHITEBOARD_TOOLS = [
+  { id: 'select', name: 'Mover / Selecionar', icon: '👆', shortcut: 'V' },
   { id: 'pencil', name: 'Caneta Livre', icon: '✏️', shortcut: 'P' },
   { id: 'rectangle', name: 'Retângulo', icon: '⬜', shortcut: 'R' },
   { id: 'diamond', name: 'Losango', icon: '💎', shortcut: 'D' },
@@ -12,6 +14,7 @@ export const WHITEBOARD_TOOLS = [
   { id: 'arrow', name: 'Flecha', icon: '➡️', shortcut: 'A' },
   { id: 'line', name: 'Linha Reta', icon: '📏', shortcut: 'L' },
   { id: 'text', name: 'Texto', icon: '🔤', shortcut: 'T' },
+  { id: 'image', name: 'Inserir Imagem', icon: '🖼️', shortcut: 'I' },
   { id: 'eraser', name: 'Borracha', icon: '🧼', shortcut: 'E' },
 ];
 
@@ -107,13 +110,15 @@ export const MAX_WHITEBOARD_TEXT_LENGTH = 500;
 export const WHITEBOARD_REF_WIDTH = 1920;
 export const WHITEBOARD_REF_HEIGHT = 1080;
 
-const WHITEBOARD_ELEMENT_TYPES = new Set(WHITEBOARD_TOOLS.map((tool) => tool.id).filter((id) => id !== 'eraser'));
+export const WHITEBOARD_ELEMENT_TYPES = new Set([
+  'pencil', 'rectangle', 'diamond', 'circle', 'arrow', 'line', 'text', 'image'
+]);
 
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function isSafeWhiteboardElement(element) {
+export function isSafeWhiteboardElement(element) {
   if (!element || typeof element !== 'object' || typeof element.id !== 'string' || element.id.length > 64) return false;
   if (!WHITEBOARD_ELEMENT_TYPES.has(element.type)) return false;
   if (element.type === 'pencil') {
@@ -123,6 +128,13 @@ function isSafeWhiteboardElement(element) {
   if (element.type === 'text') {
     return isFiniteNumber(element.x) && isFiniteNumber(element.y) &&
       typeof element.text === 'string' && element.text.length <= MAX_WHITEBOARD_TEXT_LENGTH;
+  }
+  if (element.type === 'image') {
+    return isFiniteNumber(element.startX) && isFiniteNumber(element.startY) &&
+      isFiniteNumber(element.endX) && isFiniteNumber(element.endY) &&
+      typeof element.dataUrl === 'string' &&
+      element.dataUrl.startsWith('data:image/') &&
+      element.dataUrl.length <= 2_500_000;
   }
   if (isFiniteNumber(element.x) && isFiniteNumber(element.y)) {
     if (isFiniteNumber(element.width) && isFiniteNumber(element.height)) {
@@ -138,6 +150,49 @@ function isSafeWhiteboardElement(element) {
     }
   }
   return ['startX', 'startY', 'endX', 'endY'].every((key) => isFiniteNumber(element[key]));
+}
+
+/**
+ * Processa e redimensiona um arquivo de imagem para inserção na lousa
+ * Mantém resolução ideal e gera dataURL compacta para transmissão P2P eficiente
+ */
+export async function processImageFile(file, maxWidth = 1024, maxHeight = 768) {
+  if (!file) throw new Error('Nenhum arquivo fornecido');
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.naturalWidth || 400;
+        let h = img.naturalHeight || 300;
+        if (w > maxWidth || h > maxHeight) {
+          const ratio = Math.min(maxWidth / w, maxHeight / h);
+          w = Math.max(1, Math.round(w * ratio));
+          h = Math.max(1, Math.round(h * ratio));
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(e.target.result);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, w, h);
+        const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        try {
+          const dataUrl = canvas.toDataURL(mimeType, 0.85);
+          resolve(dataUrl);
+        } catch (_) {
+          resolve(e.target.result);
+        }
+      };
+      img.onerror = () => reject(new Error('Erro ao decodificar imagem'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
+    reader.readAsDataURL(file);
+  });
 }
 
 export class WhiteboardManager {
@@ -159,8 +214,19 @@ export class WhiteboardManager {
     this.currentElement = null;
     this.remoteCursors = new Map(); // peerId -> { x, y, userName, color, time }
 
+    // Seleção e Arrastar
+    this.selectedElementId = null;
+    this.isDraggingElement = false;
+    this.dragStartPos = null;
+    this.dragInitialState = null;
+    this._dragUndoSnapshot = null;
+
+    // Cache de imagens decodificadas
+    this.imageCache = new Map();
+
     // Callbacks de eventos para mensageria P2P
     this.onElementCreated = options.onElementCreated || null;
+    this.onElementUpdated = options.onElementUpdated || null;
     this.onElementDeleted = options.onElementDeleted || null;
     this.onBoardCleared = options.onBoardCleared || null;
     this.onCursorMoved = options.onCursorMoved || null;
@@ -182,18 +248,59 @@ export class WhiteboardManager {
 
   setTool(toolId) {
     this.selectedTool = toolId;
+    if (toolId !== 'select') {
+      this.selectedElementId = null;
+      this.isDraggingElement = false;
+      if (this.canvas && this.canvas.style) this.canvas.style.cursor = toolId === 'eraser' ? 'cell' : 'crosshair';
+    } else {
+      if (this.canvas && this.canvas.style) this.canvas.style.cursor = 'default';
+    }
+    this.render();
+    if (typeof this.onToolChanged === 'function') {
+      this.onToolChanged(toolId);
+    }
   }
 
   setColor(hexColor) {
     this.currentColor = hexColor;
+    if (this.selectedElementId) {
+      const el = this.elements.find(e => e.id === this.selectedElementId);
+      if (el) {
+        el.color = hexColor;
+        this.render();
+        if (typeof this.onElementUpdated === 'function') {
+          this.onElementUpdated(el);
+        }
+      }
+    }
   }
 
   setStrokeWidth(width) {
     this.currentWidth = Number(width) || 4;
+    if (this.selectedElementId) {
+      const el = this.elements.find(e => e.id === this.selectedElementId);
+      if (el) {
+        el.strokeWidth = this.currentWidth;
+        this.render();
+        if (typeof this.onElementUpdated === 'function') {
+          this.onElementUpdated(el);
+        }
+      }
+    }
   }
 
   setFill(fillMode) {
     this.currentFill = fillMode;
+    if (this.selectedElementId) {
+      const el = this.elements.find(e => e.id === this.selectedElementId);
+      if (el && el.type !== 'pencil' && el.type !== 'line' && el.type !== 'text' && el.type !== 'image') {
+        el.fill = fillMode;
+        this.render();
+        if (typeof this.onElementUpdated === 'function') {
+          this.onElementUpdated(el);
+        }
+      }
+    }
   }
 
   setRough(isRough) {
@@ -224,6 +331,26 @@ export class WhiteboardManager {
   }
 
   /**
+   * Atualiza um elemento existente (ex: após arrasto)
+   */
+  updateElement(element, broadcast = true) {
+    if (!element || !element.id) return;
+    const idx = this.elements.findIndex(el => el.id === element.id);
+    if (idx !== -1) {
+      this.undoStack.push([...this.elements.map(e => ({ ...e }))]);
+      this.redoStack = [];
+      this.elements[idx] = element;
+      this.render();
+
+      if (broadcast && typeof this.onElementUpdated === 'function') {
+        this.onElementUpdated(element);
+      }
+    } else {
+      this.addElement(element, broadcast);
+    }
+  }
+
+  /**
    * Remove um elemento por ID
    * @param {string} elementId 
    * @param {boolean} [broadcast=true] 
@@ -234,6 +361,9 @@ export class WhiteboardManager {
       this.undoStack.push([...this.elements]);
       this.redoStack = [];
       const removed = this.elements.splice(idx, 1)[0];
+      if (this.selectedElementId === elementId) {
+        this.selectedElementId = null;
+      }
       this.render();
 
       if (broadcast && typeof this.onElementDeleted === 'function') {
@@ -242,10 +372,19 @@ export class WhiteboardManager {
     }
   }
 
+  deleteSelected() {
+    if (!this.selectedElementId) return false;
+    const id = this.selectedElementId;
+    this.selectedElementId = null;
+    this.removeElement(id, true);
+    return true;
+  }
+
   undo() {
     if (this.undoStack.length === 0) return false;
     this.redoStack.push([...this.elements]);
     this.elements = this.undoStack.pop();
+    this.selectedElementId = null;
     this.render();
     return true;
   }
@@ -254,6 +393,7 @@ export class WhiteboardManager {
     if (this.redoStack.length === 0) return false;
     this.undoStack.push([...this.elements]);
     this.elements = this.redoStack.pop();
+    this.selectedElementId = null;
     this.render();
     return true;
   }
@@ -263,6 +403,7 @@ export class WhiteboardManager {
     this.undoStack.push([...this.elements]);
     this.redoStack = [];
     this.elements = [];
+    this.selectedElementId = null;
     this.render();
 
     if (broadcast && typeof this.onBoardCleared === 'function') {
@@ -274,7 +415,59 @@ export class WhiteboardManager {
     this.elements = Array.isArray(elements)
       ? elements.filter(isSafeWhiteboardElement).slice(0, MAX_WHITEBOARD_ELEMENTS)
       : [];
+    this.selectedElementId = null;
     this.render();
+  }
+
+  /**
+   * Insere imagem a partir de uma DataURL na lousa
+   */
+  async addImageFromDataUrl(dataUrl, targetX = null, targetY = null, broadcast = true) {
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return null;
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.naturalWidth || 400;
+        let h = img.naturalHeight || 300;
+        const MAX_W = 640;
+        const MAX_H = 480;
+        if (w > MAX_W || h > MAX_H) {
+          const ratio = Math.min(MAX_W / w, MAX_H / h);
+          w = Math.max(1, Math.round(w * ratio));
+          h = Math.max(1, Math.round(h * ratio));
+        }
+
+        const posX = isFiniteNumber(targetX) ? targetX : Math.round(WHITEBOARD_REF_WIDTH / 2 - w / 2);
+        const posY = isFiniteNumber(targetY) ? targetY : Math.round(WHITEBOARD_REF_HEIGHT / 2 - h / 2);
+
+        const el = {
+          id: 'wb_' + Math.random().toString(36).substring(2, 9),
+          type: 'image',
+          x: posX,
+          y: posY,
+          width: w,
+          height: h,
+          startX: posX,
+          startY: posY,
+          endX: posX + w,
+          endY: posY + h,
+          dataUrl,
+          color: '#ffffff',
+          strokeWidth: 2
+        };
+
+        this.addElement(el, broadcast);
+        this.setTool('select');
+        this.selectedElementId = el.id;
+        this.render();
+        resolve(el);
+      };
+      img.onerror = () => {
+        console.warn('[Whiteboard] Falha ao carregar imagem para renderização');
+        resolve(null);
+      };
+      img.src = dataUrl;
+    });
   }
 
   /**
@@ -305,6 +498,85 @@ export class WhiteboardManager {
   }
 
   /**
+   * Retorna os limites (bounding box) de um elemento
+   */
+  getElementBounds(el) {
+    if (!el) return null;
+    if (el.type === 'pencil' && Array.isArray(el.points) && el.points.length > 0) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const pt of el.points) {
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+      }
+      return { minX, minY, maxX, maxY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+    }
+    if (el.type === 'text') {
+      const w = el.text ? el.text.length * 10 + 16 : 80;
+      return {
+        minX: el.x - 6,
+        minY: el.y - 6,
+        maxX: el.x + w,
+        maxY: el.y + 26,
+        width: w + 6,
+        height: 32
+      };
+    }
+    const minX = Math.min(el.startX, el.endX);
+    const maxX = Math.max(el.startX, el.endX);
+    const minY = Math.min(el.startY, el.endY);
+    const maxY = Math.max(el.startY, el.endY);
+    return {
+      minX,
+      minY,
+      maxX,
+      maxY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY)
+    };
+  }
+
+  /**
+   * Desloca as coordenadas de um elemento em relação ao estado inicial
+   */
+  translateElement(el, initial, dx, dy) {
+    if (!el || !initial) return;
+    if (el.type === 'pencil' && Array.isArray(initial.points)) {
+      el.points = initial.points.map(p => ({
+        x: Math.round((p.x + dx) * 10) / 10,
+        y: Math.round((p.y + dy) * 10) / 10
+      }));
+    } else if (el.type === 'text') {
+      el.x = Math.round((initial.x + dx) * 10) / 10;
+      el.y = Math.round((initial.y + dy) * 10) / 10;
+    } else {
+      el.startX = Math.round((initial.startX + dx) * 10) / 10;
+      el.startY = Math.round((initial.startY + dy) * 10) / 10;
+      el.endX = Math.round((initial.endX + dx) * 10) / 10;
+      el.endY = Math.round((initial.endY + dy) * 10) / 10;
+      if (el.x !== undefined && initial.x !== undefined) {
+        el.x = Math.round((initial.x + dx) * 10) / 10;
+      }
+      if (el.y !== undefined && initial.y !== undefined) {
+        el.y = Math.round((initial.y + dy) * 10) / 10;
+      }
+    }
+  }
+
+  /**
+   * Encontra o elemento superior que intersecta o ponto (x, y)
+   */
+  findElementAt(x, y) {
+    for (let i = this.elements.length - 1; i >= 0; i--) {
+      if (this.hitTest(this.elements[i], x, y, 16)) {
+        return this.elements[i];
+      }
+    }
+    return null;
+  }
+
+  /**
    * Vincula os ouvintes de eventos do mouse/touch ao canvas
    */
   attachEvents() {
@@ -327,6 +599,28 @@ export class WhiteboardManager {
     const handlePointerDown = (e) => {
       e.preventDefault();
       const pos = getCanvasPos(e);
+
+      // Ferramenta Selecionar / Mover
+      if (this.selectedTool === 'select') {
+        const target = this.findElementAt(pos.x, pos.y);
+        if (target) {
+          this.selectedElementId = target.id;
+          this.isDraggingElement = true;
+          this.dragStartPos = { x: pos.x, y: pos.y };
+          this.dragInitialState = JSON.parse(JSON.stringify(target));
+          this._dragUndoSnapshot = this.elements.map(el => JSON.parse(JSON.stringify(el)));
+          if (this.canvas && this.canvas.style) this.canvas.style.cursor = 'grabbing';
+        } else {
+          this.selectedElementId = null;
+          this.isDraggingElement = false;
+          this.dragStartPos = null;
+          this.dragInitialState = null;
+          this._dragUndoSnapshot = null;
+          if (this.canvas && this.canvas.style) this.canvas.style.cursor = 'default';
+        }
+        this.render();
+        return;
+      }
 
       if (this.selectedTool === 'eraser') {
         this.eraseAt(pos.x, pos.y);
@@ -387,6 +681,24 @@ export class WhiteboardManager {
         this.onCursorMoved({ x: pos.normX, y: pos.normY });
       }
 
+      // Ferramenta Selecionar / Mover
+      if (this.selectedTool === 'select') {
+        if (this.isDraggingElement && this.selectedElementId && this.dragInitialState) {
+          const dx = pos.x - this.dragStartPos.x;
+          const dy = pos.y - this.dragStartPos.y;
+          const el = this.elements.find(e => e.id === this.selectedElementId);
+          if (el) {
+            this.translateElement(el, this.dragInitialState, dx, dy);
+            this.render();
+          }
+          return;
+        } else if (this.canvas && this.canvas.style) {
+          const hoverEl = this.findElementAt(pos.x, pos.y);
+          this.canvas.style.cursor = hoverEl ? 'grab' : 'default';
+        }
+        return;
+      }
+
       if (!this.isDrawing) return;
 
       if (this.selectedTool === 'eraser') {
@@ -412,6 +724,32 @@ export class WhiteboardManager {
     };
 
     const handlePointerUp = (e) => {
+      // Ferramenta Selecionar / Mover
+      if (this.selectedTool === 'select' && this.isDraggingElement) {
+        this.isDraggingElement = false;
+        if (this.canvas && this.canvas.style) this.canvas.style.cursor = 'default';
+        const el = this.elements.find(e => e.id === this.selectedElementId);
+        if (el && this.dragInitialState && this._dragUndoSnapshot) {
+          const initial = this.dragInitialState;
+          const hasMoved = (el.startX !== undefined && initial.startX !== undefined && (Math.abs(el.startX - initial.startX) > 1 || Math.abs(el.startY - initial.startY) > 1)) ||
+            (el.points && initial.points && Math.abs(el.points[0]?.x - initial.points[0]?.x) > 1) ||
+            (el.x !== undefined && initial.x !== undefined && (Math.abs(el.x - initial.x) > 1 || Math.abs(el.y - initial.y) > 1));
+
+          if (hasMoved) {
+            this.undoStack.push(this._dragUndoSnapshot);
+            this.redoStack = [];
+            if (typeof this.onElementUpdated === 'function') {
+              this.onElementUpdated(el);
+            }
+          }
+        }
+        this.dragStartPos = null;
+        this.dragInitialState = null;
+        this._dragUndoSnapshot = null;
+        this.render();
+        return;
+      }
+
       if (!this.isDrawing) return;
       this.isDrawing = false;
 
@@ -469,17 +807,19 @@ export class WhiteboardManager {
   }
 
   hitTest(el, x, y, threshold = 24) {
+    if (!el) return false;
     if (el.type === 'pencil') {
-      return el.points.some(p => Math.hypot(p.x - x, p.y - y) <= threshold);
+      return el.points?.some(p => Math.hypot(p.x - x, p.y - y) <= threshold);
     }
     if (el.type === 'text') {
-      return Math.hypot(el.x - x, el.y - y) <= threshold * 2;
+      const bounds = this.getElementBounds(el);
+      return x >= bounds.minX - threshold && x <= bounds.maxX + threshold &&
+             y >= bounds.minY - threshold && y <= bounds.maxY + threshold;
     }
-    const minX = Math.min(el.startX, el.endX) - threshold;
-    const maxX = Math.max(el.startX, el.endX) + threshold;
-    const minY = Math.min(el.startY, el.endY) - threshold;
-    const maxY = Math.max(el.startY, el.endY) + threshold;
-    return x >= minX && x <= maxX && y >= minY && y <= maxY;
+    const bounds = this.getElementBounds(el);
+    if (!bounds) return false;
+    return x >= bounds.minX - threshold && x <= bounds.maxX + threshold &&
+           y >= bounds.minY - threshold && y <= bounds.maxY + threshold;
   }
 
   /**
@@ -523,10 +863,60 @@ export class WhiteboardManager {
       this.drawElement(this.ctx, this.currentElement);
     }
 
+    // 4. Renderiza caixa de seleção (bounding box) do elemento selecionado
+    if (this.selectedElementId) {
+      const selectedEl = this.elements.find(e => e.id === this.selectedElementId);
+      if (selectedEl) {
+        this.drawSelectionBox(this.ctx, selectedEl);
+      }
+    }
+
     this.ctx.restore();
 
-    // 4. Renderiza os cursores multiplayer remotos
+    // 5. Renderiza os cursores multiplayer remotos
     this.drawRemoteCursors(this.ctx, width, height);
+  }
+
+  drawSelectionBox(ctx, el) {
+    const bounds = this.getElementBounds(el);
+    if (!bounds) return;
+    const pad = 6;
+    const x = bounds.minX - pad;
+    const y = bounds.minY - pad;
+    const w = bounds.width + pad * 2;
+    const h = bounds.height + pad * 2;
+
+    ctx.save();
+    ctx.strokeStyle = '#06b6d4';
+    ctx.lineWidth = 1.5;
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([6, 4]);
+    if (typeof ctx.strokeRect === 'function') {
+      ctx.strokeRect(x, y, w, h);
+    } else {
+      ctx.stroke();
+    }
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+
+    const handleSize = 7;
+    const handles = [
+      { x: x, y: y },
+      { x: x + w, y: y },
+      { x: x + w, y: y + h },
+      { x: x, y: y + h }
+    ];
+
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#0284c7';
+    ctx.lineWidth = 1.5;
+    for (const hPos of handles) {
+      ctx.beginPath();
+      if (typeof ctx.rect === 'function') {
+        ctx.rect(hPos.x - handleSize / 2, hPos.y - handleSize / 2, handleSize, handleSize);
+      }
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   drawDotGrid(dotColor, spacing = 24) {
@@ -572,6 +962,9 @@ export class WhiteboardManager {
         break;
       case 'text':
         this.renderText(ctx, el);
+        break;
+      case 'image':
+        this.renderImage(ctx, el);
         break;
     }
     ctx.restore();
@@ -740,6 +1133,59 @@ export class WhiteboardManager {
     ctx.fillStyle = el.color || '#ffffff';
     ctx.fillText(el.text, el.x, el.y);
     ctx.restore();
+  }
+
+  renderImage(ctx, el) {
+    let img = this.imageCache.get(el.dataUrl);
+    if (!img) {
+      img = new Image();
+      img.src = el.dataUrl;
+      img.onload = () => {
+        this.render();
+      };
+      this.imageCache.set(el.dataUrl, img);
+    }
+
+    const x = Math.min(el.startX, el.endX);
+    const y = Math.min(el.startY, el.endY);
+    const w = Math.abs(el.endX - el.startX);
+    const h = Math.abs(el.endY - el.startY);
+
+    if (img.complete && (img.naturalWidth > 0 || img.width > 0)) {
+      ctx.save();
+      ctx.beginPath();
+      drawRoundedRect(ctx, x, y, w, h, 6);
+      if (typeof ctx.clip === 'function') ctx.clip();
+      try {
+        ctx.drawImage(img, x, y, w, h);
+      } catch (err) {
+        console.warn('[Whiteboard] Erro ao desenhar imagem:', err);
+      }
+      ctx.restore();
+
+      ctx.save();
+      ctx.strokeStyle = el.color || 'rgba(255, 255, 255, 0.25)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      drawRoundedRect(ctx, x, y, w, h, 6);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.6)';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      drawRoundedRect(ctx, x, y, w, h, 6);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🖼️ Carregando imagem...', x + w / 2, y + h / 2);
+      ctx.restore();
+    }
   }
 
   drawRemoteCursors(ctx, width, height) {

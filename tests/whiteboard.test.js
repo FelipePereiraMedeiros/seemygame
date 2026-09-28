@@ -8,7 +8,8 @@ import {
   isTooBrightOrWhite,
   getContrastTextColor,
   drawRoundedRect,
-  getFillAlpha
+  getFillAlpha,
+  isSafeWhiteboardElement
 } from '../js/whiteboard.js';
 
 describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
@@ -21,6 +22,11 @@ describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
     mockCtx = {
       clearRect: vi.fn(),
       fillRect: vi.fn(),
+      strokeRect: vi.fn(),
+      setLineDash: vi.fn(),
+      rect: vi.fn(),
+      clip: vi.fn(),
+      drawImage: vi.fn(),
       fillText: vi.fn(),
       measureText: vi.fn(() => ({ width: 60 })),
       beginPath: vi.fn(),
@@ -59,6 +65,7 @@ describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
     mockCanvas = {
       width: 1920,
       height: 1080,
+      style: { cursor: 'default' },
       getContext: vi.fn(() => mockCtx),
       getBoundingClientRect: vi.fn(() => ({ left: 0, top: 0, width: 960, height: 540 })),
       toDataURL: vi.fn(() => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='),
@@ -71,8 +78,9 @@ describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
 
   describe('Presets e Configurações Iniciais', () => {
     it('deve exportar lista de ferramentas essenciais com ícones e atalhos', () => {
-      expect(WHITEBOARD_TOOLS.length).toBeGreaterThanOrEqual(8);
+      expect(WHITEBOARD_TOOLS.length).toBeGreaterThanOrEqual(10);
       const ids = WHITEBOARD_TOOLS.map(t => t.id);
+      expect(ids).toContain('select');
       expect(ids).toContain('pencil');
       expect(ids).toContain('rectangle');
       expect(ids).toContain('diamond');
@@ -80,6 +88,7 @@ describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
       expect(ids).toContain('arrow');
       expect(ids).toContain('line');
       expect(ids).toContain('text');
+      expect(ids).toContain('image');
       expect(ids).toContain('eraser');
     });
 
@@ -366,6 +375,181 @@ describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
     it('exportToDataUrl deve retornar string dataURL válida', () => {
       const dataUrl = manager.exportToDataUrl();
       expect(dataUrl.startsWith('data:image/png')).toBe(true);
+    });
+  });
+
+  describe('Seleção, Movimentação e Arrastar de Objetos (Select & Drag)', () => {
+    it('findElementAt deve identificar o elemento correto sob as coordenadas', () => {
+      const rect = { id: 'rect1', type: 'rectangle', startX: 100, startY: 100, endX: 200, endY: 200 };
+      const circle = { id: 'circle1', type: 'circle', startX: 400, startY: 400, endX: 500, endY: 500 };
+      manager.addElement(rect);
+      manager.addElement(circle);
+
+      expect(manager.findElementAt(150, 150)?.id).toBe('rect1');
+      expect(manager.findElementAt(450, 450)?.id).toBe('circle1');
+      expect(manager.findElementAt(50, 50)).toBeNull();
+    });
+
+    it('translateElement deve deslocar coordenadas de retângulos, círculos e setas', () => {
+      const rect = { id: 'r', type: 'rectangle', startX: 10, startY: 20, endX: 110, endY: 120 };
+      const initial = { ...rect };
+      manager.translateElement(rect, initial, 30, 40);
+
+      expect(rect.startX).toBe(40);
+      expect(rect.startY).toBe(60);
+      expect(rect.endX).toBe(140);
+      expect(rect.endY).toBe(160);
+    });
+
+    it('translateElement deve deslocar traços livres (pencil) preservando a forma', () => {
+      const pencil = {
+        id: 'p',
+        type: 'pencil',
+        points: [{ x: 10, y: 10 }, { x: 20, y: 30 }, { x: 30, y: 50 }]
+      };
+      const initial = JSON.parse(JSON.stringify(pencil));
+      manager.translateElement(pencil, initial, 15, -5);
+
+      expect(pencil.points[0]).toEqual({ x: 25, y: 5 });
+      expect(pencil.points[1]).toEqual({ x: 35, y: 25 });
+      expect(pencil.points[2]).toEqual({ x: 45, y: 45 });
+    });
+
+    it('translateElement deve deslocar elementos de texto e imagem', () => {
+      const text = { id: 't', type: 'text', x: 100, y: 150, text: 'Olá' };
+      manager.translateElement(text, { ...text }, 25, 35);
+      expect(text.x).toBe(125);
+      expect(text.y).toBe(185);
+
+      const img = {
+        id: 'img1',
+        type: 'image',
+        x: 50,
+        y: 60,
+        startX: 50,
+        startY: 60,
+        endX: 250,
+        endY: 260,
+        dataUrl: 'data:image/png;base64,abc'
+      };
+      manager.translateElement(img, { ...img }, 50, 50);
+      expect(img.x).toBe(100);
+      expect(img.y).toBe(110);
+      expect(img.startX).toBe(100);
+      expect(img.startY).toBe(110);
+      expect(img.endX).toBe(300);
+      expect(img.endY).toBe(310);
+    });
+
+    it('updateElement deve atualizar o elemento no array e disparar onElementUpdated', () => {
+      const updatedCb = vi.fn();
+      manager.onElementUpdated = updatedCb;
+
+      const rect = { id: 'rect-up', type: 'rectangle', startX: 10, startY: 10, endX: 100, endY: 100, color: '#ffffff' };
+      manager.addElement(rect);
+
+      const modified = { ...rect, color: '#ef4444', endX: 200 };
+      manager.updateElement(modified, true);
+
+      expect(manager.elements[0].color).toBe('#ef4444');
+      expect(manager.elements[0].endX).toBe(200);
+      expect(updatedCb).toHaveBeenCalledWith(modified);
+    });
+
+    it('deleteSelected deve remover elemento selecionado e limpar selectedElementId', () => {
+      const deletedCb = vi.fn();
+      manager.onElementDeleted = deletedCb;
+
+      const rect = { id: 'rect-del', type: 'rectangle', startX: 10, startY: 10, endX: 50, endY: 50 };
+      manager.addElement(rect);
+      manager.selectedElementId = 'rect-del';
+
+      const result = manager.deleteSelected();
+      expect(result).toBe(true);
+      expect(manager.elements.length).toBe(0);
+      expect(manager.selectedElementId).toBeNull();
+      expect(deletedCb).toHaveBeenCalledWith(expect.objectContaining({ id: 'rect-del' }));
+    });
+
+    it('render com elemento selecionado deve desenhar a caixa de seleção', () => {
+      const rect = { id: 'box-sel', type: 'rectangle', startX: 100, startY: 100, endX: 200, endY: 200 };
+      manager.addElement(rect);
+      manager.selectedElementId = 'box-sel';
+
+      manager.render();
+      expect(mockCtx.strokeRect).toHaveBeenCalled();
+      expect(mockCtx.setLineDash).toHaveBeenCalled();
+    });
+  });
+
+  describe('Manipulação e Colagem de Imagens (Images & Paste)', () => {
+    it('isSafeWhiteboardElement deve validar elementos de imagem válidos', () => {
+      const safeImg = {
+        id: 'wb_img_1',
+        type: 'image',
+        startX: 100,
+        startY: 100,
+        endX: 300,
+        endY: 250,
+        x: 100,
+        y: 100,
+        width: 200,
+        height: 150,
+        dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+      };
+      expect(isSafeWhiteboardElement(safeImg)).toBe(true);
+    });
+
+    it('isSafeWhiteboardElement deve rejeitar imagem sem dataUrl válido ou com dados perigosos', () => {
+      expect(isSafeWhiteboardElement({
+        id: 'bad1',
+        type: 'image',
+        startX: 0,
+        startY: 0,
+        endX: 10,
+        endY: 10,
+        dataUrl: 'javascript:alert(1)'
+      })).toBe(false);
+
+      expect(isSafeWhiteboardElement({
+        id: 'bad2',
+        type: 'image',
+        startX: 0,
+        startY: 0,
+        endX: 10,
+        endY: 10,
+        dataUrl: 'http://malicious.site/img.png'
+      })).toBe(false);
+
+      // Rejeita payload maior que 2.5MB
+      expect(isSafeWhiteboardElement({
+        id: 'bad3',
+        type: 'image',
+        startX: 0,
+        startY: 0,
+        endX: 10,
+        endY: 10,
+        dataUrl: 'data:image/png;base64,' + 'a'.repeat(2_600_000)
+      })).toBe(false);
+    });
+
+    it('renderImage deve desenhar imagem no canvas sem lançar erro', () => {
+      const imgEl = {
+        id: 'img-render',
+        type: 'image',
+        startX: 100,
+        startY: 100,
+        endX: 300,
+        endY: 300,
+        dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+      };
+
+      // Mock image element in cache
+      const mockHtmlImage = { complete: true, naturalWidth: 200, naturalHeight: 200 };
+      manager.imageCache.set(imgEl.dataUrl, mockHtmlImage);
+
+      manager.renderImage(mockCtx, imgEl);
+      expect(mockCtx.drawImage).toHaveBeenCalledWith(mockHtmlImage, 100, 100, 200, 200);
     });
   });
 });
