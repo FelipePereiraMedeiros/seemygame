@@ -824,13 +824,10 @@ export async function syncAudioModeCapabilities() {
       if (audioModeSelect.value === 'process') audioModeSelect.value = 'system';
     }
   } else {
-    // No navegador web em Windows 10, captura de áudio por janela isolada é rejeitada pelo Chromium
-    processOption.disabled = true;
-    processOption.text = '🔒 Áudio da Janela (Indisponível na Web - Requer App Desktop Windows 11+)';
-    processOption.title = 'Navegadores web no Windows não possuem suporte do sistema operacional para isolar o áudio de uma janela de aplicativo.';
-    if (audioModeSelect.value === 'process') {
-      audioModeSelect.value = 'system';
-    }
+    // No navegador web (Chromium 141+), captura de áudio por janela isolada é suportada nativamente via windowAudio: 'window'
+    processOption.disabled = false;
+    processOption.text = '🎮 Áudio da Janela (Isolado da Janela)';
+    processOption.title = 'Captura exclusivamente o som emitido pela janela selecionada.';
   }
 }
 
@@ -862,10 +859,6 @@ if (audioModeSelect) {
           audioModeSelect.value = previousMode || 'system';
           return;
         }
-      } else {
-        showToast('⚠️ Navegadores web não suportam áudio isolado de janela no Windows. Esta opção está bloqueada.', 'warning', 5000);
-        audioModeSelect.value = previousMode || 'system';
-        return;
       }
     }
 
@@ -3642,12 +3635,6 @@ export async function startLocalStream(options = {}) {
           if (streamBtn) streamBtn.disabled = false;
           return;
         }
-      } else {
-        showToast('⚠️ Navegadores web no Windows não suportam captura isolada de áudio de janelas. Selecione "Áudio do Jogo / Sistema".', 'warning', 6000);
-        if (audioModeSelect) audioModeSelect.value = 'system';
-        isStartingStream = false;
-        if (streamBtn) streamBtn.disabled = false;
-        return;
       }
     }
     const wantSystemAudio = (effectiveAudioMode === 'system' || effectiveAudioMode === 'process');

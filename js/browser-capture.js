@@ -1,17 +1,18 @@
 /** Opções do seletor web, independentes do dispositivo de reprodução. */
-export function buildDisplayMediaOptions({ video = true, audio, audioMode = 'system', displaySurface, monitorTypeSurfaces } = {}) {
+export function buildDisplayMediaOptions({ video = true, audio, audioMode = 'system', windowAudio, displaySurface, monitorTypeSurfaces } = {}) {
   const wantsAudio = audioMode === 'system' || audioMode === 'process';
   const resolvedAudio = audio !== undefined ? audio : (wantsAudio ? true : false);
+  const resolvedWindowAudio = windowAudio !== undefined
+    ? windowAudio
+    : (wantsAudio ? 'window' : 'exclude');
+
   return {
     video: displaySurface ? { ...(typeof video === 'object' ? video : {}), displaySurface } : video,
     audio: resolvedAudio,
     systemAudio: wantsAudio ? 'include' : 'exclude',
-    // Compatibilidade com Google Meet e navegadores Chromium:
-    // Não força windowAudio: 'system' para capturas de sistema, pois o Chromium 142+ já compartilha
-    // o áudio do dispositivo (device audio) nativamente ao selecionar janelas quando systemAudio é 'include'.
-    // Forçar windowAudio: 'system' e restrições de APM de microfone (AEC/AGC/NS) causa "Could not start audio source"
-    // em dispositivos de áudio wireless / USB (ex: headsets gamer como MCHOOSE V9 PRO).
-    ...(wantsAudio ? (audioMode === 'process' ? { windowAudio: 'window' } : {}) : { windowAudio: 'exclude' }),
+    // windowAudio: 'window' ativa a captura do processo isolado (Application Audio) no Chromium.
+    // Isso evita o erro "Could not start audio source" (NotReadableError) em desktops com drivers de áudio/headsets exclusivos.
+    windowAudio: resolvedWindowAudio,
     selfBrowserSurface: 'exclude',
     surfaceSwitching: 'include',
     ...(monitorTypeSurfaces ? { monitorTypeSurfaces } : {})
