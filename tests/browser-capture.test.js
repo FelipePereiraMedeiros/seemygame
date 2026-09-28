@@ -4,21 +4,40 @@ import { buildDisplayMediaOptions, requestBrowserDisplayMedia } from '../js/brow
 afterEach(() => vi.restoreAllMocks());
 
 describe('Seletor web: áudio e falhas de captura', () => {
-  it.each(['system', 'process'])('solicita áudio em %s de forma compatível com windowAudio: window para isolamento', (audioMode) => {
-    const options = buildDisplayMediaOptions({ audioMode });
-    expect(options.audio).toBe(true);
+  it('solicita áudio de sistema com parâmetros de alta fidelidade sem APM e windowAudio system', () => {
+    const options = buildDisplayMediaOptions({ audioMode: 'system' });
+    expect(options.audio).toMatchObject({
+      autoGainControl: false,
+      echoCancellation: false,
+      noiseSuppression: false,
+      suppressLocalAudioPlayback: false,
+      restrictOwnAudio: true
+    });
+    expect(options.systemAudio).toBe('include');
+    expect(options.windowAudio).toBe('system');
+  });
+
+  it('solicita windowAudio window quando modo for process (janela isolada)', () => {
+    const options = buildDisplayMediaOptions({ audioMode: 'process' });
+    expect(options.audio).toMatchObject({
+      autoGainControl: false,
+      echoCancellation: false,
+      noiseSuppression: false,
+      suppressLocalAudioPlayback: false,
+      restrictOwnAudio: true
+    });
     expect(options.systemAudio).toBe('include');
     expect(options.windowAudio).toBe('window');
   });
 
   it('permite sobrescrever windowAudio explicitamente se fornecido', () => {
-    const options = buildDisplayMediaOptions({ audioMode: 'system', windowAudio: 'system' });
-    expect(options.windowAudio).toBe('system');
+    const options = buildDisplayMediaOptions({ audioMode: 'system', windowAudio: 'window' });
+    expect(options.windowAudio).toBe('window');
   });
 
   it('permite passar constraints de áudio customizadas quando explicitamente informadas', () => {
-    const options = buildDisplayMediaOptions({ audioMode: 'system', audio: { echoCancellation: false } });
-    expect(options.audio).toEqual({ echoCancellation: false });
+    const options = buildDisplayMediaOptions({ audioMode: 'system', audio: { echoCancellation: true } });
+    expect(options.audio).toMatchObject({ echoCancellation: true, autoGainControl: false });
   });
 
   it.each(['none', 'mic'])('não captura áudio do sistema em %s', (audioMode) => {

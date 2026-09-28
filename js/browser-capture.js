@@ -1,17 +1,37 @@
-/** Opções do seletor web, independentes do dispositivo de reprodução. */
+/** Restrições de áudio ideais para captura de jogos e som de sistema (padrão Google Meet sem APM). */
+export const DEFAULT_BROWSER_AUDIO_CONSTRAINTS = Object.freeze({
+  autoGainControl: false,
+  echoCancellation: false,
+  noiseSuppression: false,
+  suppressLocalAudioPlayback: false,
+  restrictOwnAudio: true
+});
+
+/** Opções do seletor web, alinhadas aos padrões de alta fidelidade e compatibilidade de hardware. */
 export function buildDisplayMediaOptions({ video = true, audio, audioMode = 'system', windowAudio, displaySurface, monitorTypeSurfaces } = {}) {
   const wantsAudio = audioMode === 'system' || audioMode === 'process';
-  const resolvedAudio = audio !== undefined ? audio : (wantsAudio ? true : false);
+
+  let resolvedAudio = false;
+  if (audio !== undefined) {
+    if (typeof audio === 'object' && audio !== null) {
+      resolvedAudio = { ...DEFAULT_BROWSER_AUDIO_CONSTRAINTS, ...audio };
+    } else {
+      resolvedAudio = audio ? { ...DEFAULT_BROWSER_AUDIO_CONSTRAINTS } : false;
+    }
+  } else if (wantsAudio) {
+    resolvedAudio = { ...DEFAULT_BROWSER_AUDIO_CONSTRAINTS };
+  }
+
+  // No modo 'process' (exclusivo para Janela isolada), sugerimos 'window'.
+  // No modo 'system' (jogos/tela inteira), sugerimos 'system' para máxima compatibilidade com WASAPI Loopback.
   const resolvedWindowAudio = windowAudio !== undefined
     ? windowAudio
-    : (wantsAudio ? 'window' : 'exclude');
+    : (audioMode === 'process' ? 'window' : (wantsAudio ? 'system' : 'exclude'));
 
   return {
     video: displaySurface ? { ...(typeof video === 'object' ? video : {}), displaySurface } : video,
     audio: resolvedAudio,
     systemAudio: wantsAudio ? 'include' : 'exclude',
-    // windowAudio: 'window' ativa a captura do processo isolado (Application Audio) no Chromium.
-    // Isso evita o erro "Could not start audio source" (NotReadableError) em desktops com drivers de áudio/headsets exclusivos.
     windowAudio: resolvedWindowAudio,
     selfBrowserSurface: 'exclude',
     surfaceSwitching: 'include',
@@ -26,8 +46,6 @@ export async function requestBrowserDisplayMedia(options, mediaDevices = globalT
   try {
     return await mediaDevices.getDisplayMedia(constraints);
   } catch (error) {
-    // Não reabrir o seletor com audio:false: isso oculta a opção de som e
-    // transforma um erro de captura em uma aparente limitação do dispositivo.
     console.warn('[Capture Browser] Falha no seletor (sem repetição automática):', {
       name: error?.name,
       message: error?.message,
