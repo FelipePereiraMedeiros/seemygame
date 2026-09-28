@@ -198,6 +198,30 @@ async function run() {
       console.log(`✅ ${name} possui 2/2 elementos sincronizados perfeitamente.`);
     }
 
+    // 5.5 Testar cursores multiplayer com apelido e cores vibrantes
+    console.log('[E2E] Movendo cursor do Viewer 1 para testar badge multiplayer...');
+    await pageV1.evaluate(() => {
+      const canvas = document.getElementById('whiteboard-canvas');
+      const rect = canvas.getBoundingClientRect();
+      const event = new MouseEvent('mousemove', {
+        clientX: rect.left + rect.width * 0.4,
+        clientY: rect.top + rect.height * 0.4
+      });
+      canvas.dispatchEvent(event);
+    });
+
+    console.log('[E2E] Verificando recebimento do cursor multiplayer no Host e Viewer 2...');
+    for (const [name, page] of [['Host', pageHost], ['Viewer 2', pageV2]]) {
+      await page.waitForFunction(() => {
+        const wbm = window.whiteboardManager;
+        if (!wbm || wbm.remoteCursors.size === 0) return false;
+        const cursors = Array.from(wbm.remoteCursors.values());
+        const v1Cursor = cursors.find(c => c.userName === 'Viewer1');
+        return v1Cursor && v1Cursor.color && v1Cursor.color !== '#ffffff';
+      }, { timeout: 10000 });
+      console.log(`✅ ${name} recebeu o cursor multiplayer do Viewer1 com apelido puro e cor não-branca!`);
+    }
+
     // 6. Testar retorno para a sala em todos os clientes
     console.log('[E2E] Fechando a lousa e retornando para a sala em todos os clientes...');
     await pageHost.locator('#wb-back-room-btn').click();

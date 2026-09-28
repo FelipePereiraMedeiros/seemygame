@@ -87,7 +87,7 @@ import {
   base64ToWavBlob,
   playAudioBuffer
 } from './audio-meme.js';
-import { whiteboardManager, WHITEBOARD_TOOLS, WHITEBOARD_COLORS } from './whiteboard.js';
+import { whiteboardManager, WHITEBOARD_TOOLS, WHITEBOARD_COLORS, getPeerCursorColor } from './whiteboard.js';
 if (typeof window !== 'undefined') {
   window.whiteboardManager = whiteboardManager;
 }
@@ -458,6 +458,28 @@ export function isCurrentlyStreaming() {
   const hasNativeCapture = Boolean(isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId);
   const hasRoomStreaming = Boolean(roomManager && roomManager.localStreamingState?.isStreaming);
   return hasBrowserMedia || hasNativeCapture || hasRoomStreaming;
+}
+
+export function getLocalUserDisplayName() {
+  // 1. Apelido salvo nas preferências do usuário ou modal de entrada
+  const savedName = typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_user_name') : null;
+  if (savedName && savedName.trim()) {
+    return savedName.trim().slice(0, 30);
+  }
+
+  // 2. Apelido atribuído na sala (caso o usuário tenha inserido ao entrar)
+  if (isRoomMode() && roomManager?.userName && roomManager.userName.trim()) {
+    const rName = roomManager.userName.trim();
+    if (rName !== 'Host' && !rName.startsWith('Amigo ') && rName !== 'Streamer') {
+      return rName.slice(0, 30);
+    }
+  }
+
+  // 3. Fallback amigável sem roles técnicas: "Amigo XXXX" ou "Amigo"
+  if (myId && typeof myId === 'string') {
+    return `Amigo ${myId.slice(-4)}`;
+  }
+  return 'Amigo';
 }
 
 export function isPeerAuthorizedForMedia(peerId) {
@@ -2081,8 +2103,10 @@ export function initDiscordFeatures() {
     onSendMessage: (text) => {
       const isHost = !window.location.pathname.endsWith('viewer.html');
       const coopState = getCoopState();
-      const role = isHost ? 'host' : (coopState.isPlayer2 ? 'player2' : 'viewer');
-      const senderName = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+      const role = isRoomMode() && roomManager
+        ? (roomManager.isMaster ? 'host' : 'member')
+        : (isHost ? 'host' : (coopState.isPlayer2 ? 'player2' : 'viewer'));
+      const senderName = getLocalUserDisplayName();
 
       const msg = chatManager.createMessage({
         senderId: myId,
@@ -2102,9 +2126,7 @@ export function initDiscordFeatures() {
         return;
       }
       soundboardManager.playSound(soundId);
-      const isHost = !window.location.pathname.endsWith('viewer.html');
-      const coopState = getCoopState();
-      const senderName = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+      const senderName = getLocalUserDisplayName();
       broadcastDataMessage({
         type: 'SOUNDBOARD_PLAY',
         soundId,
@@ -2113,11 +2135,7 @@ export function initDiscordFeatures() {
     },
     onSendReaction: (emoji) => {
       if (!floatingReactionsManager.canSend()) return;
-      const isHost = !window.location.pathname.endsWith('viewer.html');
-      const coopState = getCoopState();
-      const senderName = isRoomMode() && roomManager?.userName
-        ? roomManager.userName
-        : (isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : (myId ? `Amigo ${myId.slice(0, 4)}` : 'Espectador')));
+      const senderName = getLocalUserDisplayName();
       const xPercent = Math.random() * 70 + 15;
 
       floatingReactionsManager.spawnReaction({ emoji, xPercent, senderName });
@@ -4888,15 +4906,14 @@ export function initWhiteboard() {
     const now = Date.now();
     if (now - lastCursorSend > 50) {
       lastCursorSend = now;
-      const isHost = !window.location.pathname.endsWith('viewer.html');
-      const coopState = getCoopState();
-      const senderName = isHost ? 'Streamer' : (coopState.isPlayer2 ? 'Player 2' : `Amigo ${myId ? myId.slice(0, 4) : ''}`);
+      const senderName = getLocalUserDisplayName();
+      const cursorColor = getPeerCursorColor(myId || 'local');
       broadcastDataMessage({
         type: 'WHITEBOARD_CURSOR',
         x,
         y,
         userName: senderName,
-        color: whiteboardManager.currentColor
+        color: cursorColor
       });
     }
   };

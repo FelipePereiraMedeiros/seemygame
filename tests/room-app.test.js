@@ -291,4 +291,20 @@ describe('Integração Room-First no app.js (Paradigma Discord)', () => {
     expect(localStorage.getItem('seemygame_terms_accepted')).toBe('true');
     expect(termsModal.style.display).toBe('none');
   });
+
+  describe('Identificação por Apelido (Nickname) ao invés de Roles', () => {
+    it('getLocalUserDisplayName deve retornar o apelido configurado no localStorage', () => {
+      localStorage.setItem('seemygame_user_name', 'DiogoGamer');
+      expect(app.getLocalUserDisplayName()).toBe('DiogoGamer');
+    });
+
+    it('getLocalUserDisplayName não deve exibir roles técnicas como "Streamer" ou "Host"', () => {
+      localStorage.removeItem('seemygame_user_name');
+      if (app.roomManager) app.roomManager.userName = 'Host';
+      const name = app.getLocalUserDisplayName();
+      expect(name).not.toBe('Streamer');
+      expect(name).not.toBe('Host');
+      expect(name.startsWith('Amigo')).toBe(true);
+    });
+  });
 });

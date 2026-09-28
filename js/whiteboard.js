@@ -26,6 +26,74 @@ export const WHITEBOARD_COLORS = [
   '#1e1e2e', // Grafite
 ];
 
+// Paleta dedicada e determinística de cursores multiplayer (estilo Figma/Discord)
+export const CURSOR_PALETTE = [
+  '#06b6d4', // Ciano
+  '#8b5cf6', // Roxo
+  '#10b981', // Esmeralda
+  '#f59e0b', // Âmbar
+  '#ec4899', // Rosa
+  '#3b82f6', // Azul
+  '#f97316', // Laranja
+  '#14b8a6', // Teal
+  '#e11d48', // Rubi
+  '#6366f1', // Índigo
+];
+
+export function getPeerCursorColor(id) {
+  if (!id || typeof id !== 'string') return CURSOR_PALETTE[0];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  }
+  return CURSOR_PALETTE[hash % CURSOR_PALETTE.length];
+}
+
+export function isTooBrightOrWhite(hexColor) {
+  if (!hexColor || typeof hexColor !== 'string') return true;
+  let hex = hexColor.replace('#', '').trim();
+  if (hex.length === 3) {
+    hex = hex.split('').map((c) => c + c).join('');
+  }
+  if (hex.length !== 6) return false;
+  const r = parseInt(hex.slice(0, 2), 16) || 0;
+  const g = parseInt(hex.slice(2, 4), 16) || 0;
+  const b = parseInt(hex.slice(4, 6), 16) || 0;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.90; // Evita branco puro e quase-branco
+}
+
+export function getContrastTextColor(hexColor) {
+  if (!hexColor || typeof hexColor !== 'string') return '#ffffff';
+  let hex = hexColor.replace('#', '').trim();
+  if (hex.length === 3) {
+    hex = hex.split('').map((c) => c + c).join('');
+  }
+  if (hex.length !== 6) return '#ffffff';
+  const r = parseInt(hex.slice(0, 2), 16) || 0;
+  const g = parseInt(hex.slice(2, 4), 16) || 0;
+  const b = parseInt(hex.slice(4, 6), 16) || 0;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.60 ? '#0f172a' : '#ffffff';
+}
+
+export function drawRoundedRect(ctx, x, y, width, height, radius = 4) {
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, width, height, radius);
+  } else {
+    const r = Math.min(radius, width / 2, height / 2);
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+  }
+}
+
 export const MAX_WHITEBOARD_ELEMENTS = 1000;
 export const MAX_WHITEBOARD_POINTS = 2000;
 export const MAX_WHITEBOARD_TEXT_LENGTH = 500;
@@ -208,11 +276,15 @@ export class WhiteboardManager {
   updateRemoteCursor(peerId, { x, y, userName = 'Amigo', color = '#06b6d4' }) {
     if (typeof peerId !== 'string' || peerId.length > 64) return;
     if (!this.remoteCursors.has(peerId) && this.remoteCursors.size >= 64) return;
+    let safeColor = typeof color === 'string' && /^#[0-9a-f]{3,8}$/i.test(color) ? color : null;
+    if (!safeColor || isTooBrightOrWhite(safeColor)) {
+      safeColor = getPeerCursorColor(peerId);
+    }
     this.remoteCursors.set(peerId, {
       x: Math.max(0, Math.min(1, Number(x) || 0)),
       y: Math.max(0, Math.min(1, Number(y) || 0)),
-      userName: typeof userName === 'string' ? userName.slice(0, 64) : 'Amigo',
-      color: typeof color === 'string' && /^#[0-9a-f]{3,8}$/i.test(color) ? color : '#06b6d4',
+      userName: typeof userName === 'string' && userName.trim() ? userName.trim().slice(0, 64) : 'Amigo',
+      color: safeColor,
       time: Date.now()
     });
     this.render();
@@ -673,25 +745,70 @@ export class WhiteboardManager {
 
       const px = cursor.x * width;
       const py = cursor.y * height;
+      const userName = (typeof cursor.userName === 'string' && cursor.userName.trim())
+        ? cursor.userName.trim()
+        : 'Amigo';
+
+      let cursorColor = cursor.color;
+      if (!cursorColor || isTooBrightOrWhite(cursorColor)) {
+        cursorColor = getPeerCursorColor(peerId);
+      }
+      const textColor = getContrastTextColor(cursorColor);
 
       ctx.save();
-      // Ponteiro de seta do cursor
-      ctx.fillStyle = cursor.color || '#06b6d4';
+
+      // Sombra suave para destacar cursor e badge sobre qualquer fundo (escuro, claro ou sobreposição)
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 2;
+
+      // 1. Ponteiro de seta estilo Figma/Excalidraw
+      ctx.fillStyle = cursorColor;
       ctx.beginPath();
       ctx.moveTo(px, py);
-      ctx.lineTo(px + 12, py + 12);
-      ctx.lineTo(px + 4, py + 12);
-      ctx.lineTo(px, py + 18);
+      ctx.lineTo(px + 13, py + 13);
+      ctx.lineTo(px + 5, py + 13);
+      ctx.lineTo(px, py + 19);
       ctx.closePath();
       ctx.fill();
 
-      // Etiqueta com nome do jogador
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillStyle = cursor.color || '#06b6d4';
-      ctx.fillRect(px + 12, py + 8, ctx.measureText(cursor.userName).width + 8, 18);
+      // Contorno sutil no ponteiro
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(cursor.userName, px + 16, py + 21);
+      // Remove sombra para renderizar badge e texto ultra nítidos
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+
+      // 2. Badge arredondada moderna (pill) com nome legível e contraste garantido
+      ctx.font = 'bold 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      const textMetrics = ctx.measureText(userName);
+      const textWidth = (textMetrics && typeof textMetrics.width === 'number') ? textMetrics.width : 50;
+      const paddingX = 8;
+      const badgeHeight = 20;
+      const badgeWidth = textWidth + paddingX * 2;
+      const badgeX = px + 10;
+      const badgeY = py + 10;
+
+      ctx.beginPath();
+      drawRoundedRect(ctx, badgeX, badgeY, badgeWidth, badgeHeight, 5);
+      ctx.fillStyle = cursorColor;
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Texto de alto contraste garantido
+      ctx.fillStyle = textColor;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText(userName, badgeX + paddingX, badgeY + badgeHeight / 2);
+
       ctx.restore();
     }
   }

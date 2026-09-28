@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { WhiteboardManager, WHITEBOARD_TOOLS, WHITEBOARD_COLORS } from '../js/whiteboard.js';
+import {
+  WhiteboardManager,
+  WHITEBOARD_TOOLS,
+  WHITEBOARD_COLORS,
+  CURSOR_PALETTE,
+  getPeerCursorColor,
+  isTooBrightOrWhite,
+  getContrastTextColor,
+  drawRoundedRect
+} from '../js/whiteboard.js';
 
 describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
   let manager;
@@ -223,6 +232,56 @@ describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
 
       manager.removeRemoteCursor('peer-leave');
       expect(manager.remoteCursors.has('peer-leave')).toBe(false);
+    });
+
+    it('isTooBrightOrWhite deve identificar branco puro e cores quase-brancas', () => {
+      expect(isTooBrightOrWhite('#ffffff')).toBe(true);
+      expect(isTooBrightOrWhite('#fff')).toBe(true);
+      expect(isTooBrightOrWhite('#f8fafc')).toBe(true);
+      expect(isTooBrightOrWhite('#06b6d4')).toBe(false);
+      expect(isTooBrightOrWhite('#10b981')).toBe(false);
+    });
+
+    it('getContrastTextColor deve garantir contraste entre fundo da badge e texto', () => {
+      expect(getContrastTextColor('#ffffff')).toBe('#0f172a'); // Escuro no branco
+      expect(getContrastTextColor('#f59e0b')).toBe('#0f172a'); // Âmbar claro -> escuro
+      expect(getContrastTextColor('#8b5cf6')).toBe('#ffffff'); // Roxo -> claro
+      expect(getContrastTextColor('#ef4444')).toBe('#ffffff'); // Vermelho -> claro
+    });
+
+    it('updateRemoteCursor não deve permitir cor #ffffff (retângulo branco sem texto)', () => {
+      manager.updateRemoteCursor('peer-white', { x: 0.3, y: 0.3, userName: 'Diogo', color: '#ffffff' });
+      const cursor = manager.remoteCursors.get('peer-white');
+      expect(cursor.color).not.toBe('#ffffff');
+      expect(CURSOR_PALETTE).toContain(cursor.color);
+      expect(cursor.userName).toBe('Diogo');
+
+      manager.render();
+      expect(mockCtx.fillText).toHaveBeenCalledWith('Diogo', expect.any(Number), expect.any(Number));
+    });
+
+    it('getPeerCursorColor deve retornar cor determinística e vibrante por peerId', () => {
+      const c1 = getPeerCursorColor('peer-alpha');
+      const c2 = getPeerCursorColor('peer-alpha');
+      expect(c1).toBe(c2);
+      expect(CURSOR_PALETTE).toContain(c1);
+    });
+
+    it('drawRoundedRect deve funcionar tanto com ctx.roundRect nativo quanto com fallback', () => {
+      const ctxFallback = {
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        quadraticCurveTo: vi.fn(),
+      };
+      drawRoundedRect(ctxFallback, 10, 10, 100, 20, 4);
+      expect(ctxFallback.moveTo).toHaveBeenCalled();
+      expect(ctxFallback.quadraticCurveTo).toHaveBeenCalled();
+
+      const ctxNative = {
+        roundRect: vi.fn(),
+      };
+      drawRoundedRect(ctxNative, 10, 10, 100, 20, 4);
+      expect(ctxNative.roundRect).toHaveBeenCalledWith(10, 10, 100, 20, 4);
     });
   });
 
