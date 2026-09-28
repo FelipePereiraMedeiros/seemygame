@@ -60,8 +60,14 @@ const mockScript = (name) => `
 `;
 
 async function run() {
-  const server = await startServer();
-  console.log(`[E2E] Servidor local ouvindo na porta ${PORT}`);
+  const targetBase = process.argv.includes('--prod') ? 'https://seemygame.vercel.app' : null;
+  let server = null;
+  if (!targetBase) {
+    server = await startServer();
+    console.log(`[E2E] Servidor local ouvindo na porta ${PORT}`);
+  } else {
+    console.log(`[E2E] Executando teste diretamente contra o ambiente de PRODUÇÃO: ${targetBase}`);
+  }
 
   const browser = await chromium.launch({
     channel: 'chrome',
@@ -74,7 +80,7 @@ async function run() {
   });
 
   const roomId = 'audit-green-' + Math.random().toString(36).substring(2, 8);
-  const roomUrl = `http://127.0.0.1:${PORT}/room.html?room=${roomId}`;
+  const roomUrl = targetBase ? `${targetBase}/room.html?room=${roomId}` : `http://127.0.0.1:${PORT}/room.html?room=${roomId}`;
   console.log(`[E2E] URL da sala: ${roomUrl}`);
 
   try {
@@ -166,7 +172,7 @@ async function run() {
     process.exitCode = 1;
   } finally {
     await browser.close();
-    server.close();
+    if (server) server.close();
   }
 }
 
