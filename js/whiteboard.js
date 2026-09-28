@@ -94,6 +94,13 @@ export function drawRoundedRect(ctx, x, y, width, height, radius = 4) {
   }
 }
 
+export function getFillAlpha(fill) {
+  if (fill === 'semi') return 0.25;
+  if (fill === 'solid' || fill === true) return 1.0;
+  if (typeof fill === 'number') return Math.max(0, Math.min(1, fill));
+  return 1.0;
+}
+
 export const MAX_WHITEBOARD_ELEMENTS = 1000;
 export const MAX_WHITEBOARD_POINTS = 2000;
 export const MAX_WHITEBOARD_TEXT_LENGTH = 500;
@@ -623,7 +630,7 @@ export class WhiteboardManager {
     if (el.fill && el.fill !== 'none') {
       ctx.save();
       ctx.fillStyle = el.color;
-      ctx.globalAlpha = el.fill === 'semi' ? 0.25 : 0.85;
+      ctx.globalAlpha = getFillAlpha(el.fill);
       ctx.fillRect(x, y, w, h);
       ctx.restore();
     }
@@ -645,7 +652,7 @@ export class WhiteboardManager {
     if (el.fill && el.fill !== 'none') {
       ctx.save();
       ctx.fillStyle = el.color;
-      ctx.globalAlpha = el.fill === 'semi' ? 0.25 : 0.85;
+      ctx.globalAlpha = getFillAlpha(el.fill);
       ctx.beginPath();
       ctx.moveTo(top.x, top.y);
       ctx.lineTo(right.x, right.y);
@@ -671,7 +678,7 @@ export class WhiteboardManager {
     if (el.fill && el.fill !== 'none') {
       ctx.save();
       ctx.fillStyle = el.color;
-      ctx.globalAlpha = el.fill === 'semi' ? 0.25 : 0.85;
+      ctx.globalAlpha = getFillAlpha(el.fill);
       ctx.beginPath();
       ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
       ctx.fill();
