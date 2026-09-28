@@ -15,6 +15,8 @@
     .btn-orange:hover { background: #b45309; }
     .btn-green { background: #059669; }
     .btn-green:hover { background: #047857; }
+    .btn-purple { background: #7c3aed; }
+    .btn-purple:hover { background: #6d28d9; }
     .output { margin-top: 10px; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12.5px; white-space: pre-wrap; background: #020617; border: 1px solid #1e293b; }
     .success { border-color: #10b981; color: #34d399; }
     .error { border-color: #ef4444; color: #f87171; }
@@ -22,20 +24,34 @@
 </head>
 <body>
   <h1>🔍 Diagnóstico de Áudio: Tela Inteira vs Janela (MCHOOSE V9 PRO)</h1>
-  <p>Vamos isolar exatamente quais parâmetros o Google Meet usa para conseguir transmitir a Tela Inteira com som neste computador.</p>
+  <p>Testes refinados com suporte a despertar do driver de áudio (WASAPI Active Stream).</p>
 
   <h2>🖥️ SEÇÃO 1: Testes de TELA INTEIRA (Selecione "Tela Inteira" e MARQUE "Compartilhar áudio do sistema")</h2>
 
   <div class="card">
+    <h3>🔊 Teste S7: Tela Inteira COM ÁUDIO ATIVO tocando no fone (Despertar WASAPI)</h3>
+    <p>O Windows WASAPI muitas vezes recusa o loopback de sistema se o fone sem fio estiver em repouso (sem som tocando). Este botão reproduz um tom de teste suave no fone imediatamente antes de abrir o seletor para acordar o driver.</p>
+    <button class="btn-purple" onclick="runTestWithWake('ts7', { video: true, audio: true, systemAudio: 'include' })">Executar Teste S7 (Acordar Fone + Tela Inteira)</button>
+    <div id="ts7" class="output">Aguardando execução...</div>
+  </div>
+
+  <div class="card">
+    <h3>Teste S8: suppressLocalAudioPlayback: true (Padrão de Reuniões Google Meet)</h3>
+    <p>O Google Meet usa suppressLocalAudioPlayback: true para evitar eco durante reuniões.</p>
+    <button class="btn-orange" onclick="runTest('ts8', { video: true, audio: { suppressLocalAudioPlayback: true }, systemAudio: 'include' })">Executar Teste S8 (Tela Inteira)</button>
+    <div id="ts8" class="output">Aguardando execução...</div>
+  </div>
+
+  <div class="card">
     <h3>Teste S1: Padrão Google Meet (systemAudio: 'include', SEM windowAudio)</h3>
-    <p>É a configuração padrão do Chrome quando o Meet compartilha a tela inteira com som.</p>
+    <p>Configuração padrão do Chrome quando o Meet compartilha a tela inteira com som.</p>
     <button class="btn-orange" onclick="runTest('ts1', { video: true, audio: true, systemAudio: 'include' })">Executar Teste S1 (Tela Inteira)</button>
     <div id="ts1" class="output">Aguardando execução...</div>
   </div>
 
   <div class="card">
     <h3>Teste S2: Atual SeeMyGame (systemAudio: 'include', windowAudio: 'window')</h3>
-    <p>Testa se a propriedade windowAudio: 'window' (que corrigiu a Janela) interfere quando se seleciona Tela Inteira.</p>
+    <p>Testa se a propriedade windowAudio: 'window' interfere quando se seleciona Tela Inteira.</p>
     <button class="btn-orange" onclick="runTest('ts2', { video: true, audio: true, systemAudio: 'include', windowAudio: 'window' })">Executar Teste S2 (Tela Inteira)</button>
     <div id="ts2" class="output">Aguardando execução...</div>
   </div>
@@ -85,6 +101,42 @@
   </div>
 
   <script>
+    let wakeAudioCtx = null;
+    function startWakeTone() {
+      try {
+        if (!wakeAudioCtx) {
+          wakeAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (wakeAudioCtx.state === 'suspended') {
+          wakeAudioCtx.resume();
+        }
+        const osc = wakeAudioCtx.createOscillator();
+        const gain = wakeAudioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, wakeAudioCtx.currentTime);
+        gain.gain.setValueAtTime(0.05, wakeAudioCtx.currentTime); // Tom suave audível
+        osc.connect(gain);
+        gain.connect(wakeAudioCtx.destination);
+        osc.start();
+        return () => {
+          try { osc.stop(); osc.disconnect(); } catch (_) {}
+        };
+      } catch (e) {
+        console.warn('Erro ao iniciar wake tone:', e);
+        return () => {};
+      }
+    }
+
+    async function runTestWithWake(outputId, constraints) {
+      const stopTone = startWakeTone();
+      try {
+        await runTest(outputId, constraints);
+      } finally {
+        // Mantém tocando um pouquinho para manter acordado durante a inicialização
+        setTimeout(() => stopTone(), 3000);
+      }
+    }
+
     async function runTest(outputId, constraints) {
       const out = document.getElementById(outputId);
       out.className = 'output';
