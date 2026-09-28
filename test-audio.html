@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Diagnóstico de Captura de Áudio (Window Share vs MCHOOSE V9 PRO)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 30px; }
+    h1 { color: #38bdf8; font-size: 22px; }
+    p { color: #94a3b8; font-size: 14px; }
+    .card { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155; }
+    button { background: #2563eb; color: white; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; margin-right: 10px; margin-bottom: 10px; }
+    button:hover { background: #1d4ed8; }
+    .output { margin-top: 15px; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 13px; white-space: pre-wrap; background: #020617; border: 1px solid #1e293b; }
+    .success { border-color: #10b981; color: #34d399; }
+    .error { border-color: #ef4444; color: #f87171; }
+  </style>
+</head>
+<body>
+  <h1>🔍 Diagnóstico de Captura de Áudio em Janela (MCHOOSE V9 PRO)</h1>
+  <p>Instruções: Clique em cada teste abaixo e selecione a <b>Janela</b> que deseja compartilhar com a caixa de áudio marcada.</p>
+
+  <div class="card">
+    <h3>Teste 1: audio: true, systemAudio: 'include', windowAudio: 'system'</h3>
+    <p>Solicita áudio do dispositivo/sistema para a janela (padrão Google Meet Device Audio).</p>
+    <button onclick="runTest('t1', { video: true, audio: true, systemAudio: 'include', windowAudio: 'system' })">Executar Teste 1</button>
+    <div id="t1" class="output">Aguardando execução...</div>
+  </div>
+
+  <div class="card">
+    <h3>Teste 2: audio: true, systemAudio: 'include' (Sem windowAudio)</h3>
+    <p>Solicita áudio padrão sem preferência de janela explícita.</p>
+    <button onclick="runTest('t2', { video: true, audio: true, systemAudio: 'include' })">Executar Teste 2</button>
+    <div id="t2" class="output">Aguardando execução...</div>
+  </div>
+
+  <div class="card">
+    <h3>Teste 3: audio: true, systemAudio: 'include', windowAudio: 'window'</h3>
+    <p>Solicita áudio isolado do processo da janela selecionada.</p>
+    <button onclick="runTest('t3', { video: true, audio: true, systemAudio: 'include', windowAudio: 'window' })">Executar Teste 3</button>
+    <div id="t3" class="output">Aguardando execução...</div>
+  </div>
+
+  <div class="card">
+    <h3>Teste 4: audio: true puro (Vanilla)</h3>
+    <p>Restrições mínimas padrão W3C.</p>
+    <button onclick="runTest('t4', { video: true, audio: true })">Executar Teste 4</button>
+    <div id="t4" class="output">Aguardando execução...</div>
+  </div>
+
+  <div class="card">
+    <h3>Teste 5: audio com autoGainControl/echoCancellation desativados (Antigo SeeMyGame)</h3>
+    <p>Configuração anterior que continha filtros de APM rígidos.</p>
+    <button onclick="runTest('t5', { video: true, audio: { autoGainControl: false, echoCancellation: false, noiseSuppression: false }, systemAudio: 'include', windowAudio: 'system' })">Executar Teste 5</button>
+    <div id="t5" class="output">Aguardando execução...</div>
+  </div>
+
+  <div class="card">
+    <h3>🎧 Listar Dispositivos de Áudio Detectados pelo Navegador</h3>
+    <p>Mostra quais microfones e saídas de áudio o navegador enxerga neste computador.</p>
+    <button onclick="listDevices()">Listar Dispositivos</button>
+    <div id="devices-out" class="output">Clique para listar...</div>
+  </div>
+
+  <script>
+    async function runTest(outputId, constraints) {
+      const out = document.getElementById(outputId);
+      out.className = 'output';
+      out.textContent = 'Solicitando getDisplayMedia com:\\n' + JSON.stringify(constraints, null, 2) + '\\n\\nSelecione a Janela e marque a opção de áudio...';
+
+      let stream = null;
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+        const vTracks = stream.getVideoTracks();
+        const aTracks = stream.getAudioTracks();
+
+        const info = {
+          status: 'SUCESSO ✅',
+          videoTracks: vTracks.map(t => ({ id: t.id, label: t.label, enabled: t.enabled, readyState: t.readyState, settings: t.getSettings ? t.getSettings() : {} })),
+          audioTracks: aTracks.map(t => ({ id: t.id, label: t.label, enabled: t.enabled, readyState: t.readyState, settings: t.getSettings ? t.getSettings() : {} }))
+        };
+
+        out.className = 'output success';
+        out.textContent = JSON.stringify(info, null, 2);
+      } catch (err) {
+        out.className = 'output error';
+        out.textContent = 'FALHA ❌\\n' +
+          'Name: ' + err.name + '\\n' +
+          'Message: ' + err.message + '\\n' +
+          'Constraint: ' + (err.constraint || 'N/A') + '\\n' +
+          'Stack:\\n' + err.stack;
+      } finally {
+        if (stream) {
+          // Mantém stream aberto por 5 segundos para teste e depois libera
+          setTimeout(() => stream.getTracks().forEach(t => t.stop()), 5000);
+        }
+      }
+    }
+
+    async function listDevices() {
+      const out = document.getElementById('devices-out');
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        out.className = 'output success';
+        out.textContent = JSON.stringify(devices.map(d => ({
+          kind: d.kind,
+          label: d.label || '(Sem permissão / rótulo oculto)',
+          deviceId: d.deviceId,
+          groupId: d.groupId
+        })), null, 2);
+      } catch (e) {
+        out.className = 'output error';
+        out.textContent = 'Erro ao listar dispositivos: ' + e.message;
+      }
+    }
+  </script>
+</body>
+</html>
