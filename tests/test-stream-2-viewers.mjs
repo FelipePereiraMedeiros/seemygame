@@ -111,9 +111,9 @@ const mockDefaultUserScript = (color, label) => `
     ctx.arc(bx, by, 30, 0, Math.PI * 2);
     ctx.fill();
 
-    requestAnimationFrame(renderFrame);
   }
-  requestAnimationFrame(renderFrame);
+  setInterval(renderFrame, 1000 / 60);
+  renderFrame();
 
   const mockStream = canvas.captureStream(60);
   try {
@@ -217,15 +217,24 @@ async function run() {
     ]) {
       console.log(`[E2E] Verificando se ${v.name} recebe e reproduz stream...`);
       await v.page.bringToFront().catch(() => {});
-      await v.page.waitForFunction(() => {
-        const vid = document.querySelector('.video-card video');
-        if (vid) {
+
+      let isPlaying = false;
+      const startTime = Date.now();
+      while (Date.now() - startTime < 20000) {
+        isPlaying = await v.page.evaluate(() => {
+          const vid = document.querySelector('.video-card video');
+          if (!vid) return false;
           vid.muted = true;
           if (vid.paused) vid.play().catch(() => {});
           return vid.readyState >= 2 && vid.videoWidth > 0 && !vid.paused;
-        }
-        return false;
-      }, null, { polling: 250, timeout: 30000 });
+        });
+        if (isPlaying) break;
+        await new Promise(r => setTimeout(r, 500));
+      }
+
+      if (!isPlaying) {
+        throw new Error(`Timeout: ${v.name} não reproduziu o stream dentro do tempo limite.`);
+      }
       console.log(`✅ ${v.name} está reproduzindo o vídeo do Host!`);
     }
 

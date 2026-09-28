@@ -308,6 +308,10 @@ export function hideCardLoading(peerId) {
   if (statusOverlay) {
     statusOverlay.style.display = 'none';
   }
+  const loadingOverlay = document.getElementById(`loading-${peerId}`);
+  if (loadingOverlay) {
+    loadingOverlay.style.display = 'none';
+  }
 }
 
 /**
@@ -386,6 +390,8 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
           console.warn('Autoplay bloqueado na reconexão:', err);
+          existingVideo.muted = true;
+          existingVideo.play().catch(e => console.warn(e));
           if (!isLocal) {
             const unmuteOverlay = card.querySelector('.audio-unmute-overlay');
             if (unmuteOverlay) unmuteOverlay.style.display = 'flex';

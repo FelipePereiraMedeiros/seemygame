@@ -629,8 +629,14 @@
 
   <!-- Modal da Lousa Interativa Colaborativa -->
   <div id="whiteboard-modal" class="whiteboard-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="whiteboard-title">
+    <button id="wb-floating-close-btn" class="wb-floating-close-btn" title="Voltar para a Sala (Esc)" aria-label="Voltar para a Sala">
+      <span>✕</span> Voltar para a Sala
+    </button>
     <div class="whiteboard-topbar">
       <div class="whiteboard-brand">
+        <button id="wb-back-room-btn" class="wb-back-room-btn" title="Voltar para a Sala de Jogos" aria-label="Voltar para a Sala">
+          <span>⬅️</span> Voltar para a Sala
+        </button>
         <span class="whiteboard-icon">🎨</span>
         <span id="whiteboard-title" class="whiteboard-title">Lousa Colaborativa</span>
         <span id="whiteboard-sync-badge" class="whiteboard-sync-badge">P2P Sincronizado</span>
@@ -653,7 +659,7 @@
         <button id="wb-clear-btn" class="wb-action-btn" title="Limpar Lousa">🗑️</button>
         <button id="wb-export-btn" class="wb-action-btn primary" title="Baixar Imagem PNG">💾 Exportar</button>
         <button id="wb-chat-btn" class="wb-action-btn" title="Compartilhar no Chat">💬 Chat</button>
-        <button id="wb-close-btn" class="wb-close-btn" title="Fechar Lousa" aria-label="Fechar Lousa">✕</button>
+        <button id="wb-close-btn" class="wb-close-btn" title="Fechar Lousa e Voltar para a Sala (Esc)" aria-label="Fechar Lousa">✕ Fechar</button>
       </div>
     </div>
 

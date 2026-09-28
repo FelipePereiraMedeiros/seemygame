@@ -2253,25 +2253,82 @@ video {
   box-shadow: 0 0 14px rgba(139, 92, 246, 0.6);
 }
 
+.wb-back-room-btn {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  color: #fca5a5;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.wb-back-room-btn:hover {
+  background: rgba(239, 68, 68, 0.38);
+  border-color: #ef4444;
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.45);
+}
+
+.wb-floating-close-btn {
+  position: fixed;
+  top: 14px;
+  right: 18px;
+  z-index: 10003;
+  background: rgba(20, 22, 34, 0.94);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  padding: 8px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.wb-floating-close-btn:hover {
+  background: #dc2626;
+  border-color: #ef4444;
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.7);
+}
+
 .wb-close-btn {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  color: #f87171;
-  width: 32px;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  padding: 6px 12px;
   height: 32px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 14px;
-  display: flex;
+  font-size: 12px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
+  font-weight: 700;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 .wb-close-btn:hover {
-  background: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.38);
+  border-color: #ef4444;
   color: #fff;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
 }
 
 .whiteboard-stylebar {

@@ -172,6 +172,28 @@ async function run() {
     await page.waitForTimeout(400);
     console.log(`   Lousa fechada novamente: ${!(await modal.isVisible())} (esperado: true)`);
 
+    // 7. Voltar para a sala via botão destacado `#wb-back-room-btn`
+    console.log('7. Abrindo lousa e testando retorno para a sala via #wb-back-room-btn...');
+    await dockBtn.click();
+    await page.waitForTimeout(400);
+    const backRoomBtn = page.locator('#wb-back-room-btn');
+    if (!(await backRoomBtn.isVisible())) throw new Error('Botão #wb-back-room-btn não está visível!');
+    await backRoomBtn.click();
+    await page.waitForTimeout(400);
+    console.log(`   Lousa fechada via #wb-back-room-btn: ${!(await modal.isVisible())} (esperado: true)`);
+    if (await modal.isVisible()) throw new Error('Lousa falhou em fechar ao clicar em #wb-back-room-btn!');
+
+    // 8. Voltar para a sala via botão flutuante `#wb-floating-close-btn`
+    console.log('8. Abrindo lousa e testando retorno para a sala via #wb-floating-close-btn...');
+    await dockBtn.click();
+    await page.waitForTimeout(400);
+    const floatBtn = page.locator('#wb-floating-close-btn');
+    if (!(await floatBtn.isVisible())) throw new Error('Botão flutuante #wb-floating-close-btn não está visível!');
+    await floatBtn.click();
+    await page.waitForTimeout(400);
+    console.log(`   Lousa fechada via #wb-floating-close-btn: ${!(await modal.isVisible())} (esperado: true)`);
+    if (await modal.isVisible()) throw new Error('Lousa falhou em fechar ao clicar em #wb-floating-close-btn!');
+
     console.log(`\n======================================================`);
     console.log(`[E2E CENÁRIO 2] Teste da Lousa no Streamer Clássico (streamer.html)`);
     console.log(`======================================================`);

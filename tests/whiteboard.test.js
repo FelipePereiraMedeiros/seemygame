@@ -23,6 +23,7 @@ describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
       fill: vi.fn(),
       save: vi.fn(),
       restore: vi.fn(),
+      scale: vi.fn(),
       fillStyle: '#000000',
       strokeStyle: '#ffffff',
       lineWidth: 1,

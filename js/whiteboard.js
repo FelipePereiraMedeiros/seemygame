@@ -29,6 +29,8 @@ export const WHITEBOARD_COLORS = [
 export const MAX_WHITEBOARD_ELEMENTS = 1000;
 export const MAX_WHITEBOARD_POINTS = 2000;
 export const MAX_WHITEBOARD_TEXT_LENGTH = 500;
+export const WHITEBOARD_REF_WIDTH = 1920;
+export const WHITEBOARD_REF_HEIGHT = 1080;
 
 const WHITEBOARD_ELEMENT_TYPES = new Set(WHITEBOARD_TOOLS.map((tool) => tool.id).filter((id) => id !== 'eraser'));
 
@@ -46,6 +48,19 @@ function isSafeWhiteboardElement(element) {
   if (element.type === 'text') {
     return isFiniteNumber(element.x) && isFiniteNumber(element.y) &&
       typeof element.text === 'string' && element.text.length <= MAX_WHITEBOARD_TEXT_LENGTH;
+  }
+  if (isFiniteNumber(element.x) && isFiniteNumber(element.y)) {
+    if (isFiniteNumber(element.width) && isFiniteNumber(element.height)) {
+      if (!isFiniteNumber(element.startX)) element.startX = element.x;
+      if (!isFiniteNumber(element.startY)) element.startY = element.y;
+      if (!isFiniteNumber(element.endX)) element.endX = element.x + element.width;
+      if (!isFiniteNumber(element.endY)) element.endY = element.y + element.height;
+    } else if (isFiniteNumber(element.radius)) {
+      if (!isFiniteNumber(element.startX)) element.startX = element.x - element.radius;
+      if (!isFiniteNumber(element.startY)) element.startY = element.y - element.radius;
+      if (!isFiniteNumber(element.endX)) element.endX = element.x + element.radius;
+      if (!isFiniteNumber(element.endY)) element.endY = element.y + element.radius;
+    }
   }
   return ['startX', 'startY', 'endX', 'endY'].every((key) => isFiniteNumber(element[key]));
 }
@@ -122,6 +137,7 @@ export class WhiteboardManager {
    */
   addElement(element, broadcast = true) {
     if (!isSafeWhiteboardElement(element) || this.elements.length >= MAX_WHITEBOARD_ELEMENTS) return;
+    if (this.elements.some(el => el.id === element.id)) return;
     this.undoStack.push([...this.elements]);
     this.redoStack = [];
     this.elements.push(element);
@@ -219,13 +235,13 @@ export class WhiteboardManager {
       const rect = this.canvas.getBoundingClientRect();
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      const scaleX = this.canvas.width / (rect.width || 1);
-      const scaleY = this.canvas.height / (rect.height || 1);
+      const normX = Math.max(0, Math.min(1, (clientX - rect.left) / (rect.width || 1)));
+      const normY = Math.max(0, Math.min(1, (clientY - rect.top) / (rect.height || 1)));
       return {
-        x: (clientX - rect.left) * scaleX,
-        y: (clientY - rect.top) * scaleY,
-        normX: (clientX - rect.left) / (rect.width || 1),
-        normY: (clientY - rect.top) / (rect.height || 1)
+        x: Math.round(normX * WHITEBOARD_REF_WIDTH * 10) / 10,
+        y: Math.round(normY * WHITEBOARD_REF_HEIGHT * 10) / 10,
+        normX,
+        normY
       };
     };
 
@@ -301,12 +317,18 @@ export class WhiteboardManager {
 
       if (this.currentElement) {
         if (this.currentElement.type === 'pencil') {
-          this.currentElement.points.push({ x: pos.x, y: pos.y });
+          const pts = this.currentElement.points;
+          const last = pts[pts.length - 1];
+          const distSq = (pos.x - last.x) ** 2 + (pos.y - last.y) ** 2;
+          if (distSq >= 9) {
+            pts.push({ x: pos.x, y: pos.y });
+            this.render();
+          }
         } else {
           this.currentElement.endX = pos.x;
           this.currentElement.endY = pos.y;
+          this.render();
         }
-        this.render();
       }
     };
 
@@ -318,6 +340,14 @@ export class WhiteboardManager {
         // Valida se o elemento tem tamanho significativo
         let isValid = true;
         if (this.currentElement.type === 'pencil') {
+          if (e && (e.clientX !== undefined || e.touches)) {
+            const pos = getCanvasPos(e);
+            const pts = this.currentElement.points;
+            const last = pts[pts.length - 1];
+            if (last && (last.x !== pos.x || last.y !== pos.y)) {
+              pts.push({ x: pos.x, y: pos.y });
+            }
+          }
           isValid = this.currentElement.points.length > 1;
         } else {
           const dx = Math.abs(this.currentElement.endX - this.currentElement.startX);
@@ -349,7 +379,7 @@ export class WhiteboardManager {
   }
 
   eraseAt(x, y) {
-    const threshold = 18;
+    const threshold = 28;
     for (let i = this.elements.length - 1; i >= 0; i--) {
       const el = this.elements[i];
       if (this.hitTest(el, x, y, threshold)) {
@@ -359,7 +389,7 @@ export class WhiteboardManager {
     }
   }
 
-  hitTest(el, x, y, threshold = 15) {
+  hitTest(el, x, y, threshold = 24) {
     if (el.type === 'pencil') {
       return el.points.some(p => Math.hypot(p.x - x, p.y - y) <= threshold);
     }
@@ -379,8 +409,8 @@ export class WhiteboardManager {
   render() {
     if (!this.ctx || !this.canvas) return;
 
-    const width = this.canvas.width;
-    const height = this.canvas.height;
+    const width = this.canvas.width || WHITEBOARD_REF_WIDTH;
+    const height = this.canvas.height || WHITEBOARD_REF_HEIGHT;
 
     this.ctx.clearRect(0, 0, width, height);
 
@@ -396,7 +426,15 @@ export class WhiteboardManager {
     }
     // transparent não preenche nada, fica vazado sobre o vídeo
 
-    // 2. Renderiza todos os elementos consolidados
+    const scaleX = width / WHITEBOARD_REF_WIDTH;
+    const scaleY = height / WHITEBOARD_REF_HEIGHT;
+
+    this.ctx.save();
+    if (typeof this.ctx.scale === 'function') {
+      this.ctx.scale(scaleX, scaleY);
+    }
+
+    // 2. Renderiza todos os elementos consolidados no plano de referência virtual
     for (const el of this.elements) {
       this.drawElement(this.ctx, el);
     }
@@ -405,6 +443,8 @@ export class WhiteboardManager {
     if (this.currentElement) {
       this.drawElement(this.ctx, this.currentElement);
     }
+
+    this.ctx.restore();
 
     // 4. Renderiza os cursores multiplayer remotos
     this.drawRemoteCursors(this.ctx, width, height);

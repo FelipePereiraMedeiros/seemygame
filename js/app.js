@@ -88,6 +88,9 @@ import {
   playAudioBuffer
 } from './audio-meme.js';
 import { whiteboardManager, WHITEBOARD_TOOLS, WHITEBOARD_COLORS } from './whiteboard.js';
+if (typeof window !== 'undefined') {
+  window.whiteboardManager = whiteboardManager;
+}
 import { RoomManager, sanitizeRoomId, getRoomMasterPeerId } from './room.js';
 import { RelayManager, DEFAULT_MAX_DIRECT_VIEWERS } from './relay.js';
 
@@ -1691,6 +1694,7 @@ export function initPeer() {
 export function broadcastDataMessage(payload, excludePeerId = null) {
   if (isRoomMode() && roomManager) {
     roomManager.broadcast(payload, excludePeerId);
+    return;
   }
 
   const hostPin = getStoredRoomPin();
@@ -1887,25 +1891,33 @@ export function handleIncomingP2PMessage(data, sourceConn) {
   }
 
   if (data.type === 'WHITEBOARD_ELEMENT_ADD') {
-    whiteboardManager.addElement(data.element, false);
-    if (connectedViewers.size > 0) {
-      broadcastDataMessage(data, sourceConn?.peer);
+    const exists = whiteboardManager.elements.some(el => el.id === data.element?.id);
+    if (!exists && data.element) {
+      whiteboardManager.addElement(data.element, false);
+      if (!isRoomMode() && connectedViewers.size > 0) {
+        broadcastDataMessage(data, sourceConn?.peer);
+      }
     }
     return;
   }
 
   if (data.type === 'WHITEBOARD_ELEMENT_DELETE') {
-    whiteboardManager.removeElement(data.elementId, false);
-    if (connectedViewers.size > 0) {
-      broadcastDataMessage(data, sourceConn?.peer);
+    const exists = whiteboardManager.elements.some(el => el.id === data.elementId);
+    if (exists) {
+      whiteboardManager.removeElement(data.elementId, false);
+      if (!isRoomMode() && connectedViewers.size > 0) {
+        broadcastDataMessage(data, sourceConn?.peer);
+      }
     }
     return;
   }
 
   if (data.type === 'WHITEBOARD_CLEAR') {
-    whiteboardManager.clear(false);
-    if (connectedViewers.size > 0) {
-      broadcastDataMessage(data, sourceConn?.peer);
+    if (whiteboardManager.elements.length > 0) {
+      whiteboardManager.clear(false);
+      if (!isRoomMode() && connectedViewers.size > 0) {
+        broadcastDataMessage(data, sourceConn?.peer);
+      }
     }
     return;
   }
@@ -1917,7 +1929,7 @@ export function handleIncomingP2PMessage(data, sourceConn) {
       userName: data.userName,
       color: data.color
     });
-    if (connectedViewers.size > 0) {
+    if (!isRoomMode() && connectedViewers.size > 0) {
       broadcastDataMessage(data, sourceConn?.peer);
     }
     return;
@@ -1925,16 +1937,47 @@ export function handleIncomingP2PMessage(data, sourceConn) {
 
   if (data.type === 'WHITEBOARD_REQUEST_SYNC') {
     if (sourceConn && sourceConn.open) {
-      sourceConn.send({
-        type: 'WHITEBOARD_SYNC',
-        elements: whiteboardManager.elements
-      });
+      const elements = whiteboardManager.elements;
+      if (elements && elements.length > 0) {
+        if (elements.length <= 25) {
+          sourceConn.send({
+            type: 'WHITEBOARD_SYNC',
+            elements
+          });
+        } else {
+          const CHUNK_SIZE = 20;
+          const syncId = 'wb_sync_' + Date.now();
+          for (let i = 0; i < elements.length; i += CHUNK_SIZE) {
+            const chunk = elements.slice(i, i + CHUNK_SIZE);
+            try {
+              sourceConn.send({
+                type: 'WHITEBOARD_SYNC_BATCH',
+                syncId,
+                elements: chunk,
+                batchIndex: Math.floor(i / CHUNK_SIZE),
+                totalBatches: Math.ceil(elements.length / CHUNK_SIZE),
+                isFinal: i + CHUNK_SIZE >= elements.length
+              });
+            } catch (e) {}
+          }
+        }
+      }
     }
     return;
   }
 
   if (data.type === 'WHITEBOARD_SYNC') {
     whiteboardManager.setElements(data.elements);
+    return;
+  }
+
+  if (data.type === 'WHITEBOARD_SYNC_BATCH') {
+    if (data.batchIndex === 0) {
+      whiteboardManager.elements = [];
+    }
+    if (Array.isArray(data.elements)) {
+      data.elements.forEach(el => whiteboardManager.addElement(el, false));
+    }
     return;
   }
 }
@@ -3134,16 +3177,25 @@ function handleIncomingMediaCall(call) {
     }
   }
 
-  // Se já existe uma chamada antiga desse host, fecha a anterior antes de aceitar a nova
-  const existingCall = activeMediaCalls.get(call.peer);
+  // Se já existe uma chamada desse host, verifica se ela ainda está viva/conectando
+  const existingCall = activeMediaCalls.get(call.peer) || (watchingHosts.get(originHostId)?.call);
   if (existingCall && existingCall !== call) {
-    const pcState = existingCall.peerConnection?.connectionState;
-    if (existingCall.open || pcState === 'connected') {
-      console.log(`[MediaCall] Já existe chamada ativa e conectada com ${call.peer}, ignorando chamada redundante.`);
+    const pc = existingCall.peerConnection;
+    const pcState = pc?.connectionState;
+    const sigState = pc?.signalingState;
+    const isAlive = existingCall.open || pcState === 'connected' || pcState === 'connecting' || sigState === 'stable' || sigState === 'have-remote-offer';
+    if (isAlive) {
+      console.log(`[MediaCall] Já existe chamada ativa ou em conexão com ${call.peer} (pcState=${pcState}, sig=${sigState}), descartando chamada duplicada.`);
       try { call.close(); } catch (e) {}
       return;
     }
     try { existingCall.close(); } catch (e) {}
+  }
+
+  activeMediaCalls.set(call.peer, call);
+  if (originHostId) activeMediaCalls.set(originHostId, call);
+  if (watchingHosts.has(originHostId)) {
+    watchingHosts.get(originHostId).call = call;
   }
 
   call.answer();
@@ -4817,6 +4869,7 @@ export function initWhiteboard() {
   if (!modal || !canvas) return;
 
   // Pré-vincula canvas ao whiteboardManager imediatamente
+  window.whiteboardManager = whiteboardManager;
   whiteboardManager.setCanvas(canvas);
 
   // Conecta callbacks P2P do WhiteboardManager
@@ -4904,9 +4957,13 @@ export function initWhiteboard() {
     }
   });
 
-  // Fechar
+  // Fechar e Voltar para a Sala
   const closeBtn = document.getElementById('wb-close-btn');
   if (closeBtn) closeBtn.onclick = closeWhiteboard;
+  const backRoomBtn = document.getElementById('wb-back-room-btn');
+  if (backRoomBtn) backRoomBtn.onclick = closeWhiteboard;
+  const floatCloseBtn = document.getElementById('wb-floating-close-btn');
+  if (floatCloseBtn) floatCloseBtn.onclick = closeWhiteboard;
 
   // Botões de Ferramentas
   const toolBtns = modal.querySelectorAll('.wb-tool-btn');
