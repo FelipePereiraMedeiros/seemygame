@@ -7,6 +7,9 @@ describe('Módulo: voice.js (Chat de Voz P2P Estilo Discord)', () => {
   let mockStream;
 
   beforeEach(() => {
+    try {
+      localStorage.clear();
+    } catch (_) {}
     mockTrack = {
       kind: 'audio',
       enabled: true,
@@ -220,6 +223,116 @@ describe('Módulo: voice.js (Chat de Voz P2P Estilo Discord)', () => {
           deviceId: 'mic-novo',
         })
       );
+    });
+  });
+
+  describe('Controles de Volume Individual e de Si Mesmo (Estilo Discord)', () => {
+    it('setInputVolume deve limitar entre 0 e 200, persistir e ajustar ganho do microfone', async () => {
+      const volSpy = vi.fn();
+      voice.on('inputVolumeChange', volSpy);
+
+      await voice.joinVoice({ peerId: 'user-vol', customStream: mockStream });
+
+      expect(voice.inputVolume).toBe(100);
+
+      voice.setInputVolume(150);
+      expect(voice.inputVolume).toBe(150);
+      expect(voice.localGainNode?.gain?.value).toBe(1.5);
+      expect(localStorage.getItem('seemygame_voice_input_volume')).toBe('150');
+      expect(volSpy).toHaveBeenCalledWith({ volume: 150 });
+
+      // Deve limitar a 200 no teto e 0 no chão
+      voice.setInputVolume(300);
+      expect(voice.inputVolume).toBe(200);
+
+      voice.setInputVolume(-50);
+      expect(voice.inputVolume).toBe(0);
+    });
+
+    it('setOutputVolume deve limitar entre 0 e 200, persistir e aplicar a todos os participantes', () => {
+      const outSpy = vi.fn();
+      voice.on('outputVolumeChange', outSpy);
+
+      voice.addRemoteParticipant('friend-1', { name: 'Amigo 1', stream: mockStream });
+      const p = voice.participants.get('friend-1');
+
+      voice.setOutputVolume(80);
+      expect(voice.outputVolume).toBe(80);
+      expect(localStorage.getItem('seemygame_voice_output_volume')).toBe('80');
+      expect(outSpy).toHaveBeenCalledWith({ volume: 80 });
+
+      // Ganho do participante deve refletir o multiplicador master (1.0 * 0.8 = 0.8)
+      if (p.gainNode) {
+        expect(p.gainNode.gain.value).toBe(0.8);
+      }
+    });
+
+    it('setUserVolume e getUserVolume devem gerenciar o volume individual por peer', () => {
+      const userVolSpy = vi.fn();
+      voice.on('userVolumeChange', userVolSpy);
+
+      voice.addRemoteParticipant('friend-loud', { name: 'Amigo Barulhento', stream: mockStream });
+      const p = voice.participants.get('friend-loud');
+
+      // Padrão 100%
+      expect(voice.getUserVolume('friend-loud')).toBe(100);
+
+      // Reduz volume dele para 40%
+      voice.setUserVolume('friend-loud', 40);
+      expect(voice.getUserVolume('friend-loud')).toBe(40);
+      expect(localStorage.getItem('seemygame_user_volume_friend-loud')).toBe('40');
+      expect(userVolSpy).toHaveBeenCalledWith({ peerId: 'friend-loud', volume: 40 });
+
+      if (p.gainNode) {
+        expect(p.gainNode.gain.value).toBe(0.4);
+      }
+
+      // Amplifica para 180%
+      voice.setUserVolume('friend-loud', 180);
+      expect(voice.getUserVolume('friend-loud')).toBe(180);
+      if (p.gainNode) {
+        expect(p.gainNode.gain.value).toBe(1.8);
+      }
+    });
+
+    it('setUserMuted deve silenciar o participante localmente sem desconectar', () => {
+      const muteSpy = vi.fn();
+      voice.on('userMuteChange', muteSpy);
+
+      voice.addRemoteParticipant('friend-noisy', { name: 'Amigo Noisy', stream: mockStream });
+      const p = voice.participants.get('friend-noisy');
+
+      expect(voice.isUserLocallyMuted('friend-noisy')).toBe(false);
+
+      voice.setUserMuted('friend-noisy', true);
+      expect(voice.isUserLocallyMuted('friend-noisy')).toBe(true);
+      expect(localStorage.getItem('seemygame_user_mute_friend-noisy')).toBe('true');
+      expect(muteSpy).toHaveBeenCalledWith({ peerId: 'friend-noisy', isMuted: true });
+
+      if (p.gainNode) {
+        expect(p.gainNode.gain.value).toBe(0);
+      }
+      expect(p.audioElem?.muted).toBe(true);
+
+      // Desmuta
+      voice.setUserMuted('friend-noisy', false);
+      expect(voice.isUserLocallyMuted('friend-noisy')).toBe(false);
+      expect(p.audioElem?.muted).toBe(false);
+      if (p.gainNode) {
+        expect(p.gainNode.gain.value).toBe(1.0);
+      }
+    });
+
+    it('getParticipantsList deve retornar userVolume e isLocallyMuted', () => {
+      voice.addRemoteParticipant('friend-list', { name: 'Amigo List', stream: mockStream });
+      voice.setUserVolume('friend-list', 130);
+      voice.setUserMuted('friend-list', true);
+
+      const list = voice.getParticipantsList();
+      const item = list.find(x => x.peerId === 'friend-list');
+      expect(item).toBeDefined();
+      expect(item.userVolume).toBe(130);
+      expect(item.isLocallyMuted).toBe(true);
     });
   });
 });

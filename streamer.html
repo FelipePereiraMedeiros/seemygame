@@ -616,6 +616,29 @@
           <small>Clique em "Entrar na Voz" abaixo para conversar com microfone.</small>
         </div>
       </div>
+
+      <!-- Controles de Volume Pessoal (Estilo Discord) -->
+      <div class="voice-self-settings" id="voice-self-settings">
+        <div class="voice-self-settings-header">
+          <span>⚙️ ÁUDIO PESSOAL</span>
+          <button type="button" id="voice-self-reset-btn" class="btn-voice-self-reset" title="Restaurar volumes padrão (100%)">Restaurar 100%</button>
+        </div>
+        <div class="voice-self-slider-group">
+          <div class="voice-self-label-row">
+            <label for="voice-self-mic-slider">🎙️ Ganho do Microfone</label>
+            <span id="voice-self-mic-val" class="voice-self-val-badge">100%</span>
+          </div>
+          <input type="range" id="voice-self-mic-slider" min="0" max="200" step="1" value="100" class="voice-slider">
+        </div>
+        <div class="voice-self-slider-group">
+          <div class="voice-self-label-row">
+            <label for="voice-self-output-slider">🎧 Volume dos Amigos (Master)</label>
+            <span id="voice-self-output-val" class="voice-self-val-badge">100%</span>
+          </div>
+          <input type="range" id="voice-self-output-slider" min="0" max="200" step="1" value="100" class="voice-slider">
+        </div>
+      </div>
+
       <div class="voice-dock">
         <button id="voice-mute-btn" class="voice-dock-btn" disabled>
           <span>🎙️</span> Mutar

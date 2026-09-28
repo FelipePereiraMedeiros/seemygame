@@ -2098,7 +2098,49 @@ export async function initTuningAudioDeviceControls() {
     });
   }
 
-  return { refreshDevices };
+  const micVolumeSlider = document.getElementById('tuning-mic-volume');
+  const micVolumeVal = document.getElementById('tuning-mic-volume-val');
+  const speakerVolumeSlider = document.getElementById('tuning-speaker-volume');
+  const speakerVolumeVal = document.getElementById('tuning-speaker-volume-val');
+
+  function syncVolumeUI() {
+    if (voiceManager) {
+      if (micVolumeSlider) {
+        micVolumeSlider.value = voiceManager.inputVolume;
+        if (micVolumeVal) micVolumeVal.textContent = `${voiceManager.inputVolume}%`;
+      }
+      if (speakerVolumeSlider) {
+        speakerVolumeSlider.value = voiceManager.outputVolume;
+        if (speakerVolumeVal) speakerVolumeVal.textContent = `${voiceManager.outputVolume}%`;
+      }
+    }
+  }
+
+  syncVolumeUI();
+
+  if (micVolumeSlider && voiceManager) {
+    micVolumeSlider.addEventListener('input', () => {
+      const vol = voiceManager.setInputVolume(micVolumeSlider.value);
+      if (micVolumeVal) micVolumeVal.textContent = `${vol}%`;
+    });
+    voiceManager.on('inputVolumeChange', ({ volume }) => {
+      micVolumeSlider.value = volume;
+      if (micVolumeVal) micVolumeVal.textContent = `${volume}%`;
+    });
+  }
+
+  if (speakerVolumeSlider && voiceManager) {
+    speakerVolumeSlider.addEventListener('input', () => {
+      const vol = voiceManager.setOutputVolume(speakerVolumeSlider.value);
+      if (speakerVolumeVal) speakerVolumeVal.textContent = `${vol}%`;
+    });
+    voiceManager.on('outputVolumeChange', ({ volume }) => {
+      speakerVolumeSlider.value = volume;
+      if (speakerVolumeVal) speakerVolumeVal.textContent = `${volume}%`;
+    });
+  }
+
+  return { refreshDevices, syncVolumeUI };
 }
 
 export function initDiscordFeatures() {
@@ -2252,6 +2294,9 @@ export function initDiscordFeatures() {
       if (modal) modal.style.display = 'flex';
       syncMediaControlsEnvironment();
       if (tuningAudioControls) {
+        if (typeof tuningAudioControls.syncVolumeUI === 'function') {
+          tuningAudioControls.syncVolumeUI();
+        }
         await tuningAudioControls.refreshDevices(true).catch(() => {});
       }
     },

@@ -86,6 +86,11 @@ export class DiscordUIController {
       voiceModeBtn: document.getElementById('voice-mode-btn'),
       voiceConnectBtn: document.getElementById('voice-connect-btn'),
       voiceStatusBar: document.getElementById('voice-status-bar'),
+      voiceSelfMicSlider: document.getElementById('voice-self-mic-slider'),
+      voiceSelfMicVal: document.getElementById('voice-self-mic-val'),
+      voiceSelfOutputSlider: document.getElementById('voice-self-output-slider'),
+      voiceSelfOutputVal: document.getElementById('voice-self-output-val'),
+      voiceSelfResetBtn: document.getElementById('voice-self-reset-btn'),
 
       // Elementos do Layout da Sala (Room-First)
       roomParticipantsList: document.getElementById('room-participants-list'),
@@ -253,6 +258,37 @@ export class DiscordUIController {
         } else {
           this.onJoinVoice();
         }
+      });
+    }
+
+    // Controles de Volume Pessoal (Mic e Saída Master)
+    const { voiceSelfMicSlider, voiceSelfMicVal, voiceSelfOutputSlider, voiceSelfOutputVal, voiceSelfResetBtn } = this.elements;
+    if (voiceSelfMicSlider) {
+      voiceSelfMicSlider.value = voiceManager.inputVolume;
+      if (voiceSelfMicVal) voiceSelfMicVal.textContent = `${voiceManager.inputVolume}%`;
+      voiceSelfMicSlider.addEventListener('input', (e) => {
+        const vol = voiceManager.setInputVolume(e.target.value);
+        if (voiceSelfMicVal) voiceSelfMicVal.textContent = `${vol}%`;
+      });
+    }
+
+    if (voiceSelfOutputSlider) {
+      voiceSelfOutputSlider.value = voiceManager.outputVolume;
+      if (voiceSelfOutputVal) voiceSelfOutputVal.textContent = `${voiceManager.outputVolume}%`;
+      voiceSelfOutputSlider.addEventListener('input', (e) => {
+        const vol = voiceManager.setOutputVolume(e.target.value);
+        if (voiceSelfOutputVal) voiceSelfOutputVal.textContent = `${vol}%`;
+      });
+    }
+
+    if (voiceSelfResetBtn) {
+      voiceSelfResetBtn.addEventListener('click', () => {
+        voiceManager.setInputVolume(100);
+        voiceManager.setOutputVolume(100);
+        if (voiceSelfMicSlider) voiceSelfMicSlider.value = 100;
+        if (voiceSelfMicVal) voiceSelfMicVal.textContent = '100%';
+        if (voiceSelfOutputSlider) voiceSelfOutputSlider.value = 100;
+        if (voiceSelfOutputVal) voiceSelfOutputVal.textContent = '100%';
       });
     }
   }
@@ -497,6 +533,16 @@ export class DiscordUIController {
     voiceManager.on('voiceStateChange', (state) => {
       this.updateVoiceControls(state);
     });
+
+    voiceManager.on('inputVolumeChange', ({ volume }) => {
+      if (this.elements.voiceSelfMicSlider) this.elements.voiceSelfMicSlider.value = volume;
+      if (this.elements.voiceSelfMicVal) this.elements.voiceSelfMicVal.textContent = `${volume}%`;
+    });
+
+    voiceManager.on('outputVolumeChange', ({ volume }) => {
+      if (this.elements.voiceSelfOutputSlider) this.elements.voiceSelfOutputSlider.value = volume;
+      if (this.elements.voiceSelfOutputVal) this.elements.voiceSelfOutputVal.textContent = `${volume}%`;
+    });
   }
 
   renderVoiceParticipants(participants) {
@@ -535,6 +581,9 @@ export class DiscordUIController {
       const muteIcon = p.isMuted ? '🔇' : '🎙️';
       const deafIcon = p.isDeafened ? '🎧❌' : '';
 
+      const topRow = document.createElement('div');
+      topRow.className = 'voice-user-card-top';
+
       const info = document.createElement('div');
       info.className = 'voice-user-info';
 
@@ -546,6 +595,13 @@ export class DiscordUIController {
       const userName = document.createElement('div');
       userName.className = 'voice-user-name';
       userName.textContent = (p.name || 'Amigo') + ' ';
+
+      if (p.isLocal) {
+        const youBadge = document.createElement('span');
+        youBadge.className = 'voice-you-badge';
+        youBadge.textContent = '(Você)';
+        userName.appendChild(youBadge);
+      }
 
       const roleBadge = document.createElement('span');
       const safeRole = ['host', 'player2', 'viewer', 'member', 'system'].includes(p.role) ? p.role : 'viewer';
@@ -571,8 +627,75 @@ export class DiscordUIController {
         icons.appendChild(deafSpan);
       }
 
-      card.appendChild(info);
-      card.appendChild(icons);
+      topRow.appendChild(info);
+      topRow.appendChild(icons);
+      card.appendChild(topRow);
+
+      // Controle de volume individual para amigos remotos
+      if (!p.isLocal && p.peerId) {
+        const userVol = typeof p.userVolume === 'number' ? p.userVolume : voiceManager.getUserVolume(p.peerId);
+        const isLocallyMuted = Boolean(p.isLocallyMuted ?? voiceManager.isUserLocallyMuted(p.peerId));
+
+        const volRow = document.createElement('div');
+        volRow.className = 'voice-user-volume-row';
+
+        const muteBtn = document.createElement('button');
+        muteBtn.type = 'button';
+        muteBtn.className = `voice-user-mute-btn ${isLocallyMuted ? 'muted' : ''}`;
+        muteBtn.title = isLocallyMuted ? 'Desmutar este amigo para você' : 'Mutar este amigo só para você';
+        muteBtn.setAttribute('aria-label', muteBtn.title);
+        muteBtn.textContent = isLocallyMuted ? '🔇' : '🔊';
+
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = '0';
+        slider.max = '200';
+        slider.step = '1';
+        slider.value = String(userVol);
+        slider.className = 'voice-user-volume-slider';
+        slider.title = `Volume de ${p.name || 'Amigo'}: ${userVol}%`;
+        slider.setAttribute('aria-label', `Volume de ${p.name || 'Amigo'}`);
+
+        const valSpan = document.createElement('span');
+        valSpan.className = 'voice-user-volume-val';
+        valSpan.textContent = `${userVol}%`;
+
+        muteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const currentMute = voiceManager.isUserLocallyMuted(p.peerId);
+          const nextMute = !currentMute;
+          voiceManager.setUserMuted(p.peerId, nextMute);
+          muteBtn.textContent = nextMute ? '🔇' : '🔊';
+          muteBtn.classList.toggle('muted', nextMute);
+          muteBtn.title = nextMute ? 'Desmutar este amigo para você' : 'Mutar este amigo só para você';
+        });
+
+        slider.addEventListener('input', (e) => {
+          e.stopPropagation();
+          const newVol = parseInt(e.target.value, 10) || 0;
+          voiceManager.setUserVolume(p.peerId, newVol);
+          valSpan.textContent = `${newVol}%`;
+          slider.title = `Volume de ${p.name || 'Amigo'}: ${newVol}%`;
+          if (newVol === 0) {
+            muteBtn.textContent = '🔇';
+          } else if (!voiceManager.isUserLocallyMuted(p.peerId)) {
+            muteBtn.textContent = '🔊';
+          }
+        });
+
+        volRow.appendChild(muteBtn);
+        volRow.appendChild(slider);
+        volRow.appendChild(valSpan);
+        card.appendChild(volRow);
+      } else if (p.isLocal) {
+        const selfRow = document.createElement('div');
+        selfRow.className = 'voice-user-volume-row voice-self-indicator-row';
+        selfRow.innerHTML = `
+          <span class="voice-self-mic-badge">🎙️ Ganho Mic: <strong>${voiceManager.inputVolume}%</strong></span>
+        `;
+        card.appendChild(selfRow);
+      }
+
       list.appendChild(card);
     });
   }
@@ -684,6 +807,15 @@ export class DiscordUIController {
     if (quickDeafBtn) {
       quickDeafBtn.classList.toggle('active-muted', Boolean(state.isDeafened));
       quickDeafBtn.innerHTML = state.isDeafened ? '🎧❌' : '🎧';
+    }
+
+    if (this.elements.voiceSelfMicSlider && typeof state.inputVolume === 'number') {
+      this.elements.voiceSelfMicSlider.value = state.inputVolume;
+      if (this.elements.voiceSelfMicVal) this.elements.voiceSelfMicVal.textContent = `${state.inputVolume}%`;
+    }
+    if (this.elements.voiceSelfOutputSlider && typeof state.outputVolume === 'number') {
+      this.elements.voiceSelfOutputSlider.value = state.outputVolume;
+      if (this.elements.voiceSelfOutputVal) this.elements.voiceSelfOutputVal.textContent = `${state.outputVolume}%`;
     }
   }
 

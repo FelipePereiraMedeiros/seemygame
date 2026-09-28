@@ -402,11 +402,27 @@
 
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label for="tuning-mic-volume" style="font-size: 12.5px; color: var(--text-muted); margin: 0;">🎙️ Ganho do Microfone (Entrada):</label>
+            <span id="tuning-mic-volume-val" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan);">100%</span>
+          </div>
+          <input type="range" id="tuning-mic-volume" min="0" max="200" step="1" value="100" style="width: 100%;">
+        </div>
+
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
             <label for="tuning-speaker-select" style="font-size: 12.5px; color: var(--text-muted); margin: 0;">🎧 Saída de Som (Alto-falante / Fone):</label>
             <button id="tuning-test-speaker-btn" class="btn-secondary" type="button" style="padding: 4px 10px; font-size: 11.5px; white-space: nowrap;">🔊 Testar</button>
           </div>
           <select id="tuning-speaker-select" class="custom-id-field"></select>
           <div id="tuning-speaker-note" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;"></div>
+        </div>
+
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label for="tuning-speaker-volume" style="font-size: 12.5px; color: var(--text-muted); margin: 0;">🎧 Volume Master dos Amigos (Saída):</label>
+            <span id="tuning-speaker-volume-val" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan);">100%</span>
+          </div>
+          <input type="range" id="tuning-speaker-volume" min="0" max="200" step="1" value="100" style="width: 100%;">
         </div>
 
         <div>
@@ -957,6 +973,29 @@
         <span>Detecção de voz ativa</span>
       </div>
       <div id="voice-participants-list" class="voice-participants-list"></div>
+
+      <!-- Controles de Volume Pessoal (Estilo Discord) -->
+      <div class="voice-self-settings" id="voice-self-settings">
+        <div class="voice-self-settings-header">
+          <span>⚙️ ÁUDIO PESSOAL</span>
+          <button type="button" id="voice-self-reset-btn" class="btn-voice-self-reset" title="Restaurar volumes padrão (100%)">Restaurar 100%</button>
+        </div>
+        <div class="voice-self-slider-group">
+          <div class="voice-self-label-row">
+            <label for="voice-self-mic-slider">🎙️ Ganho do Microfone</label>
+            <span id="voice-self-mic-val" class="voice-self-val-badge">100%</span>
+          </div>
+          <input type="range" id="voice-self-mic-slider" min="0" max="200" step="1" value="100" class="voice-slider">
+        </div>
+        <div class="voice-self-slider-group">
+          <div class="voice-self-label-row">
+            <label for="voice-self-output-slider">🎧 Volume dos Amigos (Master)</label>
+            <span id="voice-self-output-val" class="voice-self-val-badge">100%</span>
+          </div>
+          <input type="range" id="voice-self-output-slider" min="0" max="200" step="1" value="100" class="voice-slider">
+        </div>
+      </div>
+
       <div class="voice-dock">
         <button id="voice-mute-btn" class="voice-dock-btn">
           <span>🎙️</span> Mutar
