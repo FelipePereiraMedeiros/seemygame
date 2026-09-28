@@ -7,7 +7,8 @@ import {
   getPeerCursorColor,
   isTooBrightOrWhite,
   getContrastTextColor,
-  drawRoundedRect
+  drawRoundedRect,
+  getFillAlpha
 } from '../js/whiteboard.js';
 
 describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
@@ -16,6 +17,7 @@ describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
   let mockCtx;
 
   beforeEach(() => {
+    const stateStack = [];
     mockCtx = {
       clearRect: vi.fn(),
       fillRect: vi.fn(),
@@ -30,12 +32,28 @@ describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
       ellipse: vi.fn(),
       stroke: vi.fn(),
       fill: vi.fn(),
-      save: vi.fn(),
-      restore: vi.fn(),
+      save: vi.fn(() => {
+        stateStack.push({
+          fillStyle: mockCtx.fillStyle,
+          strokeStyle: mockCtx.strokeStyle,
+          lineWidth: mockCtx.lineWidth,
+          globalAlpha: mockCtx.globalAlpha ?? 1.0,
+        });
+      }),
+      restore: vi.fn(() => {
+        const prev = stateStack.pop();
+        if (prev) {
+          mockCtx.fillStyle = prev.fillStyle;
+          mockCtx.strokeStyle = prev.strokeStyle;
+          mockCtx.lineWidth = prev.lineWidth;
+          mockCtx.globalAlpha = prev.globalAlpha;
+        }
+      }),
       scale: vi.fn(),
       fillStyle: '#000000',
       strokeStyle: '#ffffff',
       lineWidth: 1,
+      globalAlpha: 1.0,
     };
 
     mockCanvas = {
@@ -211,6 +229,43 @@ describe('Módulo: whiteboard.js (Lousa Interativa Estilo Excalidraw)', () => {
       expect(() => manager.render()).not.toThrow();
       expect(mockCtx.fillText).toHaveBeenCalledWith('Gamer Note', 500, 500);
       expect(mockCtx.ellipse).toHaveBeenCalled();
+    });
+
+    it('getFillAlpha deve retornar 1.0 para solid/true e 0.25 para semi', () => {
+      expect(getFillAlpha('solid')).toBe(1.0);
+      expect(getFillAlpha(true)).toBe(1.0);
+      expect(getFillAlpha('semi')).toBe(0.25);
+      expect(getFillAlpha(0.6)).toBe(0.6);
+      expect(getFillAlpha('none')).toBe(1.0);
+    });
+
+    it('renderRectangle e renderCircle com fill solid devem aplicar opacidade 100% (globalAlpha = 1.0)', () => {
+      let alphaDuringFill = null;
+      mockCtx.fillRect.mockImplementation(() => {
+        alphaDuringFill = mockCtx.globalAlpha;
+      });
+
+      const rectEl = { id: 'rect_solid', type: 'rectangle', startX: 10, startY: 10, endX: 100, endY: 100, color: '#ef4444', fill: 'solid' };
+      manager.addElement(rectEl);
+      manager.render();
+
+      expect(mockCtx.fillRect).toHaveBeenCalledWith(10, 10, 90, 90);
+      expect(alphaDuringFill).toBe(1.0);
+      expect(mockCtx.globalAlpha).toBe(1.0);
+    });
+
+    it('renderRectangle com fill semi deve aplicar opacidade 0.25 (globalAlpha = 0.25)', () => {
+      let alphaDuringFill = null;
+      mockCtx.fillRect.mockImplementation(() => {
+        alphaDuringFill = mockCtx.globalAlpha;
+      });
+
+      const rectEl = { id: 'rect_semi', type: 'rectangle', startX: 10, startY: 10, endX: 100, endY: 100, color: '#ef4444', fill: 'semi' };
+      manager.addElement(rectEl);
+      manager.render();
+
+      expect(alphaDuringFill).toBe(0.25);
+      expect(mockCtx.globalAlpha).toBe(1.0);
     });
   });
 

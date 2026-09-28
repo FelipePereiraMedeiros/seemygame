@@ -4,11 +4,20 @@ import { buildDisplayMediaOptions, requestBrowserDisplayMedia } from '../js/brow
 afterEach(() => vi.restoreAllMocks());
 
 describe('Seletor web: áudio e falhas de captura', () => {
-  it.each(['system', 'process'])('solicita áudio em %s sem impor dispositivo ou canais', (audioMode) => {
+  it.each(['system', 'process'])('solicita áudio em %s de forma compatível e sem restrições que quebrem headsets', (audioMode) => {
     const options = buildDisplayMediaOptions({ audioMode });
-    expect(options.audio).toEqual({ autoGainControl: false, echoCancellation: false, noiseSuppression: false });
+    expect(options.audio).toBe(true);
     expect(options.systemAudio).toBe('include');
-    expect(options.windowAudio).toBe(audioMode === 'process' ? 'window' : 'system');
+    if (audioMode === 'process') {
+      expect(options.windowAudio).toBe('window');
+    } else {
+      expect(options.windowAudio).toBeUndefined();
+    }
+  });
+
+  it('permite passar constraints de áudio customizadas quando explicitamente informadas', () => {
+    const options = buildDisplayMediaOptions({ audioMode: 'system', audio: { echoCancellation: false } });
+    expect(options.audio).toEqual({ echoCancellation: false });
   });
 
   it.each(['none', 'mic'])('não captura áudio do sistema em %s', (audioMode) => {

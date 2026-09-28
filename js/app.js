@@ -3841,7 +3841,7 @@ export async function startLocalStream(options = {}) {
     if (err.name !== 'NotAllowedError') {
       const errMsg = String(err?.message || '').toLowerCase();
       if (errMsg.includes('could not start audio source') || errMsg.includes('audio source')) {
-        showToast('⚠️ O navegador não conseguiu capturar o áudio desta janela/tela. Para transmitir com som, selecione "Tela inteira" com "Compartilhar áudio" ou use o modo "Apenas Vídeo" / App Desktop.', 'error', 9000);
+        showToast('⚠️ O navegador não conseguiu capturar o áudio desta janela/tela. Verifique se o dispositivo está em uso exclusivo por outro programa ou use o App Desktop.', 'error', 9000);
       } else {
         showToast(`Erro ao iniciar stream: ${err.message}`, 'error');
       }
