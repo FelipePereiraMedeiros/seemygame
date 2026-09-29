@@ -96,8 +96,42 @@ import { RoomManager, sanitizeRoomId, getRoomMasterPeerId } from './room.js';
 import { RelayManager, DEFAULT_MAX_DIRECT_VIEWERS } from './relay.js';
 import { EventBus, globalBus } from './core/event-bus.js';
 import { MessageDispatcher, globalDispatcher } from './core/message-dispatcher.js';
+import { PluginManager } from './core/plugin-manager.js';
+import { audioContextPool, getSharedAudioContext } from './core/audio-context-pool.js';
+import {
+  BasePlugin,
+  WhiteboardPlugin,
+  whiteboardPlugin,
+  SoundboardPlugin,
+  soundboardPlugin,
+  TacticalPingPlugin,
+  tacticalPingPlugin,
+  ReactionsPlugin,
+  reactionsPlugin,
+  ClippingPlugin,
+  clippingPlugin
+} from './plugins/index.js';
 
-export { EventBus, globalBus, MessageDispatcher, globalDispatcher };
+export {
+  EventBus,
+  globalBus,
+  MessageDispatcher,
+  globalDispatcher,
+  PluginManager,
+  audioContextPool,
+  getSharedAudioContext,
+  BasePlugin,
+  WhiteboardPlugin,
+  whiteboardPlugin,
+  SoundboardPlugin,
+  soundboardPlugin,
+  TacticalPingPlugin,
+  tacticalPingPlugin,
+  ReactionsPlugin,
+  reactionsPlugin,
+  ClippingPlugin,
+  clippingPlugin
+};
 
 // Estado da Aplicação
 export let roomManager = null;
@@ -2023,160 +2057,23 @@ p2pDispatcher.register('VOICE_SIGNAL', (data, sourceConn) => {
   }
 }, { description: 'Voice Signaling' });
 
-p2pDispatcher.register('TACTICAL_PING', (data, sourceConn) => {
-  if (data.ping) {
-    tacticalPingManager.addPing(data.ping);
-    globalBus.emit('ping:added', data.ping);
-    if (!isRoomMode() && connectedViewers.size > 0) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-  }
-}, { description: 'Tactical Ping' });
+export const pluginManager = new PluginManager({ eventBus: globalBus, dispatcher: p2pDispatcher });
+pluginManager.register(whiteboardPlugin);
+pluginManager.register(soundboardPlugin);
+pluginManager.register(tacticalPingPlugin);
+pluginManager.register(reactionsPlugin);
+pluginManager.register(clippingPlugin);
 
-p2pDispatcher.register('TACTICAL_LASER', (data, sourceConn) => {
-  if (data.point) {
-    tacticalPingManager.addLaserPoint(data.point);
-    if (!isRoomMode() && connectedViewers.size > 0) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-  }
-}, { description: 'Tactical Laser' });
-
-p2pDispatcher.register('EMOJI_REACTION', (data, sourceConn) => {
-  floatingReactionsManager.spawnReaction({
-    emoji: data.emoji,
-    xPercent: data.xPercent,
-    senderName: data.senderName
+export function initPlugins() {
+  pluginManager.initAll({
+    broadcastDataMessage: (data, exclude) => broadcastDataMessage(data, exclude),
+    isRoomMode: () => isRoomMode(),
+    getViewersCount: () => connectedViewers.size,
+    showToast: (msg, type, dur) => showToast(msg, type, dur),
+    getDisplayName: () => getLocalUserDisplayName()
   });
-  globalBus.emit('reaction:spawned', data);
-  if (!isRoomMode() && connectedViewers.size > 0) {
-    broadcastDataMessage(data, sourceConn?.peer);
-  }
-}, { description: 'Emoji Reaction' });
-
-p2pDispatcher.register('SOUNDBOARD_PLAY', (data, sourceConn) => {
-  soundboardManager.playSound(data.soundId);
-  showToast(`🔊 ${data.senderName || 'Alguém'} tocou um som no soundboard!`, 'info', 2500);
-  globalBus.emit('soundboard:played', data);
-  if (!isRoomMode() && connectedViewers.size > 0) {
-    broadcastDataMessage(data, sourceConn?.peer);
-  }
-}, { description: 'Soundboard Play' });
-
-p2pDispatcher.register('SOUNDBOARD_PLAY_CUSTOM', (data, sourceConn) => {
-  if (data.audioBase64) {
-    try {
-      const wavBlob = base64ToWavBlob(data.audioBase64);
-      const ctx = getAudioContext();
-      if (ctx) {
-        decodeAudioFromBlob(wavBlob, ctx).then(buf => {
-          if (buf) playAudioBuffer(buf, ctx);
-        }).catch(() => {});
-      }
-    } catch (err) {
-      console.warn('[AudioMeme] Erro ao reproduzir som customizado P2P:', err);
-    }
-  }
-  const effectLabel = data.effectName ? ` (${data.effectName})` : '';
-  showToast(`🎙️ ${data.senderName || 'Alguém'} disparou um áudio meme${effectLabel}!`, 'info', 3000);
-  globalBus.emit('soundboard:custom-played', data);
-  if (!isRoomMode() && connectedViewers.size > 0) {
-    broadcastDataMessage(data, sourceConn?.peer);
-  }
-}, { description: 'Soundboard Custom Meme' });
-
-p2pDispatcher.register('WHITEBOARD_ELEMENT_ADD', (data, sourceConn) => {
-  const exists = whiteboardManager.elements.some(el => el.id === data.element?.id);
-  if (!exists && data.element) {
-    whiteboardManager.addElement(data.element, false);
-    if (!isRoomMode() && connectedViewers.size > 0) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-  }
-}, { description: 'Whiteboard Element Add' });
-
-p2pDispatcher.register('WHITEBOARD_ELEMENT_UPDATE', (data, sourceConn) => {
-  if (data.element) {
-    whiteboardManager.updateElement(data.element, false);
-    if (!isRoomMode() && connectedViewers.size > 0) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-  }
-}, { description: 'Whiteboard Element Update' });
-
-p2pDispatcher.register('WHITEBOARD_ELEMENT_DELETE', (data, sourceConn) => {
-  const exists = whiteboardManager.elements.some(el => el.id === data.elementId);
-  if (exists) {
-    whiteboardManager.removeElement(data.elementId, false);
-    if (!isRoomMode() && connectedViewers.size > 0) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-  }
-}, { description: 'Whiteboard Element Delete' });
-
-p2pDispatcher.register('WHITEBOARD_CLEAR', (data, sourceConn) => {
-  if (whiteboardManager.elements.length > 0) {
-    whiteboardManager.clear(false);
-    if (!isRoomMode() && connectedViewers.size > 0) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-  }
-}, { description: 'Whiteboard Clear' });
-
-p2pDispatcher.register('WHITEBOARD_CURSOR', (data, sourceConn) => {
-  whiteboardManager.updateRemoteCursor(sourceConn?.peer || 'remote-peer', {
-    x: data.x,
-    y: data.y,
-    userName: data.userName,
-    color: data.color
-  });
-  if (!isRoomMode() && connectedViewers.size > 0) {
-    broadcastDataMessage(data, sourceConn?.peer);
-  }
-}, { description: 'Whiteboard Cursor' });
-
-p2pDispatcher.register('WHITEBOARD_REQUEST_SYNC', (data, sourceConn) => {
-  if (sourceConn && sourceConn.open) {
-    const elements = whiteboardManager.elements;
-    if (elements && elements.length > 0) {
-      if (elements.length <= 25) {
-        sourceConn.send({
-          type: 'WHITEBOARD_SYNC',
-          elements
-        });
-      } else {
-        const CHUNK_SIZE = 20;
-        const syncId = 'wb_sync_' + Date.now();
-        for (let i = 0; i < elements.length; i += CHUNK_SIZE) {
-          const chunk = elements.slice(i, i + CHUNK_SIZE);
-          try {
-            sourceConn.send({
-              type: 'WHITEBOARD_SYNC_BATCH',
-              syncId,
-              elements: chunk,
-              batchIndex: Math.floor(i / CHUNK_SIZE),
-              totalBatches: Math.ceil(elements.length / CHUNK_SIZE),
-              isFinal: i + CHUNK_SIZE >= elements.length
-            });
-          } catch (e) {}
-        }
-      }
-    }
-  }
-}, { description: 'Whiteboard Request Sync' });
-
-p2pDispatcher.register('WHITEBOARD_SYNC', (data) => {
-  whiteboardManager.setElements(data.elements);
-}, { description: 'Whiteboard Sync' });
-
-p2pDispatcher.register('WHITEBOARD_SYNC_BATCH', (data) => {
-  if (data.batchIndex === 0) {
-    whiteboardManager.elements = [];
-  }
-  if (Array.isArray(data.elements)) {
-    data.elements.forEach(el => whiteboardManager.addElement(el, false));
-  }
-}, { description: 'Whiteboard Sync Batch' });
+}
+initPlugins();
 
 export function handleIncomingP2PMessage(data, sourceConn) {
   if (!data || typeof data !== 'object') return;
