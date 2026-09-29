@@ -83,3 +83,6 @@ export class PluginManager {
     this.plugins.clear();
   }
 }
+
+export const pluginManager = new PluginManager();
+export const globalPluginManager = pluginManager;

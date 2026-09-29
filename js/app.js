@@ -111,6 +111,12 @@ import {
   ClippingPlugin,
   clippingPlugin
 } from './plugins/index.js';
+import {
+  initViewerApp,
+  initStreamerApp,
+  initRoomApp,
+  initLobbyApp
+} from './entries/index.js';
 
 export {
   EventBus,
@@ -130,7 +136,11 @@ export {
   ReactionsPlugin,
   reactionsPlugin,
   ClippingPlugin,
-  clippingPlugin
+  clippingPlugin,
+  initViewerApp,
+  initStreamerApp,
+  initRoomApp,
+  initLobbyApp
 };
 
 // Estado da Aplicação

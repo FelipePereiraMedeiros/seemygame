@@ -1,0 +1,66 @@
+/* ==========================================================================
+   SeeMyGame - HUD Telemetry, Latency & ABR Badges Component
+   ========================================================================== */
+
+
+/* HUD de Estatísticas / Latência / FPS / Bitrate */
+.stats-hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(9, 10, 15, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #e2e8f0;
+  z-index: 15;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  user-select: none;
+}
+
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stats-label { 
+  color: var(--text-dim); 
+}
+
+.stats-val { 
+  font-weight: 700; 
+  color: #38bdf8; 
+}
+
+.stats-val-green { 
+  color: var(--accent-green); 
+}
+
+.stats-val-purple { 
+  color: #c084fc; 
+}
+
+
+/* ABR Badge */
+.abr-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--accent-green);
+  cursor: pointer;
+}
+.abr-badge.throttled {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
