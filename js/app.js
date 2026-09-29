@@ -94,6 +94,10 @@ if (typeof window !== 'undefined') {
 }
 import { RoomManager, sanitizeRoomId, getRoomMasterPeerId } from './room.js';
 import { RelayManager, DEFAULT_MAX_DIRECT_VIEWERS } from './relay.js';
+import { EventBus, globalBus } from './core/event-bus.js';
+import { MessageDispatcher, globalDispatcher } from './core/message-dispatcher.js';
+
+export { EventBus, globalBus, MessageDispatcher, globalDispatcher };
 
 // Estado da Aplicação
 export let roomManager = null;
@@ -1964,229 +1968,222 @@ export function isDuplicateMessage(msgId) {
   return false;
 }
 
+export const p2pDispatcher = new MessageDispatcher();
+
+p2pDispatcher.register('CHAT_MESSAGE', (data, sourceConn) => {
+  if (data.message) {
+    chatManager.addMessage(data.message);
+    globalBus.emit('chat:message-received', data.message);
+    if (!isRoomMode() && connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+  }
+}, { description: 'Chat Message' });
+
+p2pDispatcher.register('VOICE_STATE_UPDATE', (data, sourceConn) => {
+  voiceManager.updateParticipantState(data.peerId, {
+    isSpeaking: data.isSpeaking,
+    isMuted: data.isMuted,
+    isDeafened: data.isDeafened,
+  });
+  globalBus.emit('voice:state-updated', data);
+  if (!isRoomMode() && connectedViewers.size > 0) {
+    broadcastDataMessage(data, sourceConn?.peer);
+  }
+}, { description: 'Voice State Update' });
+
+p2pDispatcher.register('VOICE_SIGNAL', (data, sourceConn) => {
+  if (data.action === 'LEAVE') {
+    voiceManager.removeRemoteParticipant(data.peerId);
+    const call = activeVoiceCalls.get(data.peerId);
+    if (call) {
+      try { call.close(); } catch (e) {}
+      activeVoiceCalls.delete(data.peerId);
+    }
+  } else if (data.action === 'HOST_VOICE_ACTIVE' || data.action === 'VOICE_JOINED') {
+    if (sourceConn?.peer && data.peerId && data.peerId !== sourceConn.peer) {
+      console.warn(`[VOICE_SIGNAL] Rejeitando peerId forjado: ${data.peerId} vindo de ${sourceConn.peer}`);
+      return;
+    }
+    if (data.action === 'HOST_VOICE_ACTIVE') {
+      showToast('O Streamer está na sala de voz!', 'info');
+    } else {
+      showToast(`${data.name || 'Um amigo'} entrou na sala de voz!`, 'info');
+    }
+    if (voiceManager.isInVoice && voiceManager.localStream && peer && !peer.destroyed && !activeVoiceCalls.has(data.peerId)) {
+      const call = peer.call(data.peerId, voiceManager.localStream, {
+        metadata: { type: 'VOICE_CHAT', name: voiceManager.myName, role: voiceManager.myRole },
+      });
+      setupVoiceMediaCall(call, data.peerId);
+    }
+  }
+  globalBus.emit('voice:signal', data);
+  if (!isRoomMode() && connectedViewers.size > 0) {
+    broadcastDataMessage(data, sourceConn?.peer);
+  }
+}, { description: 'Voice Signaling' });
+
+p2pDispatcher.register('TACTICAL_PING', (data, sourceConn) => {
+  if (data.ping) {
+    tacticalPingManager.addPing(data.ping);
+    globalBus.emit('ping:added', data.ping);
+    if (!isRoomMode() && connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+  }
+}, { description: 'Tactical Ping' });
+
+p2pDispatcher.register('TACTICAL_LASER', (data, sourceConn) => {
+  if (data.point) {
+    tacticalPingManager.addLaserPoint(data.point);
+    if (!isRoomMode() && connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+  }
+}, { description: 'Tactical Laser' });
+
+p2pDispatcher.register('EMOJI_REACTION', (data, sourceConn) => {
+  floatingReactionsManager.spawnReaction({
+    emoji: data.emoji,
+    xPercent: data.xPercent,
+    senderName: data.senderName
+  });
+  globalBus.emit('reaction:spawned', data);
+  if (!isRoomMode() && connectedViewers.size > 0) {
+    broadcastDataMessage(data, sourceConn?.peer);
+  }
+}, { description: 'Emoji Reaction' });
+
+p2pDispatcher.register('SOUNDBOARD_PLAY', (data, sourceConn) => {
+  soundboardManager.playSound(data.soundId);
+  showToast(`🔊 ${data.senderName || 'Alguém'} tocou um som no soundboard!`, 'info', 2500);
+  globalBus.emit('soundboard:played', data);
+  if (!isRoomMode() && connectedViewers.size > 0) {
+    broadcastDataMessage(data, sourceConn?.peer);
+  }
+}, { description: 'Soundboard Play' });
+
+p2pDispatcher.register('SOUNDBOARD_PLAY_CUSTOM', (data, sourceConn) => {
+  if (data.audioBase64) {
+    try {
+      const wavBlob = base64ToWavBlob(data.audioBase64);
+      const ctx = getAudioContext();
+      if (ctx) {
+        decodeAudioFromBlob(wavBlob, ctx).then(buf => {
+          if (buf) playAudioBuffer(buf, ctx);
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('[AudioMeme] Erro ao reproduzir som customizado P2P:', err);
+    }
+  }
+  const effectLabel = data.effectName ? ` (${data.effectName})` : '';
+  showToast(`🎙️ ${data.senderName || 'Alguém'} disparou um áudio meme${effectLabel}!`, 'info', 3000);
+  globalBus.emit('soundboard:custom-played', data);
+  if (!isRoomMode() && connectedViewers.size > 0) {
+    broadcastDataMessage(data, sourceConn?.peer);
+  }
+}, { description: 'Soundboard Custom Meme' });
+
+p2pDispatcher.register('WHITEBOARD_ELEMENT_ADD', (data, sourceConn) => {
+  const exists = whiteboardManager.elements.some(el => el.id === data.element?.id);
+  if (!exists && data.element) {
+    whiteboardManager.addElement(data.element, false);
+    if (!isRoomMode() && connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+  }
+}, { description: 'Whiteboard Element Add' });
+
+p2pDispatcher.register('WHITEBOARD_ELEMENT_UPDATE', (data, sourceConn) => {
+  if (data.element) {
+    whiteboardManager.updateElement(data.element, false);
+    if (!isRoomMode() && connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+  }
+}, { description: 'Whiteboard Element Update' });
+
+p2pDispatcher.register('WHITEBOARD_ELEMENT_DELETE', (data, sourceConn) => {
+  const exists = whiteboardManager.elements.some(el => el.id === data.elementId);
+  if (exists) {
+    whiteboardManager.removeElement(data.elementId, false);
+    if (!isRoomMode() && connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+  }
+}, { description: 'Whiteboard Element Delete' });
+
+p2pDispatcher.register('WHITEBOARD_CLEAR', (data, sourceConn) => {
+  if (whiteboardManager.elements.length > 0) {
+    whiteboardManager.clear(false);
+    if (!isRoomMode() && connectedViewers.size > 0) {
+      broadcastDataMessage(data, sourceConn?.peer);
+    }
+  }
+}, { description: 'Whiteboard Clear' });
+
+p2pDispatcher.register('WHITEBOARD_CURSOR', (data, sourceConn) => {
+  whiteboardManager.updateRemoteCursor(sourceConn?.peer || 'remote-peer', {
+    x: data.x,
+    y: data.y,
+    userName: data.userName,
+    color: data.color
+  });
+  if (!isRoomMode() && connectedViewers.size > 0) {
+    broadcastDataMessage(data, sourceConn?.peer);
+  }
+}, { description: 'Whiteboard Cursor' });
+
+p2pDispatcher.register('WHITEBOARD_REQUEST_SYNC', (data, sourceConn) => {
+  if (sourceConn && sourceConn.open) {
+    const elements = whiteboardManager.elements;
+    if (elements && elements.length > 0) {
+      if (elements.length <= 25) {
+        sourceConn.send({
+          type: 'WHITEBOARD_SYNC',
+          elements
+        });
+      } else {
+        const CHUNK_SIZE = 20;
+        const syncId = 'wb_sync_' + Date.now();
+        for (let i = 0; i < elements.length; i += CHUNK_SIZE) {
+          const chunk = elements.slice(i, i + CHUNK_SIZE);
+          try {
+            sourceConn.send({
+              type: 'WHITEBOARD_SYNC_BATCH',
+              syncId,
+              elements: chunk,
+              batchIndex: Math.floor(i / CHUNK_SIZE),
+              totalBatches: Math.ceil(elements.length / CHUNK_SIZE),
+              isFinal: i + CHUNK_SIZE >= elements.length
+            });
+          } catch (e) {}
+        }
+      }
+    }
+  }
+}, { description: 'Whiteboard Request Sync' });
+
+p2pDispatcher.register('WHITEBOARD_SYNC', (data) => {
+  whiteboardManager.setElements(data.elements);
+}, { description: 'Whiteboard Sync' });
+
+p2pDispatcher.register('WHITEBOARD_SYNC_BATCH', (data) => {
+  if (data.batchIndex === 0) {
+    whiteboardManager.elements = [];
+  }
+  if (Array.isArray(data.elements)) {
+    data.elements.forEach(el => whiteboardManager.addElement(el, false));
+  }
+}, { description: 'Whiteboard Sync Batch' });
+
 export function handleIncomingP2PMessage(data, sourceConn) {
   if (!data || typeof data !== 'object') return;
   const msgId = data.msgId || data.message?.id;
   if (msgId && isDuplicateMessage(msgId)) return;
 
-  const shouldRelay = !isRoomMode() && connectedViewers.size > 0;
-
-  if (data.type === 'CHAT_MESSAGE') {
-    if (data.message) {
-      chatManager.addMessage(data.message);
-      if (shouldRelay) {
-        broadcastDataMessage(data, sourceConn?.peer);
-      }
-    }
-    return;
-  }
-
-  if (data.type === 'VOICE_STATE_UPDATE') {
-    voiceManager.updateParticipantState(data.peerId, {
-      isSpeaking: data.isSpeaking,
-      isMuted: data.isMuted,
-      isDeafened: data.isDeafened,
-    });
-    if (shouldRelay) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-    return;
-  }
-
-  if (data.type === 'VOICE_SIGNAL') {
-    if (data.action === 'LEAVE') {
-      voiceManager.removeRemoteParticipant(data.peerId);
-      const call = activeVoiceCalls.get(data.peerId);
-      if (call) {
-        try { call.close(); } catch (e) {}
-        activeVoiceCalls.delete(data.peerId);
-      }
-    } else if (data.action === 'HOST_VOICE_ACTIVE' || data.action === 'VOICE_JOINED') {
-      if (sourceConn?.peer && data.peerId && data.peerId !== sourceConn.peer) {
-        console.warn(`[VOICE_SIGNAL] Rejeitando peerId forjado: ${data.peerId} vindo de ${sourceConn.peer}`);
-        return;
-      }
-      if (data.action === 'HOST_VOICE_ACTIVE') {
-        showToast('O Streamer está na sala de voz!', 'info');
-      } else {
-        showToast(`${data.name || 'Um amigo'} entrou na sala de voz!`, 'info');
-      }
-      if (voiceManager.isInVoice && voiceManager.localStream && peer && !peer.destroyed && !activeVoiceCalls.has(data.peerId)) {
-        const call = peer.call(data.peerId, voiceManager.localStream, {
-          metadata: { type: 'VOICE_CHAT', name: voiceManager.myName, role: voiceManager.myRole },
-        });
-        setupVoiceMediaCall(call, data.peerId);
-      }
-    }
-    if (shouldRelay) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-    return;
-  }
-
-  if (data.type === 'TACTICAL_PING') {
-    if (data.ping) {
-      tacticalPingManager.addPing(data.ping);
-      if (shouldRelay) {
-        broadcastDataMessage(data, sourceConn?.peer);
-      }
-    }
-    return;
-  }
-
-  if (data.type === 'TACTICAL_LASER') {
-    if (data.point) {
-      tacticalPingManager.addLaserPoint(data.point);
-      if (shouldRelay) {
-        broadcastDataMessage(data, sourceConn?.peer);
-      }
-    }
-    return;
-  }
-
-  if (data.type === 'EMOJI_REACTION') {
-    floatingReactionsManager.spawnReaction({
-      emoji: data.emoji,
-      xPercent: data.xPercent,
-      senderName: data.senderName
-    });
-    if (shouldRelay) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-    return;
-  }
-
-  if (data.type === 'SOUNDBOARD_PLAY') {
-    soundboardManager.playSound(data.soundId);
-    showToast(`🔊 ${data.senderName || 'Alguém'} tocou um som no soundboard!`, 'info', 2500);
-    if (shouldRelay) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-    return;
-  }
-
-  if (data.type === 'SOUNDBOARD_PLAY_CUSTOM') {
-    if (data.audioBase64) {
-      try {
-        const wavBlob = base64ToWavBlob(data.audioBase64);
-        const ctx = getAudioContext();
-        if (ctx) {
-          decodeAudioFromBlob(wavBlob, ctx).then(buf => {
-            if (buf) playAudioBuffer(buf, ctx);
-          }).catch(() => {});
-        }
-      } catch (err) {
-        console.warn('[AudioMeme] Erro ao reproduzir som customizado P2P:', err);
-      }
-    }
-    const effectLabel = data.effectName ? ` (${data.effectName})` : '';
-    showToast(`🎙️ ${data.senderName || 'Alguém'} disparou um áudio meme${effectLabel}!`, 'info', 3000);
-    if (shouldRelay) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-    return;
-  }
-
-  if (data.type === 'WHITEBOARD_ELEMENT_ADD') {
-    const exists = whiteboardManager.elements.some(el => el.id === data.element?.id);
-    if (!exists && data.element) {
-      whiteboardManager.addElement(data.element, false);
-      if (shouldRelay) {
-        broadcastDataMessage(data, sourceConn?.peer);
-      }
-    }
-    return;
-  }
-
-  if (data.type === 'WHITEBOARD_ELEMENT_UPDATE') {
-    if (data.element) {
-      whiteboardManager.updateElement(data.element, false);
-      if (shouldRelay) {
-        broadcastDataMessage(data, sourceConn?.peer);
-      }
-    }
-    return;
-  }
-
-  if (data.type === 'WHITEBOARD_ELEMENT_DELETE') {
-    const exists = whiteboardManager.elements.some(el => el.id === data.elementId);
-    if (exists) {
-      whiteboardManager.removeElement(data.elementId, false);
-      if (shouldRelay) {
-        broadcastDataMessage(data, sourceConn?.peer);
-      }
-    }
-    return;
-  }
-
-  if (data.type === 'WHITEBOARD_CLEAR') {
-    if (whiteboardManager.elements.length > 0) {
-      whiteboardManager.clear(false);
-      if (shouldRelay) {
-        broadcastDataMessage(data, sourceConn?.peer);
-      }
-    }
-    return;
-  }
-
-  if (data.type === 'WHITEBOARD_CURSOR') {
-    whiteboardManager.updateRemoteCursor(sourceConn?.peer || 'remote-peer', {
-      x: data.x,
-      y: data.y,
-      userName: data.userName,
-      color: data.color
-    });
-    if (shouldRelay) {
-      broadcastDataMessage(data, sourceConn?.peer);
-    }
-    return;
-  }
-
-  if (data.type === 'WHITEBOARD_REQUEST_SYNC') {
-    if (sourceConn && sourceConn.open) {
-      const elements = whiteboardManager.elements;
-      if (elements && elements.length > 0) {
-        if (elements.length <= 25) {
-          sourceConn.send({
-            type: 'WHITEBOARD_SYNC',
-            elements
-          });
-        } else {
-          const CHUNK_SIZE = 20;
-          const syncId = 'wb_sync_' + Date.now();
-          for (let i = 0; i < elements.length; i += CHUNK_SIZE) {
-            const chunk = elements.slice(i, i + CHUNK_SIZE);
-            try {
-              sourceConn.send({
-                type: 'WHITEBOARD_SYNC_BATCH',
-                syncId,
-                elements: chunk,
-                batchIndex: Math.floor(i / CHUNK_SIZE),
-                totalBatches: Math.ceil(elements.length / CHUNK_SIZE),
-                isFinal: i + CHUNK_SIZE >= elements.length
-              });
-            } catch (e) {}
-          }
-        }
-      }
-    }
-    return;
-  }
-
-  if (data.type === 'WHITEBOARD_SYNC') {
-    whiteboardManager.setElements(data.elements);
-    return;
-  }
-
-  if (data.type === 'WHITEBOARD_SYNC_BATCH') {
-    if (data.batchIndex === 0) {
-      whiteboardManager.elements = [];
-    }
-    if (Array.isArray(data.elements)) {
-      data.elements.forEach(el => whiteboardManager.addElement(el, false));
-    }
-    return;
-  }
+  p2pDispatcher.dispatch(data, sourceConn, { checkDuplicates: false });
 }
 
 export let tuningAudioControls = null;
