@@ -816,6 +816,7 @@ pub fn reconfigure_native_capture(
         new_config.codec, new_config.h264_encoder, new_config.show_cursor, new_config.width, new_config.height, new_config.fps, new_config.bitrate_kbps
     ));
 
+    let previous_config = current_worker.config.clone();
     current_worker.stop();
 
     let target_audio_rtp_port = if new_config.audio_mode == AudioMode::None {
@@ -832,19 +833,36 @@ pub fn reconfigure_native_capture(
     ) {
         Ok(w) => w,
         Err(err) => {
-            crate::system::write_debug_log(&format!("[Capture] Falha ao reconfigurar worker GStreamer: {err}"));
-            session.state.state = "error".to_string();
-            session.state.error = Some(format!("Falha ao reconfigurar captura nativa: {err}"));
-            let cleanup = (
-                session.viewer_bridges.drain().collect::<Vec<_>>(),
-                session.local_bridge.take(),
-                session.fanout.take(),
-                session.worker.take(),
-            );
-            drop(cleanup);
-            let state_to_emit = session.state.clone();
-            emit_state(&app, &state_to_emit);
-            return Err(err);
+            crate::system::write_debug_log(&format!(
+                "[Capture] Falha ao reconfigurar worker GStreamer: {err}. Tentando rollback para configuração anterior..."
+            ));
+            match NativeMediaWorker::start_with_ports(
+                &session.validated_source,
+                previous_config,
+                video_rtp_port,
+                audio_rtp_port,
+            ) {
+                Ok(restored_worker) => {
+                    crate::system::write_debug_log("[Capture] Rollback concluído com sucesso; worker anterior restaurado.");
+                    session.worker = Some(restored_worker);
+                    return Err(format!("Falha na reconfiguração ({err}). Configuração anterior restaurada com sucesso."));
+                }
+                Err(rollback_err) => {
+                    crate::system::write_debug_log(&format!("[Capture] Falha crítica no rollback: {rollback_err}"));
+                    session.state.state = "error".to_string();
+                    session.state.error = Some(format!("Falha ao reconfigurar captura nativa: {err}; falha no rollback: {rollback_err}"));
+                    let cleanup = (
+                        session.viewer_bridges.drain().collect::<Vec<_>>(),
+                        session.local_bridge.take(),
+                        session.fanout.take(),
+                        session.worker.take(),
+                    );
+                    drop(cleanup);
+                    let state_to_emit = session.state.clone();
+                    emit_state(&app, &state_to_emit);
+                    return Err(err);
+                }
+            }
         }
     };
 
