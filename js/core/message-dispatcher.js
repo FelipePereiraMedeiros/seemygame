@@ -6,6 +6,8 @@
  * proteção contra falhas em cascata.
  */
 
+import { validateReceivedMessage } from '../protocol/transport.js';
+
 export class MessageDispatcher {
   constructor({ maxHistorySize = 500 } = {}) {
     // Map<string, Array<{ handler: Function, priority: number, description: string }>>
@@ -110,11 +112,11 @@ export class MessageDispatcher {
   dispatch(data, sourceConn = null, options = {}) {
     this._metrics.received++;
 
-    if (!data || typeof data !== 'object') {
+    if (!validateReceivedMessage(data, sourceConn)) {
       return { handled: false, duplicate: false, errorCount: 0 };
     }
 
-    const msgId = data.msgId || data.message?.id || data.id;
+    const msgId = data.msgId || data.message?.id;
     const shouldCheckDuplicate = options.checkDuplicates !== false;
 
     if (shouldCheckDuplicate && msgId && this.isDuplicate(msgId)) {

@@ -2,6 +2,7 @@ import { handleHostCoopMessage, handleViewerCoopMessage } from '../coop.js';
 
 export function bindSessionMessageHandlers(session, {
   role,
+  coopController = null,
   chatManager,
   voiceManager,
   getPeer = () => null,
@@ -103,9 +104,9 @@ export function bindSessionMessageHandlers(session, {
   for (const type of coopTypes) {
     register(type, (data, sourceConn) => {
       if (role === 'streamer' || role === 'room') {
-        if (sourceConn?.peer) handleHostCoopMessage(sourceConn.peer, data, sourceConn);
+        if (sourceConn?.peer) (coopController?.handleHostCoopMessage || handleHostCoopMessage)(sourceConn.peer, data, sourceConn);
       } else if (sourceConn?.peer) {
-        handleViewerCoopMessage(data, sourceConn.peer, getVideoCard(sourceConn.peer));
+        (coopController?.handleViewerCoopMessage || handleViewerCoopMessage)(data, sourceConn.peer, getVideoCard(sourceConn.peer));
       }
       relay(data, sourceConn);
     }, `Session Co-op: ${type}`);

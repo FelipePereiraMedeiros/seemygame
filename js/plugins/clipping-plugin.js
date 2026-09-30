@@ -21,18 +21,19 @@ export class ClippingPlugin extends BasePlugin {
 
     if (eventBus) {
       this.registerCleanup(
-        eventBus.on('stream:started', ({ stream }) => {
+        eventBus.on('stream:started', ({ stream, sourceId = 'local-me' }) => {
           if (stream) {
-            this.start(stream);
+            this.start(stream, sourceId);
           }
         })
       );
 
       this.registerCleanup(
-        eventBus.on('stream:stopped', () => {
-          this.stop();
+        eventBus.on('stream:stopped', ({ sourceId = null } = {}) => {
+          this.stop(sourceId);
         })
       );
+      this.registerCleanup(eventBus.on('stream:received', ({ stream, hostId }) => this.start(stream, hostId)));
     }
   }
 
@@ -40,11 +41,11 @@ export class ClippingPlugin extends BasePlugin {
    * Inicia a gravação do buffer circular com o MediaStream fornecido.
    * @param {MediaStream} stream
    */
-  start(stream) {
+  start(stream, sourceId = 'local-me') {
     if (!stream) return;
     this._activeStream = stream;
     try {
-      this.recorder.start(stream);
+      this.recorder.start(stream, sourceId);
     } catch (err) {
       console.warn('[ClippingPlugin] Falha ao iniciar gravação circular:', err);
     }
@@ -53,9 +54,9 @@ export class ClippingPlugin extends BasePlugin {
   /**
    * Encerra a gravação e limpa listeners associados.
    */
-  stop() {
+  stop(sourceId = null) {
     try {
-      this.recorder.stop();
+      this.recorder.stop(sourceId);
     } catch (err) {
       console.warn('[ClippingPlugin] Erro ao encerrar gravador:', err);
     }
@@ -64,12 +65,13 @@ export class ClippingPlugin extends BasePlugin {
 
   /**
    * Exporta os últimos segundos em um Blob WebM.
-   * @param {number} [durationSeconds=30]
+   * @param {string|null} [customFilename=null]
+   * @param {string|null} [sourceId=null]
    * @returns {Promise<Blob|null>}
    */
-  async exportClip(durationSeconds = 30) {
+  async exportClip(customFilename = null, sourceId = null) {
     try {
-      return await this.recorder.exportClip(durationSeconds);
+      return await this.recorder.exportClip(customFilename, sourceId);
     } catch (err) {
       console.error('[ClippingPlugin] Falha ao exportar clipe:', err);
       return null;

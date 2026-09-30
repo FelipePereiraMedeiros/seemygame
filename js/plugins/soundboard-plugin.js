@@ -40,10 +40,10 @@ export class SoundboardPlugin extends BasePlugin {
           if (data.audioBase64) {
             try {
               const wavBlob = base64ToWavBlob(data.audioBase64);
-              const ctx = getSharedAudioContext();
+              const ctx = this.context?.audioScope?.getContext() || getSharedAudioContext();
               if (ctx) {
                 decodeAudioFromBlob(wavBlob, ctx).then(buf => {
-                  if (buf) playAudioBuffer(buf, ctx);
+                  if (buf && this.enabled) playAudioBuffer(buf, ctx);
                 }).catch((err) => {
                   console.warn('[SoundboardPlugin] Falha ao decodificar áudio customizado:', err);
                 });

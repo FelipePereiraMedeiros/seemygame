@@ -10,6 +10,7 @@ class AudioContextPoolManager {
   constructor() {
     this._context = null;
     this._gestureListenersBound = false;
+    this._gestureCleanup = null;
   }
 
   /**
@@ -31,8 +32,9 @@ class AudioContextPoolManager {
       }
     }
 
-    if (this._context.state === 'suspended' && !this._gestureListenersBound) {
-      this._bindGestureResume();
+    if (this._context.state === 'suspended') {
+      try { Promise.resolve(this._context.resume()).catch(() => {}); } catch (_) {}
+      if (!this._gestureListenersBound) this._bindGestureResume();
     }
 
     return this._context;
@@ -52,17 +54,23 @@ class AudioContextPoolManager {
       document.removeEventListener('keydown', resume);
       document.removeEventListener('touchstart', resume);
       this._gestureListenersBound = false;
+      this._gestureCleanup = null;
     };
 
     document.addEventListener('click', resume, { once: true, passive: true });
     document.addEventListener('keydown', resume, { once: true, passive: true });
     document.addEventListener('touchstart', resume, { once: true, passive: true });
+    this._gestureCleanup = () => {
+      for (const event of ['click', 'keydown', 'touchstart']) document.removeEventListener(event, resume);
+    };
   }
 
   /**
    * Encerra o AudioContext e libera recursos de hardware de áudio.
    */
   close() {
+    this._gestureCleanup?.();
+    this._gestureCleanup = null;
     if (this._context && this._context.state !== 'closed') {
       try {
         this._context.close().catch(() => {});

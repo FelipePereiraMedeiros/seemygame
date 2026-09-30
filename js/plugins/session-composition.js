@@ -1,3 +1,6 @@
+import { SoundboardManager } from '../soundboard.js';
+import { TacticalPingManager } from '../ping.js';
+import { ClipRecorderRegistry } from '../clipping.js';
 import {
   createWhiteboardPlugin,
   createSoundboardPlugin,
@@ -6,6 +9,8 @@ import {
   createClippingPlugin
 } from './factories.js';
 import { bindWhiteboardUI } from '../whiteboard-ui.js';
+import { bindClipEditor } from '../clipping/editor-controller.js';
+import { NativeMediaPlugin } from './native-media-plugin.js';
 
 export function registerSessionFeatures(session, {
   role,
@@ -16,15 +21,20 @@ export function registerSessionFeatures(session, {
   chatManager = null,
   getPeerId = () => null,
   getRole = () => 'viewer',
-  includeClipping = false
+  includeClipping = false,
+  getCaptureProvider = () => null,
+  isAuthorizedPeer = () => false
 } = {}) {
   const plugins = [
     createWhiteboardPlugin(),
-    createSoundboardPlugin(),
-    createTacticalPingPlugin(),
+    createSoundboardPlugin({ manager: new SoundboardManager({ audioScope: session.audioScope }) }),
+    createTacticalPingPlugin({ manager: new TacticalPingManager({ audioScope: session.audioScope }) }),
     createReactionsPlugin()
   ];
-  if (includeClipping) plugins.push(createClippingPlugin());
+  if (includeClipping) plugins.push(createClippingPlugin({ recorder: new ClipRecorderRegistry({ audioScope: session.audioScope }) }));
+  plugins.push(new NativeMediaPlugin({ session, getProvider: getCaptureProvider, isAuthorized: isAuthorizedPeer,
+    onClip: sourceId => session.pluginManager.get('clipping')?.recorder.exportClip(null, sourceId)
+  }));
   for (const plugin of plugins) session.pluginManager.register(plugin);
 
   session.pluginManager.initAll({
@@ -33,6 +43,7 @@ export function registerSessionFeatures(session, {
     getViewersCount,
     getDisplayName,
     isRoomMode: () => role === 'room',
+    audioScope: session.audioScope,
     showToast
   });
 
@@ -55,5 +66,11 @@ export function registerSessionFeatures(session, {
     showToast
   });
   session.registerCleanup(() => whiteboardUI.destroy());
-  return { plugins, whiteboard, whiteboardUI, soundboard: session.pluginManager.get('soundboard'), ping, reactions, clipping: session.pluginManager.get('clipping') };
+  const soundboard = session.pluginManager.get('soundboard');
+  const clipping = session.pluginManager.get('clipping');
+  const clipEditor = clipping && typeof document !== 'undefined' ? bindClipEditor(session, {
+    recorder: clipping.recorder, soundboardManager: soundboard?.manager,
+    showToast, broadcastDataMessage, getPeerId
+  }) : null;
+  return { plugins, whiteboard, whiteboardUI, soundboard, ping, reactions, clipping, clipEditor, nativeMedia: session.pluginManager.get('native-media') };
 }

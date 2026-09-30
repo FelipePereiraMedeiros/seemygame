@@ -89,11 +89,11 @@ export function createMessageEnvelope(type, payload = {}, meta = {}) {
   }
 
   return {
+    ...payload,
     type,
     msgId: meta.msgId || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     timestamp: Number(meta.timestamp) || Date.now(),
-    senderPeerId: meta.senderPeerId || null,
-    ...payload
+    senderPeerId: meta.senderPeerId || null
   };
 }
 
@@ -107,7 +107,9 @@ export function isValidMessageEnvelope(data) {
     data &&
     typeof data === 'object' &&
     typeof data.type === 'string' &&
-    data.type.trim().length > 0
+    data.type.trim().length > 0 && data.type.length <= 128 &&
+    (data.msgId === undefined || (typeof data.msgId === 'string' && data.msgId.length <= 256)) &&
+    (data.senderPeerId == null || (typeof data.senderPeerId === 'string' && data.senderPeerId.length <= 64))
   );
 }
 

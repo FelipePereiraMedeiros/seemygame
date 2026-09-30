@@ -12,6 +12,7 @@
 import { EventBus, globalBus } from './event-bus.js';
 import { MessageDispatcher, globalDispatcher } from './message-dispatcher.js';
 import { PluginManager, globalPluginManager } from './plugin-manager.js';
+import { createAudioScope } from '../audio/context-scope.js';
 
 const activeExclusiveSessions = new Map();
 
@@ -31,7 +32,7 @@ export class SessionContext {
     this.sessionId = options.sessionId || `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     this.exclusiveKey = options.exclusiveKey || null;
     if (this.exclusiveKey && activeExclusiveSessions.has(this.exclusiveKey)) {
-      throw new Error(`Já existe uma sessão ativa para "${this.exclusiveKey}".`);
+      throw new Error(`Já existe uma sessão ativa para "${String(this.exclusiveKey)}".`);
     }
     if (this.exclusiveKey) activeExclusiveSessions.set(this.exclusiveKey, this);
     this.eventBus = options.eventBus || (options.useGlobal ? globalBus : new EventBus());
@@ -41,6 +42,11 @@ export class SessionContext {
     this.state = options.initialState || {};
     this._cleanups = [];
     this._disposed = false;
+    this.audioScope = options.audioScope || createAudioScope();
+    this.abortController = new AbortController();
+    this.signal = this.abortController.signal;
+    this._pendingDisposals = [];
+    if (!options.audioScope || options.ownsAudioScope === true) this.registerCleanup(() => this.audioScope.dispose());
   }
 
   /**
@@ -53,6 +59,10 @@ export class SessionContext {
    */
   registerCleanup(resource) {
     if (!resource) return () => {};
+    if (this._disposed) {
+      this._releaseResource(resource);
+      return () => {};
+    }
     this._cleanups.push(resource);
 
     return () => {
@@ -93,10 +103,11 @@ export class SessionContext {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this.abortController.abort();
 
     // 1. Destrói todos os plugins associados
     try {
-      this.pluginManager.destroyAll();
+      this._releaseResource(() => this.pluginManager.destroyAll());
     } catch (err) {
       console.warn(`[SessionContext:${this.role}] Erro ao destruir plugins:`, err);
     }
@@ -104,25 +115,7 @@ export class SessionContext {
     // 2. Executa cleanups na ordem LIFO (último adicionado, primeiro encerrado)
     while (this._cleanups.length > 0) {
       const resource = this._cleanups.pop();
-      try {
-        if (typeof resource === 'function') {
-          resource();
-        } else if (typeof resource.dispose === 'function') {
-          resource.dispose();
-        } else if (typeof resource.destroy === 'function') {
-          resource.destroy();
-        } else if (typeof resource.close === 'function') {
-          resource.close();
-        } else if (typeof resource.stop === 'function') {
-          resource.stop();
-        } else if (typeof MediaStream !== 'undefined' && resource instanceof MediaStream) {
-          resource.getTracks().forEach(t => {
-            try { t.stop(); } catch (e) {}
-          });
-        }
-      } catch (err) {
-        console.warn(`[SessionContext:${this.role}] Falha no cleanup de recurso:`, err);
-      }
+      this._releaseResource(resource);
     }
 
     // 3. Notifica encerramento no EventBus
@@ -140,6 +133,30 @@ export class SessionContext {
 
   get isDisposed() {
     return this._disposed;
+  }
+
+  _releaseResource(resource) {
+    try {
+      let result;
+      if (typeof resource === 'function') result = resource();
+      else if (typeof resource.dispose === 'function') result = resource.dispose();
+      else if (typeof resource.destroy === 'function') result = resource.destroy();
+      else if (typeof resource.close === 'function') result = resource.close();
+      else if (typeof resource.stop === 'function') result = resource.stop();
+      else if (typeof resource.getTracks === 'function') resource.getTracks().forEach(track => track.stop());
+      if (result && typeof result.then === 'function') {
+        this._pendingDisposals.push(Promise.resolve(result).catch(error => {
+          this.eventBus.emit('system:error', { sourceEvent: 'session:dispose', error });
+        }));
+      }
+    } catch (error) {
+      this.eventBus.emit('system:error', { sourceEvent: 'session:dispose', error });
+    }
+  }
+
+  async disposeAsync() {
+    this.dispose();
+    await Promise.allSettled(this._pendingDisposals);
   }
 }
 

@@ -82,15 +82,20 @@ export class PluginManager {
    * Encerra todos os plugins registrados.
    */
   destroyAll() {
+    const pending = [];
     for (const plugin of this.activePlugins) {
       try {
-        plugin.destroy();
+        const result = plugin.destroy();
+        if (result?.then) pending.push(Promise.resolve(result).catch(error => {
+          this.eventBus.emit('system:error', { sourceEvent: 'plugin:destroy', plugin: plugin.name, error });
+        }));
       } catch (err) {
         console.error(`[PluginManager] Falha ao encerrar o plugin "${plugin.name}":`, err);
       }
     }
     this.activePlugins.clear();
     this.plugins.clear();
+    return Promise.allSettled(pending);
   }
 }
 

@@ -3,6 +3,9 @@
  */
 
 // Viewer entrypoint
+export { createViewerSession } from '../session/viewer-session.js';
+export { createStreamerSession } from '../session/streamer-session.js';
+export { createRoomSession } from '../session/room-session.js';
 export {
   initViewerApp,
   isViewerPage,

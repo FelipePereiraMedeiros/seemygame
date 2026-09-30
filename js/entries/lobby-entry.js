@@ -268,15 +268,4 @@ export async function initGreenRoomPreflight(elements = {}) {
 }
 
 // Auto-inicialização somente quando carregado como entrypoint direto da página
-if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  const isLobby = window.location && window.location.pathname.endsWith('lobby.html');
-  const isDirectEntry = Boolean(document.querySelector?.('script[src*="lobby-entry"]'));
-  if (isLobby && isDirectEntry && !window.__SEEMYGAME_BOOTSTRAPPED__) {
-    window.__SEEMYGAME_BOOTSTRAPPED__ = 'lobby';
-    if (document.readyState === 'loading') {
-      window.addEventListener('DOMContentLoaded', () => initLobbyApp());
-    } else {
-      initLobbyApp();
-    }
-  }
-}
+
