@@ -879,4 +879,148 @@ describe('R3. On-Demand Render Loop & Resource Management', () => {
     expect(viewer.controllerGroup.position.x).toBe(0);
     expect(viewer.controllerGroup.rotation.z).toBeCloseTo(viewer.targetRotation.z, 4);
   });
+
+  it('_getEffectiveDimensions calcula 420x250 e aspecto 1.68 em estado oculto e dimensões reais quando visível', () => {
+    const hiddenParent = document.createElement('div');
+    hiddenParent.style.display = 'none';
+    const hiddenCanvas = document.createElement('canvas');
+    hiddenParent.appendChild(hiddenCanvas);
+    document.body.appendChild(hiddenParent);
+
+    const testViewer = new Gamepad3DViewer({
+      canvas: hiddenCanvas,
+      renderer: createMockRenderer(hiddenCanvas)
+    });
+
+    const dimsHidden = testViewer._getEffectiveDimensions();
+    expect(dimsHidden.width).toBe(420);
+    expect(dimsHidden.height).toBe(250);
+    expect(dimsHidden.isVisible).toBe(false);
+
+    testViewer.init();
+    expect(testViewer.camera.aspect).toBeCloseTo(420 / 250, 4);
+
+    // Quando exibido com dimensões positivas
+    hiddenParent.style.display = 'flex';
+    Object.defineProperty(hiddenCanvas, 'clientWidth', { value: 600, configurable: true });
+    Object.defineProperty(hiddenCanvas, 'clientHeight', { value: 300, configurable: true });
+
+    const dimsVisible = testViewer._getEffectiveDimensions();
+    expect(dimsVisible.width).toBe(600);
+    expect(dimsVisible.height).toBe(300);
+    expect(dimsVisible.isVisible).toBe(true);
+
+    testViewer.destroy();
+    document.body.removeChild(hiddenParent);
+  });
+
+  it('integra ResizeObserver para responder a reflows de layout e desconecta em destroy()', () => {
+    let observedTarget = null;
+    let observerCallback = null;
+    const disconnectSpy = vi.fn();
+
+    class MockResizeObserver {
+      constructor(callback) {
+        observerCallback = callback;
+      }
+      observe(target) {
+        observedTarget = target;
+      }
+      disconnect() {
+        disconnectSpy();
+      }
+    }
+
+    const origResizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = MockResizeObserver;
+
+    try {
+      const containerEl = document.createElement('div');
+      const canvasEl = document.createElement('canvas');
+      containerEl.appendChild(canvasEl);
+      document.body.appendChild(containerEl);
+
+      const observerViewer = new Gamepad3DViewer({
+        container: containerEl,
+        canvas: canvasEl,
+        renderer: createMockRenderer(canvasEl)
+      });
+
+      observerViewer.init();
+      expect(observedTarget).toBe(containerEl);
+
+      // Simula reflow disparado pelo ResizeObserver
+      Object.defineProperty(canvasEl, 'clientWidth', { value: 500, configurable: true });
+      Object.defineProperty(canvasEl, 'clientHeight', { value: 300, configurable: true });
+      observerCallback([{ contentRect: { width: 500, height: 300 } }]);
+
+      expect(observerViewer.camera.aspect).toBeCloseTo(500 / 300, 3);
+
+      observerViewer.destroy();
+      expect(disconnectSpy).toHaveBeenCalled();
+      expect(observerViewer.resizeObserver).toBeNull();
+
+      document.body.removeChild(containerEl);
+    } finally {
+      globalThis.ResizeObserver = origResizeObserver;
+    }
+  });
+
+  it('ilumina com brilho emissivo ciano os analógicos L3 e R3 ao clicar e desativa ao soltar', () => {
+    const stickL = viewer.parts.stickL;
+    const stickR = viewer.parts.stickR;
+
+    const recordsL = viewer.partMaterials.get(stickL);
+    const recordsR = viewer.partMaterials.get(stickR);
+    expect(recordsL && recordsL.length > 0).toBe(true);
+    expect(recordsR && recordsR.length > 0).toBe(true);
+
+    // Estado inicial de repouso (sem emissivo ativo)
+    for (const { material, baseEmissive, baseIntensity } of recordsL) {
+      expect(material.emissive.getHex()).toBe(baseEmissive.getHex());
+      expect(material.emissiveIntensity).toBeCloseTo(baseIntensity, 3);
+    }
+    for (const { material, baseEmissive, baseIntensity } of recordsR) {
+      expect(material.emissive.getHex()).toBe(baseEmissive.getHex());
+      expect(material.emissiveIntensity).toBeCloseTo(baseIntensity, 3);
+    }
+
+    // Pressiona L3 (botão 10) e R3 (botão 11)
+    viewer.updateInputs({
+      axes: [0, 0, 0, 0],
+      buttons: [
+        ...Array(10).fill({ pressed: false, value: 0 }),
+        { pressed: true, value: 1.0 }, // 10: L3
+        { pressed: true, value: 1.0 }  // 11: R3
+      ],
+      connected: true
+    });
+
+    for (const { material, baseIntensity } of recordsL) {
+      expect(material.emissive.getHex()).toBe(0x06b6d4);
+      expect(material.emissiveIntensity).toBeGreaterThan(baseIntensity);
+    }
+    for (const { material, baseIntensity } of recordsR) {
+      expect(material.emissive.getHex()).toBe(0x06b6d4);
+      expect(material.emissiveIntensity).toBeGreaterThan(baseIntensity);
+    }
+
+    // Solta L3 e R3
+    viewer.updateInputs({
+      axes: [0, 0, 0, 0],
+      buttons: [
+        ...Array(12).fill({ pressed: false, value: 0 })
+      ],
+      connected: true
+    });
+
+    for (const { material, baseEmissive, baseIntensity } of recordsL) {
+      expect(material.emissive.getHex()).toBe(baseEmissive.getHex());
+      expect(material.emissiveIntensity).toBeCloseTo(baseIntensity, 3);
+    }
+    for (const { material, baseEmissive, baseIntensity } of recordsR) {
+      expect(material.emissive.getHex()).toBe(baseEmissive.getHex());
+      expect(material.emissiveIntensity).toBeCloseTo(baseIntensity, 3);
+    }
+  });
 });

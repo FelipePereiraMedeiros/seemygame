@@ -1230,6 +1230,8 @@ export function setupGamepadTesterModal() {
   const mappingStatus = document.getElementById('gamepad-mapping-status');
 
   if (!modal) return;
+  if (modal.dataset.testerMounted === 'true') return;
+  modal.dataset.testerMounted = 'true';
 
   let animId = null;
   let gamepadOptionsSignature = '';

@@ -69,6 +69,7 @@ export class Gamepad3DViewer {
     this.mouse = { x: 0, y: 0, isHovering: false };
     this._renderedWidth = 0;
     this._renderedHeight = 0;
+    this.resizeObserver = null;
 
     // Estado do rumble
     this.rumbleIntensity = 0;
@@ -128,9 +129,8 @@ export class Gamepad3DViewer {
       this.scene = new THREE.Scene();
 
       // Câmera Perspectiva
-      const width = (this.canvas && this.canvas.clientWidth) || 380;
-      const height = (this.canvas && this.canvas.clientHeight) || 240;
-      const aspect = width / (height || 1);
+      const dims = this._getEffectiveDimensions();
+      const aspect = dims.width / (dims.height || 1);
       this.camera = new THREE.PerspectiveCamera(34, aspect, 0.1, 100);
       this.camera.position.set(0, 2.35, 3.35);
       this.camera.lookAt(0, -0.05, 0.08);
@@ -153,8 +153,28 @@ export class Gamepad3DViewer {
       // Setup de mouse tracking no container e canvas
       this._setupMouseTracking();
 
-      this._onResize();
+      this._onResize(true);
       window.addEventListener('resize', this._onResize);
+
+      if (typeof ResizeObserver !== 'undefined') {
+        const observeTarget = this.container || (this.canvas && this.canvas.parentElement) || this.canvas;
+        if (observeTarget) {
+          try {
+            this.resizeObserver = new ResizeObserver((entries) => {
+              for (const entry of entries) {
+                const cr = entry.contentRect;
+                if (!cr || cr.width > 0 || cr.height > 0) {
+                  this._onResize(false);
+                  break;
+                }
+              }
+            });
+            this.resizeObserver.observe(observeTarget);
+          } catch (e) {
+            console.warn('[Gamepad3DViewer] Falha ao inicializar ResizeObserver:', e);
+          }
+        }
+      }
 
       this.isInitialized = true;
       this.requestRender();
@@ -463,39 +483,10 @@ export class Gamepad3DViewer {
     this.requestRender();
   }
 
-  _onResize() {
-    if (!this.canvas || !this.renderer || !this.camera) return;
-
-    const width = this.canvas.clientWidth || 380;
-    const height = this.canvas.clientHeight || 240;
-
-    if (this._renderedWidth !== width || this._renderedHeight !== height) {
-      this._renderedWidth = width;
-      this._renderedHeight = height;
-      if (this.renderer.setSize) {
-        this.renderer.setSize(width, height, false);
-      }
-      this.camera.aspect = width / (height || 1);
-      this.camera.updateProjectionMatrix();
-      this.requestRender();
-    }
-  }
-
   /**
-   * Dispara feedback visual de vibração física do controle (Rumble)
+   * Verifica se o elemento HTML (ou algum ancestral) está oculto no DOM
    */
-  triggerRumble(intensity = 1.0) {
-    const val = Number(intensity);
-    if (!Number.isFinite(val) || val <= 0) return;
-    this.rumbleIntensity = Math.min(1.0, Math.max(this.rumbleIntensity, val));
-    this.requestRender();
-  }
-
-  /**
-   * Verifica se o visualizador está pausado ou o elemento HTML (ou algum ancestral) está oculto
-   */
-  _isElementHidden() {
-    if (this.isPaused) return true;
+  _isDomHidden() {
     if (typeof window !== 'undefined') {
       const targetEl = this.canvas || this.container;
       if (!targetEl) return false;
@@ -526,6 +517,104 @@ export class Gamepad3DViewer {
   }
 
   /**
+   * Mede dimensões reais do contêiner/canvas ou retorna fallback anatômico 420x250 (aspecto 1.68)
+   */
+  _getEffectiveDimensions() {
+    let width = 0;
+    let height = 0;
+    let isVisible = false;
+
+    const isDomHidden = this._isDomHidden();
+
+    if (!isDomHidden && this.canvas) {
+      if (this.canvas.clientWidth > 0 && this.canvas.clientHeight > 0) {
+        width = this.canvas.clientWidth;
+        height = this.canvas.clientHeight;
+        isVisible = true;
+      } else if (typeof this.canvas.getBoundingClientRect === 'function') {
+        const rect = this.canvas.getBoundingClientRect();
+        if (rect && rect.width > 0 && rect.height > 0) {
+          width = Math.round(rect.width);
+          height = Math.round(rect.height);
+          isVisible = true;
+        }
+      }
+    }
+
+    if (!isVisible && !isDomHidden) {
+      const containerEl = this.container || (this.canvas && this.canvas.parentElement);
+      if (containerEl) {
+        if (containerEl.clientWidth > 0 && containerEl.clientHeight > 0) {
+          width = containerEl.clientWidth;
+          height = containerEl.clientHeight;
+          isVisible = true;
+        } else if (typeof containerEl.getBoundingClientRect === 'function') {
+          const rect = containerEl.getBoundingClientRect();
+          if (rect && rect.width > 0 && rect.height > 0) {
+            width = Math.round(rect.width);
+            height = Math.round(rect.height);
+            isVisible = true;
+          }
+        }
+      }
+    }
+
+    if (!isVisible && this.canvas) {
+      const attrW = parseInt(this.canvas.getAttribute?.('width'), 10);
+      const attrH = parseInt(this.canvas.getAttribute?.('height'), 10);
+      if (Number.isFinite(attrW) && attrW > 0 && Number.isFinite(attrH) && attrH > 0) {
+        width = attrW;
+        height = attrH;
+      }
+    }
+
+    if (!width || !height || width <= 0 || height <= 0) {
+      width = 420;
+      height = 250;
+    }
+
+    return { width, height, isVisible };
+  }
+
+  _onResize(force = false) {
+    if (!this.canvas || !this.renderer || !this.camera) return;
+
+    const dims = this._getEffectiveDimensions();
+    const width = dims.width;
+    const height = dims.height;
+
+    const isForced = force === true;
+    if (isForced || this._renderedWidth !== width || this._renderedHeight !== height) {
+      this._renderedWidth = width;
+      this._renderedHeight = height;
+      if (this.renderer.setSize) {
+        this.renderer.setSize(width, height, false);
+      }
+      this.camera.aspect = width / (height || 1);
+      this.camera.updateProjectionMatrix();
+      this.requestRender();
+    }
+  }
+
+  /**
+   * Dispara feedback visual de vibração física do controle (Rumble)
+   */
+  triggerRumble(intensity = 1.0) {
+    const val = Number(intensity);
+    if (!Number.isFinite(val) || val <= 0) return;
+    this.rumbleIntensity = Math.min(1.0, Math.max(this.rumbleIntensity, val));
+    this.requestRender();
+  }
+
+  /**
+   * Verifica se o visualizador está pausado ou o elemento HTML (ou algum ancestral) está oculto
+   */
+  _isElementHidden() {
+    if (this.isPaused) return true;
+    return this._isDomHidden();
+  }
+
+  /**
    * Solicita execução ativa do loop de renderização (acorda da ociosidade 0 FPS)
    */
   requestRender() {
@@ -543,7 +632,14 @@ export class Gamepad3DViewer {
   start() {
     this.isPaused = false;
     this._lastInputs = null;
-    this._onResize();
+    this._onResize(true);
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        if (!this.isDestroyed && !this.isPaused) {
+          this._onResize(true);
+        }
+      });
+    }
     this.requestRender();
   }
 
@@ -683,6 +779,7 @@ export class Gamepad3DViewer {
         this.parts.stickL.rotation.x = init.rot.x + ly * MAX_STICK_ANGLE;
         this.parts.stickL.rotation.z = init.rot.z - lx * MAX_STICK_ANGLE;
         this.parts.stickL.position.y = init.pos.y - (l3Pressed ? 0.04 : 0);
+        this._setPartEmissive(this.parts.stickL, l3Pressed, 0x06b6d4);
 
         if (this.stickLCapParts && this.stickLCapParts.length > 0) {
           const capDeltaY = l3Pressed ? 0.04 : 0;
@@ -708,6 +805,7 @@ export class Gamepad3DViewer {
         this.parts.stickR.rotation.x = init.rot.x + ry * MAX_STICK_ANGLE;
         this.parts.stickR.rotation.z = init.rot.z - rx * MAX_STICK_ANGLE;
         this.parts.stickR.position.y = init.pos.y - (r3Pressed ? 0.04 : 0);
+        this._setPartEmissive(this.parts.stickR, r3Pressed, 0x06b6d4);
 
         if (this.stickRCapParts && this.stickRCapParts.length > 0) {
           const capDeltaY = r3Pressed ? 0.04 : 0;
@@ -930,6 +1028,12 @@ export class Gamepad3DViewer {
    */
   destroy() {
     this.stop();
+    if (this.resizeObserver) {
+      try {
+        this.resizeObserver.disconnect();
+      } catch (_) {}
+      this.resizeObserver = null;
+    }
     if (typeof window !== 'undefined') {
       window.removeEventListener('resize', this._onResize);
     }
