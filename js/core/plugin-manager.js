@@ -5,11 +5,15 @@
  * inicialização unificada e encerramento ordenado com barreira de falha.
  */
 
+import { globalBus } from './event-bus.js';
+import { globalDispatcher } from './message-dispatcher.js';
+
 export class PluginManager {
   constructor({ eventBus = null, dispatcher = null } = {}) {
-    this.eventBus = eventBus;
-    this.dispatcher = dispatcher;
+    this.eventBus = eventBus || globalBus;
+    this.dispatcher = dispatcher || globalDispatcher;
     this.plugins = new Map(); // name -> pluginInstance
+    this.activePlugins = new Set();
   }
 
   /**
@@ -38,7 +42,10 @@ export class PluginManager {
 
     for (const [name, plugin] of this.plugins.entries()) {
       try {
-        plugin.init(mergedContext);
+        const initialized = plugin.init(mergedContext);
+        // Só destrói instâncias cuja inicialização este manager efetivamente
+        // assumiu; um plugin BasePlugin já ativo em outra sessão retorna false.
+        if (initialized !== false) this.activePlugins.add(plugin);
       } catch (err) {
         console.error(`[PluginManager] Falha ao inicializar o plugin "${name}":`, err);
       }
@@ -60,10 +67,12 @@ export class PluginManager {
   destroy(name) {
     const plugin = this.plugins.get(name);
     if (plugin) {
-      try {
-        plugin.destroy();
-      } catch (err) {
-        console.error(`[PluginManager] Falha ao encerrar o plugin "${name}":`, err);
+      if (this.activePlugins.delete(plugin)) {
+        try {
+          plugin.destroy();
+        } catch (err) {
+          console.error(`[PluginManager] Falha ao encerrar o plugin "${name}":`, err);
+        }
       }
       this.plugins.delete(name);
     }
@@ -73,13 +82,14 @@ export class PluginManager {
    * Encerra todos os plugins registrados.
    */
   destroyAll() {
-    for (const [name, plugin] of this.plugins.entries()) {
+    for (const plugin of this.activePlugins) {
       try {
         plugin.destroy();
       } catch (err) {
-        console.error(`[PluginManager] Falha ao encerrar o plugin "${name}":`, err);
+        console.error(`[PluginManager] Falha ao encerrar o plugin "${plugin.name}":`, err);
       }
     }
+    this.activePlugins.clear();
     this.plugins.clear();
   }
 }

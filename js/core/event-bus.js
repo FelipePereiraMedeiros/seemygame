@@ -87,7 +87,24 @@ export class EventBus {
       }
 
       try {
-        entry.handler(payload);
+        const res = entry.handler(payload);
+        if (res && typeof res.catch === 'function') {
+          res.catch((error) => {
+            console.error(`[${this.name}] Erro assíncrono capturado e isolado no ouvinte de "${event}":`, error);
+            if (!this._isDispatchingError && event !== 'system:error') {
+              this._isDispatchingError = true;
+              try {
+                this.emit('system:error', {
+                  sourceEvent: event,
+                  error,
+                  payload
+                });
+              } finally {
+                this._isDispatchingError = false;
+              }
+            }
+          });
+        }
         successCount++;
       } catch (error) {
         console.error(`[${this.name}] Erro capturado e isolado no ouvinte de "${event}":`, error);

@@ -138,7 +138,13 @@ export class MessageDispatcher {
     if (list && list.length > 0) {
       for (const entry of list) {
         try {
-          entry.handler(data, sourceConn);
+          const res = entry.handler(data, sourceConn);
+          if (res && typeof res.catch === 'function') {
+            res.catch((err) => {
+              this._metrics.errors++;
+              console.error(`[MessageDispatcher] Erro assíncrono isolado no handler de "${type}" (${entry.description || 'anônimo'}):`, err);
+            });
+          }
         } catch (err) {
           errorCount++;
           this._metrics.errors++;
@@ -151,7 +157,13 @@ export class MessageDispatcher {
 
     if (this._fallbackHandler) {
       try {
-        this._fallbackHandler(data, sourceConn);
+        const res = this._fallbackHandler(data, sourceConn);
+        if (res && typeof res.catch === 'function') {
+          res.catch((err) => {
+            this._metrics.errors++;
+            console.error(`[MessageDispatcher] Erro assíncrono isolado no fallbackHandler para "${type}":`, err);
+          });
+        }
         this._metrics.dispatched++;
         return { handled: true, duplicate: false, errorCount: 0 };
       } catch (err) {
@@ -184,3 +196,4 @@ export class MessageDispatcher {
 }
 
 export const globalDispatcher = new MessageDispatcher();
+export const p2pDispatcher = globalDispatcher;

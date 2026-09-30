@@ -27,7 +27,7 @@ export class BasePlugin {
    * @param {Function} [context.isRoomMode]
    */
   init(context = {}) {
-    if (this.enabled) return;
+    if (this.enabled) return false;
     this.context = context;
     this.enabled = true;
 
@@ -36,6 +36,7 @@ export class BasePlugin {
       if (this.context?.eventBus) {
         this.context.eventBus.emit(`plugin:${this.name}:initialized`, { name: this.name });
       }
+      return true;
     } catch (err) {
       console.error(`[BasePlugin] Erro durante inicialização do plugin "${this.name}":`, err);
       this.destroy();
