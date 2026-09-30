@@ -22,6 +22,7 @@ import { setupGamepadTesterModal as setupGamepadTesterModalImpl } from './tester
 export function createCoopController(options = {}) {
 
 const compatibilityPorts = Object.defineProperties({}, {
+"sendMessage": { get: () => options.sendMessage },
 "showToast": { get: () => showToast },
 "isNativeGamepadAvailable": { get: () => isNativeGamepadAvailable },
 "plugVirtualGamepad": { get: () => plugVirtualGamepad },
@@ -283,7 +284,10 @@ function attachPlayer2InputListeners(...args) { return attachPlayer2InputListene
 function detachPlayer2InputListeners(...args) { return detachPlayer2InputListenersImpl(compatibilityPorts, ...args); }
 
 let testerCleanup = null;
+let testerModal = null;
 function setupGamepadTesterModal(...args) {
+  const current = typeof document !== 'undefined' ? document.getElementById('gamepad-tester-modal') : null;
+  if (current !== testerModal) { testerCleanup?.(); testerCleanup = null; testerModal = current; }
   if (!testerCleanup) testerCleanup = setupGamepadTesterModalImpl(compatibilityPorts, ...args);
   return testerCleanup;
 }

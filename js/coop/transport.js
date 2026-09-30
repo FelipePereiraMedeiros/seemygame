@@ -1,3 +1,4 @@
+import { sendCoopMessage } from './message-transport.js';
 /** transport: commands receive explicit compatibility ports; no page initialization. */
 export function isTauriEnvironment(compatibilityContext) {
   return compatibilityContext.isNativeGamepadAvailable();
@@ -104,7 +105,7 @@ export function initCompanionAgentConnection(compatibilityContext, token = null,
           compatibilityContext.showToast('⚡ Agente Co-op Windows conectado e pareado.', 'success', 5000);
           if (compatibilityContext.activeDataConn && compatibilityContext.activeDataConn.open !== false) {
             try {
-              compatibilityContext.activeDataConn.send({
+              sendCoopMessage(compatibilityContext, compatibilityContext.activeDataConn, {
                 type: 'COOP_CAPABILITIES',
                 keyboard: true,
                 mouse: Boolean(compatibilityContext.companionCapabilities.mouse),

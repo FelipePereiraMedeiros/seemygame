@@ -1,4 +1,4 @@
-import { sendSessionMessage } from '../protocol/transport.js';
+import { sendSessionMessage, validateReceivedMessage } from '../protocol/transport.js';
 import { isValidPeerId } from ".././shared/peer-id.js";
 import { sanitizeRoomId } from ".././room/room-id.js";
 import { ROOM_PREFIX, MASTER_SUFFIX, MAX_ROOM_MEMBERS, MAX_PENDING_ROOM_CONNECTIONS, MAX_ROOM_MESSAGE_BYTES, ROOM_HEARTBEAT_INTERVAL_MS, ROOM_MEMBER_TIMEOUT_MS, sanitizeText, hashRoomKey, getRoomMasterPeerId, isWithinMessageLimit } from './shared.js';
@@ -6,6 +6,7 @@ import { ROOM_PREFIX, MASTER_SUFFIX, MAX_ROOM_MEMBERS, MAX_PENDING_ROOM_CONNECTI
 export const withRoomManagerMessageHandlers = Base => class extends Base {
 handleRoomMessage(senderPeerId, message, conn) {
     if (!message || typeof message !== 'object') return false;
+    if (!validateReceivedMessage(message, conn)) return true;
 
     if (!isValidPeerId(senderPeerId)) return true;
     try {

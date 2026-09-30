@@ -336,7 +336,10 @@ function detachPlayer2InputListeners(...args) { return detachPlayer2InputListene
  * Inicializa os controles e HUD interativo do Modal de Calibração de Gamepad
  */
 export let testerCleanup = null;
-function setupGamepadTesterModal(...args) {
+let testerModal = null;
+export function setupGamepadTesterModal(...args) {
+  const current = typeof document !== 'undefined' ? document.getElementById('gamepad-tester-modal') : null;
+  if (current !== testerModal) { testerCleanup?.(); testerCleanup = null; testerModal = current; }
   if (!testerCleanup) testerCleanup = setupGamepadTesterModalImpl(compatibilityPorts, ...args);
   return testerCleanup;
 }

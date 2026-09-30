@@ -1,3 +1,4 @@
+import { sendCoopMessage } from './message-transport.js';
 /** input: commands receive explicit compatibility ports; no page initialization. */
 export function handleKeyDown(compatibilityContext, e) {
   if (!compatibilityContext.isPlayer2 || !compatibilityContext.activeDataConn || !compatibilityContext.attachedCard) return;
@@ -13,7 +14,7 @@ export function handleKeyDown(compatibilityContext, e) {
     e.preventDefault();
   }
 
-  compatibilityContext.activeDataConn.send({
+  sendCoopMessage(compatibilityContext, compatibilityContext.activeDataConn, {
     type: 'INPUT_KEY',
     slot: compatibilityContext.myAssignedSlot !== null ? compatibilityContext.myAssignedSlot : 1,
     action: 'down',
@@ -30,7 +31,7 @@ export function handleKeyUp(compatibilityContext, e) {
     return;
   }
 
-  compatibilityContext.activeDataConn.send({
+  sendCoopMessage(compatibilityContext, compatibilityContext.activeDataConn, {
     type: 'INPUT_KEY',
     slot: compatibilityContext.myAssignedSlot !== null ? compatibilityContext.myAssignedSlot : 1,
     action: 'up',
@@ -46,7 +47,7 @@ export function focusControlWrapper(compatibilityContext, e) {
 
 export function handleControlVisibilityChange(compatibilityContext) {
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden' && compatibilityContext.isPlayer2 && compatibilityContext.activeDataConn) {
-    try { compatibilityContext.activeDataConn.send({ type: 'INPUT_RESET' }); } catch (e) {}
+    try { sendCoopMessage(compatibilityContext, compatibilityContext.activeDataConn, { type: 'INPUT_RESET' }); } catch (e) {}
   }
 }
 
@@ -63,7 +64,7 @@ export function handleMouseMove(compatibilityContext, e) {
   const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
   const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
 
-  compatibilityContext.activeDataConn.send({
+  sendCoopMessage(compatibilityContext, compatibilityContext.activeDataConn, {
     type: 'INPUT_MOUSE',
     slot: compatibilityContext.myAssignedSlot !== null ? compatibilityContext.myAssignedSlot : 1,
     action: 'move',
@@ -74,7 +75,7 @@ export function handleMouseMove(compatibilityContext, e) {
 
 export function handleMouseDown(compatibilityContext, e) {
   if (!compatibilityContext.isPlayer2 || !compatibilityContext.activeDataConn || compatibilityContext.activeHostCapabilities.mouse === false) return;
-  compatibilityContext.activeDataConn.send({
+  sendCoopMessage(compatibilityContext, compatibilityContext.activeDataConn, {
     type: 'INPUT_MOUSE',
     slot: compatibilityContext.myAssignedSlot !== null ? compatibilityContext.myAssignedSlot : 1,
     action: 'down',
@@ -84,7 +85,7 @@ export function handleMouseDown(compatibilityContext, e) {
 
 export function handleMouseUp(compatibilityContext, e) {
   if (!compatibilityContext.isPlayer2 || !compatibilityContext.activeDataConn || compatibilityContext.activeHostCapabilities.mouse === false) return;
-  compatibilityContext.activeDataConn.send({
+  sendCoopMessage(compatibilityContext, compatibilityContext.activeDataConn, {
     type: 'INPUT_MOUSE',
     slot: compatibilityContext.myAssignedSlot !== null ? compatibilityContext.myAssignedSlot : 1,
     action: 'up',
@@ -188,7 +189,7 @@ export function pollGamepads(compatibilityContext) {
       const serialized = JSON.stringify(currentState);
       if (serialized !== compatibilityContext.lastGamepadState) {
         compatibilityContext.lastGamepadState = serialized;
-        compatibilityContext.activeDataConn.send({
+        sendCoopMessage(compatibilityContext, compatibilityContext.activeDataConn, {
           type: 'INPUT_GAMEPAD',
           slot: compatibilityContext.myAssignedSlot !== null ? compatibilityContext.myAssignedSlot : 1,
           state: currentState

@@ -1,3 +1,4 @@
+import { sendCoopMessage } from './message-transport.js';
 /** host: commands receive explicit compatibility ports; no page initialization. */
 export function handleHostCoopMessage(compatibilityContext, senderPeerId, data, conn) {
   if (!data || typeof data !== 'object') return;
@@ -5,14 +6,14 @@ export function handleHostCoopMessage(compatibilityContext, senderPeerId, data, 
   // 1. Pedido de entrada no Co-op
   if (data.type === 'COOP_REQUEST') {
     if (!compatibilityContext.isCoopEnabled) {
-      conn.send({ type: 'COOP_RESPONSE', approved: false, reason: 'O streamer desativou o modo Co-op.' });
+      sendCoopMessage(compatibilityContext, conn, { type: 'COOP_RESPONSE', approved: false, reason: 'O streamer desativou o modo Co-op.' });
       return;
     }
 
     // Se este peer já estiver alocado em um slot, reconfirma aprovação
     for (const [s, p] of compatibilityContext.coopSlots.entries()) {
       if (p.peerId === senderPeerId) {
-        conn.send({ type: 'COOP_RESPONSE', approved: true, slot: s });
+        sendCoopMessage(compatibilityContext, conn, { type: 'COOP_RESPONSE', approved: true, slot: s });
         return;
       }
     }
@@ -23,7 +24,7 @@ export function handleHostCoopMessage(compatibilityContext, senderPeerId, data, 
       const reason = compatibilityContext.maxCoopPlayers === 1
         ? 'Já existe um Player 2 conectado na sessão.'
         : 'Todos os 4 slots de Co-op estão ocupados no momento.';
-      conn.send({ type: 'COOP_RESPONSE', approved: false, reason });
+      sendCoopMessage(compatibilityContext, conn, { type: 'COOP_RESPONSE', approved: false, reason });
       return;
     }
 
@@ -57,12 +58,12 @@ export function handleHostCoopMessage(compatibilityContext, senderPeerId, data, 
 
           const sendApproval = (nativeGamepadReady) => {
             if (!isStillValid()) return;
-            conn.send({
+            sendCoopMessage(compatibilityContext, conn, {
               type: 'COOP_RESPONSE',
               approved: true
             });
 
-            conn.send({
+            sendCoopMessage(compatibilityContext, conn, {
               type: 'COOP_CAPABILITIES',
               slot: finalSlot,
               keyboard: finalSlot === 1,
@@ -92,7 +93,7 @@ export function handleHostCoopMessage(compatibilityContext, senderPeerId, data, 
               .catch((error) => {
                 if (!isStillValid()) return;
                 compatibilityContext.coopSlots.delete(finalSlot);
-                conn.send({
+                sendCoopMessage(compatibilityContext, conn, {
                   type: 'COOP_RESPONSE',
                   approved: false,
                   reason: error?.message || 'Gamepad virtual indisponível neste desktop.'
@@ -106,7 +107,7 @@ export function handleHostCoopMessage(compatibilityContext, senderPeerId, data, 
           }
         },
         deny: (reason = 'Solicitação recusada pelo streamer.') => {
-          conn.send({ type: 'COOP_RESPONSE', approved: false, reason });
+          sendCoopMessage(compatibilityContext, conn, { type: 'COOP_RESPONSE', approved: false, reason });
           compatibilityContext.showToast(`Pedido de Co-op de (${senderPeerId.slice(0, 6)}) recusado.`, 'info');
         }
       });
@@ -207,7 +208,7 @@ export function revokeCoopPlayer(compatibilityContext, slot, notify = true) {
 
   if (notify && player.conn && player.conn.open !== false) {
     try {
-      player.conn.send({ type: 'COOP_REVOKE' });
+      sendCoopMessage(compatibilityContext, player.conn, { type: 'COOP_REVOKE' });
     } catch (e) {}
   }
 

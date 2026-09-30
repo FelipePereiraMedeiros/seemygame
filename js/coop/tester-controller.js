@@ -69,25 +69,25 @@ export function setupGamepadTesterModal(compatibilityContext) {
   presetSelect?.addEventListener('change', (e) => {
     compatibilityContext.setGamepadMappingPreset(e.target.value);
     updateMappingUI();
-  });
+  }, { signal: bindingAbort.signal });
 
   swapAbBtn?.addEventListener('click', () => {
     compatibilityContext.swapGamepadButtons(0, 1);
     updateMappingUI();
     compatibilityContext.showToast('🔄 Botões A e B invertidos!', 'info');
-  });
+  }, { signal: bindingAbort.signal });
 
   swapXyBtn?.addEventListener('click', () => {
     compatibilityContext.swapGamepadButtons(2, 3);
     updateMappingUI();
     compatibilityContext.showToast('🔄 Botões X e Y invertidos!', 'info');
-  });
+  }, { signal: bindingAbort.signal });
 
   resetMappingBtn?.addEventListener('click', () => {
     compatibilityContext.resetGamepadMapping();
     updateMappingUI();
     compatibilityContext.showToast('Layout de botões restaurado para o padrão Xbox.', 'info');
-  });
+  }, { signal: bindingAbort.signal });
 
   const updateDriverStatus = async () => {
     if (!statusText || !statusBox) return;
@@ -315,9 +315,9 @@ export function setupGamepadTesterModal(compatibilityContext) {
     if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(animId);
   };
 
-  openBtn?.addEventListener('click', openModal);
-  closeBtn?.addEventListener('click', closeModal);
-  doneBtn?.addEventListener('click', closeModal);
+  openBtn?.addEventListener('click', openModal, { signal: bindingAbort.signal });
+  closeBtn?.addEventListener('click', closeModal, { signal: bindingAbort.signal });
+  doneBtn?.addEventListener('click', closeModal, { signal: bindingAbort.signal });
   modal.addEventListener('click', (e) => {
     if (e.target === modal) closeModal();
   }, { signal: bindingAbort.signal });
@@ -377,7 +377,7 @@ export function setupGamepadTesterModal(compatibilityContext) {
       testRumbleBtn.disabled = false;
       testRumbleBtn.textContent = originalLabel;
     }
-  });
+  }, { signal: bindingAbort.signal });
   return () => {
     if (disposed) return; disposed = true;
     closeModal(); bindingAbort.abort(); viewer3D?.destroy();

@@ -1,3 +1,4 @@
+import { sendCoopMessage } from './message-transport.js';
 /** viewer: commands receive explicit compatibility ports; no page initialization. */
 export function requestCoopControl(compatibilityContext, hostPeerId, dataConn, preferredSlot = null) {
   if (!dataConn || dataConn.open === false) {
@@ -13,7 +14,7 @@ export function requestCoopControl(compatibilityContext, hostPeerId, dataConn, p
   if (preferredSlot !== null && preferredSlot !== undefined) {
     payload.preferredSlot = Number(preferredSlot);
   }
-  dataConn.send(payload);
+  sendCoopMessage(compatibilityContext, dataConn, payload);
 }
 
 export function handleViewerCoopMessage(compatibilityContext, data, hostPeerId, videoCard) {
@@ -92,7 +93,7 @@ export function handleViewerCoopMessage(compatibilityContext, data, hostPeerId, 
 export function releaseCoopControl(compatibilityContext, notifyHost = true) {
   if (compatibilityContext.isPlayer2 && compatibilityContext.activeDataConn && notifyHost) {
     try {
-      compatibilityContext.activeDataConn.send({
+      sendCoopMessage(compatibilityContext, compatibilityContext.activeDataConn, {
         type: 'COOP_RELEASE',
         slot: compatibilityContext.myAssignedSlot !== null ? compatibilityContext.myAssignedSlot : 1
       });

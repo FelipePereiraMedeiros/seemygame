@@ -7,3 +7,5 @@ export {
   isValidMessageEnvelope,
   AdmissionGate
 } from './messages.js';
+
+export { sendSessionMessage, validateReceivedMessage } from './transport.js';
