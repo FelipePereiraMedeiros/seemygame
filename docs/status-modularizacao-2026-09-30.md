@@ -1,52 +1,57 @@
-# Situação da modularização — verificação de 30/09/2026
+# Situação da modularização — 30/09/2026
 
-## Resultado atual
+A implementação da modularização foi concluída no workspace da branch `dev`, que acompanha `upstream/dev` do Felipe. As 18 frentes da auditoria têm implementação e verificações locais registradas abaixo. Isso descreve conclusão arquitetural; não declara paridade universal em hardware, redes e todos os cenários históricos.
 
-A migração segue **parcial**. As páginas carregam entrypoints dedicados, e este reparo integrou os fluxos que estavam comprovadamente desconectados: habilitação do botão de transmissão após o PeerJS abrir, recebimento de chat na sessão, conexão/admissão da Room pelo coordenador e PIN, malha de dados entre convidados, voz/Co-op e bindings de lousa, ping, reações e soundboard. As factories agora criam engines próprios e o ciclo de sessão descarta esses recursos.
+O fluxo de produção é único por página, com serviços e estado criados por factory de sessão. As fachadas antigas preservam a API pública, e o runtime legado só monta explicitamente. Engines, CSS, HTML e Rust foram separados por responsabilidade. Recursos assíncronos, áudio, clipping e transporte nativo passaram a acompanhar o ciclo da sessão.
 
-Isso não conclui a modularização arquitetural. `js/app.js` continua contendo implementação substancial; as extrações de política de áudio, engines maiores, CSS, Rust e infraestrutura E2E permanecem pendentes. O teste de navegador existente cobre a interface da lousa, mas não comprova rede PeerJS real, captura nativa ou equivalência de todos os recursos.
+## Evidências finais
 
-## Verificações executadas após as correções
-
-- `npm test`: **71 arquivos e 714 testes passaram**.
-- `npm run test:smoke`: **14 imports ESM passaram** no workspace atual.
-- `npm run test:e2e:whiteboard`: aprovado em Chrome para Room e Streamer; verificou abrir/fechar, canvas interativo e botões da lousa.
-- `node --check` nos módulos alterados e `git diff --check`: aprovados.
-- A suíte Vitest exibiu os avisos já conhecidos de `canvas.getContext()` e navegação não implementados pelo JSDOM.
-
-Esses resultados são de arquivos locais, inclusive ainda não rastreados. Nenhum commit, push ou deploy foi feito.
-
-As correções, dependências ESM, testes e estes dois relatórios estão em staging para inclusão no próximo commit. As alterações separadas de gamepad e os documentos de auditoria/inventário já existentes no workspace ficaram fora do staging. Até haver commit, o `HEAD` e um clone limpo continuam sem esses módulos.
-
-## Frentes concluídas neste reparo
-
-1. O botão `#stream-btn` é habilitado quando o PeerJS registra o Streamer.
-2. A Room tenta registrar o ID determinístico do coordenador; se ocupado, entra com ID aleatório. Conexões usam `RoomManager` para admissão, PIN, sincronização, presença e mesh. O modal de PIN reenvia o pedido ao coordenador.
-3. Chat, voz, Co-op e mensagens de plugins são compostos no dispatcher da sessão. A voz escolhe o peer que inicia cada chamada por ordem de ID para evitar chamadas duplicadas.
-4. Wrappers das features recebem engines próprios. Canvas, dock de reações e canvas de ping são vinculados; DiscordUI passa callbacks de soundboard, reações, lousa, stream, tuning e saída.
-5. Como os entrypoints ainda mantêm estado de módulo, `SessionContext` impede duas instâncias concorrentes do mesmo tipo de página e libera a chave no `dispose()`.
-
-## Situação dos achados
-
-| Achado | Situação atual |
+| Verificação | Resultado |
 | --- | --- |
-| M01 — imports e dependências | **Parcial** — imports locais e smoke passam; novos módulos ainda precisam estar rastreados para que um checkout limpo os inclua. |
-| M02 — contratos/paridade | **Parcial** — os bloqueios desta revisão foram ligados; paridade integral das páginas ainda não foi comprovada. |
-| M03 — inicialização única | **Parcial** — páginas usam entrypoints e cada tipo de página bloqueia init concorrente; `app.js` ainda conserva composição/execução legada. |
-| M04 — composição/estado | **Parcial** — managers de plugins são por sessão e init concorrente é barrado; chat/voz e outros estados de módulo ainda são compartilhados. |
-| M05 — concentração em `app.js` | **Pendente** — extração ampla não executada. |
-| M06 — domínio/UI | **Resolvido localmente** — validações puras já foram extraídas. |
-| M07 — protocolo/admissão/deduplicação | **Parcial** — RoomManager, AdmissionGate e dispatcher da sessão estão integrados; envelopes e validação canônica não cobrem todo o transporte. |
-| M08 — rejeições assíncronas | **Resolvido** nos barramentos/dispatcher conforme testes existentes. |
-| M09 — ciclo de vida | **Parcial** — descarte de engines/UI e guarda de init foram ampliados; faltam teardown assíncrono e propriedade de todos os recursos globais. |
-| M10 — funcionalidades em plugins | **Parcial** — UI e engines principais agora são compostas; clipping e funcionalidades avançadas ainda não têm paridade completa. |
-| M11 — política de áudio | **Pendente** — consumidores e propriedade de AudioContext ainda não foram migrados integralmente. |
-| M12 — engines/agregadores | **Pendente** — `app.js`, Voice, Coop, Room e engines maiores continuam a precisar de separação. |
-| M13 — CSS | **Pendente** — extração não executada. |
-| M14 — HTML/navegação | **Parcial** — entrypoints, Room e UI da lousa funcionam; navegação e recursos não têm equivalência global demonstrada. |
-| M15 — Rust | **Pendente** — modularização nativa não executada; nenhum check nativo foi repetido neste reparo. |
-| M16 — caminhos reais | **Parcial** — Vitest, smoke e E2E da lousa passaram; conexão multi-peer real não foi comprovada por este E2E. |
-| M17 — infraestrutura E2E | **Pendente** — harnesses não foram separados nem ampliados para os fluxos completos. |
-| M18 — build/config/documentação | **Parcial** — status/documentação corrigidos e smoke disponível; rastreamento dos módulos e validação de checkout limpo ainda precisam ser concluídos. |
+| Vitest | 73 arquivos; 724 testes aprovados. |
+| Grafo de módulos | 144 módulos autorais; 379 imports/exports literais válidos. |
+| Smoke ESM | 139 módulos de serviços importados sem iniciar DOM, rede, áudio ou timers. |
+| HTML | Templates e cinco páginas geradas consistentes. |
+| CSS | Imports resolvidos; 109 regras main, 132 landing e 449 player na ordem da cascata. |
+| E2E Streamer/Viewer | PIN errado recusado, PIN correto aceito, vídeo decodificado e chat por DataChannel real. |
+| E2E Room | Três peers, admissão, transmissão decodificada e entrada tardia durante o stream. |
+| E2E lousa | Room e Streamer: abrir/fechar, controles, canvas e retorno à sala. |
+| Rust | `cargo check` de produção, formatação e 30 testes aprovados. |
+| Companion | 5 testes Python aprovados. |
+| Distribuição | `npm run build:dist` aprovado. |
+| Diff | `git diff --check` aprovado. |
 
-Consulte [verificacao-conclusao-modularizacao-2026-09-30.md](verificacao-conclusao-modularizacao-2026-09-30.md) para detalhes dos bloqueios, critérios e evidências.
+Vitest utiliza JSDOM e ainda emite seus avisos de canvas/navegação não implementados; esses caminhos visuais têm verificações em Chrome. Os testes Rust exercitam pipelines e negociação GStreamer, incluindo RTP, mas não homologam captura de um jogo físico de ponta a ponta.
+
+## Fechamento dos achados
+
+| Achado | Implementação concluída |
+| --- | --- |
+| M01 — imports/dependências | Dependências declaradas, imports locais verificados e vínculo ESM de todos os serviços. |
+| M02 — contratos | APIs públicas e wire format compatíveis; contratos de provider, cartão, telemetria e sala corrigidos e cobertos por regressões. |
+| M03 — inicialização | `pages` é o ponto de montagem; entrypoints e fachadas não iniciam página por import. |
+| M04 — estado | Factories independentes com chat, voz, Co-op, plugins, áudio e stats próprios. |
+| M05 — app | Fachada pequena; comandos extraídos em módulos de sessão, mídia, sinalização, tuning, identidade, UI e features. |
+| M06 — domínio/UI | Identificadores, navegação, protocolo e coleta de métricas separados do DOM. |
+| M07 — protocolo | Envelope canônico, identidade por salto, admissão, limites e deduplicação por mensagem; Co-op P2P usa o mesmo transporte. |
+| M08 — assíncrono | Rejeições contidas no bus/dispatcher e liberações acompanhadas pelo contexto. |
+| M09 — ciclo de vida | Abort/cancelamento, cleanup idempotente, liberação tardia, descarte assíncrono e remontagem dos controles. |
+| M10 — features | Composição de lousa, som, ping, reações, clipping/editor e transporte nativo; replay selecionado por fonte. |
+| M11 — áudio | Escopos por sessão e propósito; Voice, Soundboard, Ping, clipping e VU recebem o dono correto. |
+| M12 — engines | Room, Voice, Co-op, UI, Discord, clipping, WebRTC, stats e gamepad separados em responsabilidades internas. |
+| M13 — CSS | Extração semântica; raízes preservam a cascata; antiga ferramenta por linhas virou validador. |
+| M14 — HTML | Modais em templates, páginas estáticas geradas e consentimento/controladores sem duplicação inline. |
+| M15 — Rust | Configuração, controle, pipeline, plataforma, negociação e comandos em submódulos; espera GStreamer limitada compartilhada. |
+| M16 — caminhos reais | Checks de produção Rust e E2E com PeerJS/WebRTC/DataChannel reais em ambiente local. |
+| M17 — E2E | Harness compartilhado de servidor, signaling, browser, lifecycle, proveniência, fixtures e telemetria; alvo live explícito. |
+| M18 — build/documentação | Scripts canônicos, distribuição, templates verificáveis, CI frontend e guia de colaboração. |
+
+O escopo não exige fracionar todo arquivo longo: builders, DTOs e runners que têm uma responsabilidade única permanecem coesos. As fachadas de compatibilidade existem para preservar consumidores; não são o caminho de montagem das páginas atuais.
+
+## Publicação e limites
+
+A validação foi realizada sobre a base `6c7a010` e os complementos organizados nos commits temáticos desta entrega: protocolo/Co-op, sessões/mídia, templates HTML, testes/CI e documentação. Os novos arquivos de templates, tooling, captura e regressões integram esses commits na `dev`. A publicação na `dev` não promove automaticamente `alfa`, `main` ou produção; a execução remota do workflow não faz parte das evidências locais acima.
+
+Continuam exigindo homologação específica: captura física desktop de um jogo completo, controladores reais/ViGEm e TURN entre redes distintas. Não foram repetidos todos os benchmarks nativos históricos nem feito deploy.
+
+Consulte o [guia de arquitetura e colaboração](arquitetura-e-colaboracao.md) e a [verificação de conclusão](verificacao-conclusao-modularizacao-2026-09-30.md). A [auditoria original](auditoria-modularizacao-2026-09-30.md) e os inventários preservam a fotografia anterior à implementação.

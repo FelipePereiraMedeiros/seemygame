@@ -1,5 +1,7 @@
 # Inventário por arquivo — modularização SeeMyGame
 
+> Fotografia histórica anterior à implementação. Consulte [status atualizado](status-modularizacao-2026-09-30.md) para o fechamento dos achados.
+
 Base: `dev`, commit `b530e17ac37f4c86dba91f288235cb7703ac3dfa`. Data: 30/09/2026. **260 arquivos rastreados**, sem contar os documentos novos desta auditoria.
 
 Este anexo complementa a [auditoria e plano de PRs](auditoria-modularizacao-2026-09-30.md). IDs M01–M18 remetem aos achados do relatório. Um encaminhamento é uma proposta, não uma mudança já aplicada. Arquivos pequenos/coerentes permanecem inteiros. Para binários, a verificação foi de inventário/hash, sem revisão visual. Testes `.mjs` não executados não recebem status de aprovação.

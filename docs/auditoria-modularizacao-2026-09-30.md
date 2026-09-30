@@ -1,5 +1,7 @@
 # Auditoria de modularização e colaboração — SeeMyGame
 
+> Fotografia histórica anterior à implementação. Consulte [status atualizado](status-modularizacao-2026-09-30.md) para o fechamento dos achados.
+
 **Data:** 30/09/2026. **Base:** `dev`, acompanhando `FelipePereiraMedeiros/seemygame:dev`, commit `b530e17ac37f4c86dba91f288235cb7703ac3dfa`.
 
 ## Conclusão
