@@ -12,7 +12,6 @@ import {
 } from '../js/coop.js';
 import { 
   applyLiveBitrateChange, 
-  localStream, 
   roomManager 
 } from '../js/app.js';
 import { RoomManager } from '../js/room.js';

@@ -87,4 +87,33 @@ describe('Kernel Core: EventBus', () => {
 
     consoleErrorSpy.mockRestore();
   });
+
+  it('deve isolar rejeições assíncronas e emitir system:error sem propagar unhandledRejection', async () => {
+    const bus = new EventBus();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errorHandler = vi.fn();
+
+    const asyncFailingHandler = vi.fn(async () => {
+      throw new Error('Falha assíncrona no listener');
+    });
+    const healthyHandler = vi.fn();
+
+    bus.on('system:error', errorHandler);
+    bus.on('async:event', asyncFailingHandler);
+    bus.on('async:event', healthyHandler);
+
+    bus.emit('async:event', { foo: 'bar' });
+
+    expect(healthyHandler).toHaveBeenCalledTimes(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(errorHandler).toHaveBeenCalledTimes(1);
+    expect(errorHandler).toHaveBeenCalledWith(expect.objectContaining({
+      sourceEvent: 'async:event',
+      error: expect.any(Error)
+    }));
+
+    consoleErrorSpy.mockRestore();
+  });
 });

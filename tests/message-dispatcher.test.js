@@ -77,4 +77,26 @@ describe('Kernel Core: MessageDispatcher', () => {
     expect(res.handled).toBe(true);
     expect(fallback).toHaveBeenCalledWith(unknownMsg, null);
   });
+
+  it('deve isolar rejeições assíncronas (Promise rejection) e registrar nas métricas sem crash', async () => {
+    const dispatcher = new MessageDispatcher();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const asyncFailingHandler = vi.fn(async () => {
+      throw new Error('Falha assíncrona rejeitada');
+    });
+
+    dispatcher.register('ASYNC_EVENT', asyncFailingHandler);
+
+    const result = dispatcher.dispatch({ type: 'ASYNC_EVENT', data: {} });
+    expect(result.handled).toBe(true);
+
+    // Aguarda microtasks
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const metrics = dispatcher.getMetrics();
+    expect(metrics.errors).toBe(1);
+
+    consoleErrorSpy.mockRestore();
+  });
 });

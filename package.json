@@ -12,9 +12,12 @@
     "tauri:dev": "cargo tauri dev",
     "tauri:build": "cargo tauri build",
     "test": "vitest run",
+    "test:smoke": "node tools/smoke-esm.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e:whiteboard": "node tests/e2e-whiteboard.mjs"
+    "test:e2e:whiteboard": "node tests/e2e-whiteboard.mjs",
+    "native:prepare": "node tools/build-dist.js",
+    "native:smoke": "cargo check --manifest-path src-tauri/Cargo.toml --locked --offline --lib"
   },
   "keywords": [
     "webrtc",

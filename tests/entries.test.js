@@ -77,11 +77,12 @@ describe('Fase 3: Separação de Entrypoints de Páginas (js/entries)', () => {
     it('getRoomInfoFromUrl deve extrair roomId e PIN da URL hash', async () => {
       const roomEntry = await import('../js/entries/room-entry.js');
       delete window.location;
-      window.location = new URL('http://localhost/room.html#room=campeonato-fifa&pin=9876');
+      window.location = new URL('http://localhost/room.html#room=campeonato-fifa&pin=9876&key=abcdef1234567890abcdef12');
 
       const info = roomEntry.getRoomInfoFromUrl();
       expect(info.roomId).toBe('campeonato-fifa');
       expect(info.roomPin).toBe('9876');
+      expect(info.roomKey).toBe('abcdef1234567890abcdef12');
     });
   });
 
@@ -114,6 +115,52 @@ describe('Fase 3: Separação de Entrypoints de Páginas (js/entries)', () => {
       randomBtn.click();
 
       expect(roomIdInput.value.length).toBeGreaterThan(0);
+      app.dispose();
+      expect(app.session.isDisposed).toBe(true);
+    });
+  });
+
+  describe('Ciclo de vida e Idempotência (init -> dispose -> init)', () => {
+    it('viewerEntry deve suportar ciclo init -> dispose -> init sem vazamentos', async () => {
+      const viewerEntry = await import('../js/entries/viewer-entry.js');
+      const app1 = await viewerEntry.initViewerApp({ targetStreamerId: null });
+      expect(app1.session.isDisposed).toBe(false);
+
+      app1.dispose();
+      expect(app1.session.isDisposed).toBe(true);
+
+      const app2 = await viewerEntry.initViewerApp({ targetStreamerId: null });
+      expect(app2.session.isDisposed).toBe(false);
+      app2.dispose();
+      expect(app2.session.isDisposed).toBe(true);
+    });
+
+    it('streamerEntry deve suportar ciclo init -> dispose -> init sem vazamentos', async () => {
+      const streamerEntry = await import('../js/entries/streamer-entry.js');
+      const app1 = await streamerEntry.initStreamerApp();
+      expect(app1.session.isDisposed).toBe(false);
+
+      app1.dispose();
+      expect(app1.session.isDisposed).toBe(true);
+
+      const app2 = await streamerEntry.initStreamerApp();
+      expect(app2.session.isDisposed).toBe(false);
+      app2.dispose();
+      expect(app2.session.isDisposed).toBe(true);
+    });
+
+    it('roomEntry deve suportar ciclo init -> dispose -> init sem vazamentos', async () => {
+      const roomEntry = await import('../js/entries/room-entry.js');
+      const app1 = await roomEntry.initRoomApp();
+      expect(app1.session.isDisposed).toBe(false);
+
+      app1.dispose();
+      expect(app1.session.isDisposed).toBe(true);
+
+      const app2 = await roomEntry.initRoomApp();
+      expect(app2.session.isDisposed).toBe(false);
+      app2.dispose();
+      expect(app2.session.isDisposed).toBe(true);
     });
   });
 
