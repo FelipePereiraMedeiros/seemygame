@@ -58,7 +58,15 @@ try {
   for (const page of rooms) await wait(page, async () => (await import('/js/entries/room-entry.js')).roomState.roomManager?.members.size === 2);
   await rooms[0].locator('#dock-stream-btn').click();
   await wait(rooms[1], () => [...document.querySelectorAll('video')].some(video => video.videoWidth === 640 && video.readyState >= 2));
-  console.log('PASS Room: coordinator admission, two peers, decoded shared video');
+  const lateContext = await prepareSessionContext(browser, signaling);
+  roomContexts.push(lateContext);
+  const late = await lateContext.newPage(); observe(late);
+  await late.goto(server.origin + '/room.html?room=modular-e2e');
+  await late.locator('#green-room-user-name').fill('Late member');
+  await late.locator('#green-room-join-btn').click();
+  for (const page of [...rooms, late]) await wait(page, async () => (await import('/js/entries/room-entry.js')).roomState.roomManager?.members.size === 3);
+  await wait(late, () => [...document.querySelectorAll('video')].some(video => video.videoWidth === 640 && video.readyState >= 2));
+  console.log('PASS Room: coordinator admission, three peers, decoded shared video including late join');
   await Promise.all(roomContexts.map(context => context.close()));
   assert.deepEqual(errors, [], 'Page JavaScript errors');
 } finally {

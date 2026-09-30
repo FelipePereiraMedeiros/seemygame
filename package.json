@@ -17,7 +17,13 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e:whiteboard": "node tests/e2e-whiteboard.mjs",
     "native:prepare": "node tools/build-dist.js",
-    "native:smoke": "cargo check --manifest-path src-tauri/Cargo.toml --locked --offline --lib"
+    "native:smoke": "cargo check --manifest-path src-tauri/Cargo.toml --locked --offline --lib",
+    "build:html": "node tools/build-html.mjs",
+    "check:html": "node tools/build-html.mjs --check",
+    "check:modules": "node tools/check-modules.mjs",
+    "check:css": "node tools/split-css.mjs",
+    "test:e2e:sessions": "node tests/e2e-sessions.mjs",
+    "verify": "npm run check:modules && npm run check:html && npm run check:css && npm run test:smoke && npm test && npm run build:dist"
   },
   "keywords": [
     "webrtc",

@@ -1,5 +1,6 @@
+import { listFrontendFiles } from './harness/provenance.mjs';
+import { startAssetServer } from './harness/server.mjs';
 import { chromium } from 'playwright';
-import { createServer } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { spawn, execSync } from 'node:child_process';
 import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
@@ -135,6 +136,7 @@ const getProvenance = async (samplePage = null, nativeCaps = null, viewerLaunchA
     exeMtime,
     exeSizeBytes,
     componentHashes: {
+      ...Object.fromEntries(await Promise.all((await listFrontendFiles(root)).map(async file => [file, await hashFile(path.join(root, file))]))),
       'fixtures/deterministic-60fps.html': fixtureSha256,
       'telemetry.mjs': telemetrySha256,
       'test-deterministic-battery.mjs': testScriptSha256,
@@ -160,24 +162,8 @@ const getProvenance = async (samplePage = null, nativeCaps = null, viewerLaunchA
 // Servidor de arquivos estáticos para o cliente web e fixtures
 let server;
 const serve = async () => {
-  server = createServer(async (req, res) => {
-    try {
-      const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-      if (!/^\/(room\.html|index\.html|(?:js|css|assets|fixtures)\/[a-zA-Z0-9_./-]+)$/.test(pathname) || pathname.includes('..')) {
-        res.writeHead(404);
-        return res.end();
-      }
-      const filename = path.resolve(root, '.' + pathname);
-      if (!filename.startsWith(root + path.sep)) throw new Error('Caminho inválido');
-      res.setHeader('Content-Type', pathname.endsWith('.js') ? 'text/javascript' : pathname.endsWith('.css') ? 'text/css' : 'text/html');
-      res.end(await readFile(filename));
-    } catch {
-      res.writeHead(404);
-      res.end();
-    }
-  });
-  await new Promise(r => server.listen(0, '127.0.0.1', r));
-  return `http://127.0.0.1:${server.address().port}`;
+  const assets = await startAssetServer({ root });
+  server = assets.server; return assets.origin;
 };
 
 // Configura contexto sem medição óptica parasitária

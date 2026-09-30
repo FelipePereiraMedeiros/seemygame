@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { beforeAll, afterEach, expect, it, vi } from 'vitest';
 import { MockMediaStream, MockMediaStreamTrack } from './mocks/webrtc.mock.js';
 
 class Connection {
@@ -30,14 +30,19 @@ afterEach(() => {
   vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks();
 });
 
-it('mantém buffers independentes quando dois hosts transmitem e um encerra', async () => {
-  vi.useFakeTimers();
+// Module linking belongs to setup, outside the timed replay behavior and fake clock.
+beforeAll(async () => {
   vi.stubGlobal('Peer', Peer);
   vi.stubGlobal('MediaRecorder', Recorder);
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
   localStorage.clear();
   document.body.innerHTML = '<div id="video-grid"></div><div id="toast-container"></div>';
-  app = await import('../js/app.js'); app.initLegacyBindings();
+  app = await import('../js/app.js');
+}, 15000);
+
+it('mantém buffers independentes quando dois hosts transmitem e um encerra', async () => {
+  vi.useFakeTimers();
+  app.initLegacyBindings();
   const peer = await app.initPeer();
   peer.emit('open', 'local-review-peer');
   const calls = [];
