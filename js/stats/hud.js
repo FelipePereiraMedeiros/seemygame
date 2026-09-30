@@ -1,4 +1,4 @@
-export function renderStatsHud(peerId, isLocal, { rtt, fps, bitrateMbps, width, height, packetsLost, qualityReason }) {
+export function renderStatsHud(peerId, isLocal, { rtt, fps, bitrateText, width, height, packetsLost, qualityReason }) {
 if (typeof document === 'undefined') return;
       const rttElem = document.getElementById(`stat-rtt-${peerId}`);
       const fpsElem = document.getElementById(`stat-fps-${peerId}`);
@@ -20,7 +20,7 @@ if (typeof document === 'undefined') return;
       }
 
       if (bitElem) {
-        bitElem.innerText = isLocal ? `${bitrateMbps} Mbps (Envio)` : `${bitrateMbps} Mbps`;
+        bitElem.innerText = isLocal ? `${bitrateText} Mbps (Envio)` : `${bitrateText} Mbps`;
       }
 
       if (resElem && width && height) {

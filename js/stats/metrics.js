@@ -134,6 +134,7 @@ previous = { ...previous };
         rtt,
         fps,
         bitrateMbps: parseFloat(bitrateMbps) || 0,
+        bitrateText: bitrateMbps,
         bytes,
         width,
         height,

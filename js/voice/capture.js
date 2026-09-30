@@ -6,6 +6,7 @@ export const withVoiceManagerCapture = Base => class extends Base {
 async joinVoice({ peerId, name = 'Você', role = 'host', customStream = null, inputDeviceId = null } = {}) {
     if (this.isInVoice) return this.localStream;
 
+    const generation = this.captureGeneration = (this.captureGeneration || 0) + 1;
     this.myPeerId = peerId;
     this.myName = name;
     this.myRole = role;
@@ -33,6 +34,7 @@ async joinVoice({ peerId, name = 'Você', role = 'host', customStream = null, in
             audio: audioConstraints,
             video: false,
           });
+          if (generation !== this.captureGeneration) { userStream.getTracks().forEach(track => track.stop()); return null; }
           this.rawLocalStream = userStream;
           const processed = this.setupLocalAudioProcessing(userStream);
           this.localStream = processed || userStream;
@@ -47,7 +49,8 @@ async joinVoice({ peerId, name = 'Você', role = 'host', customStream = null, in
               },
               video: false,
             });
-            this.rawLocalStream = userStream;
+            if (generation !== this.captureGeneration) { userStream.getTracks().forEach(track => track.stop()); return null; }
+          this.rawLocalStream = userStream;
             const processed = this.setupLocalAudioProcessing(userStream);
             this.localStream = processed || userStream;
           } else {
@@ -147,6 +150,7 @@ teardownLocalAudioProcessing() {
   }
 
 leaveVoice() {
+    this.captureGeneration = (this.captureGeneration || 0) + 1;
     this.stopLocalVAD();
     this.teardownLocalAudioProcessing();
 

@@ -7,7 +7,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
 
 use gstreamer as gst;
 use gstreamer::prelude::*;

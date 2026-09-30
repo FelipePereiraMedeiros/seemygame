@@ -1,3 +1,5 @@
+import { bindCaptureSettings } from '../capture/settings.js';
+import { createStatsMonitorScope } from '../stats.js';
 import { bindSourcePicker } from '../capture/source-picker.js';
 import { installNativeCaptureBridge } from '../native-webrtc.js';
 import { sendSessionMessage } from '../protocol/transport.js';
@@ -71,7 +73,7 @@ import {
 export function createStreamerSession(options = {}) {
 const statsScope = createStatsMonitorScope();
 const { startStatsMonitor, stopStatsMonitor, getLastMetrics } = statsScope;
-const coopController = options.coopController || createCoopController();
+const coopController = options.coopController || createCoopController({ sendMessage: (conn, data) => sendSessionMessage(streamerState.session, conn, data) });
 const {  
   handleHostCoopMessage, 
   revokePlayer2, 
@@ -266,6 +268,7 @@ function handleViewerConnection(conn, session = streamerState.session) {
   conn.on('close', () => {
     streamerState.connectedViewers.delete(viewerId);
     streamerState.admissionGate.revoke(viewerId);
+    session?.eventBus.emit('streamer:viewerDisconnected', { peerId: viewerId });
     streamerState.activeCalls.delete(viewerId);
     updateViewerCount();
     console.log(`[Streamer] Espectador desconectado: ${viewerId}`);
@@ -308,13 +311,18 @@ function callViewerWithStream(viewerId, session = streamerState.session) {
 }
 
 async function startCapture(sourceId = null, captureOptions = {}, session = streamerState.session) {
+  if (session?.isDisposed || streamerState.isStartingStream || streamerState.localStream) return null;
+  streamerState.isStartingStream = true;
+  const epoch = streamerState.captureEpoch = (streamerState.captureEpoch || 0) + 1;
   let stream = null;
 
   try {
     if (isDesktopApp() && sourceId) {
       // Captura de alto desempenho via Tauri / GStreamer / WGC
-      streamerState.captureProvider = new NativeCaptureProvider();
-      session?.registerCleanup(() => streamerState.captureProvider?.stop());
+      const provider = new NativeCaptureProvider();
+      streamerState.captureProvider = provider;
+      provider.uiAudioMode = captureOptions.audioMode;
+      session?.registerCleanup(() => provider.stop());
       const captureResult = await streamerState.captureProvider.start({
         sourceId,
         fps: streamerState.fpsTarget,
@@ -326,7 +334,7 @@ async function startCapture(sourceId = null, captureOptions = {}, session = stre
     } else {
       // Captura via API padrão de navegadores (Screen Capture API)
       stream = await requestBrowserDisplayMedia({
-        audio: true,
+        audioMode: captureOptions.audioMode || 'system',
         video: {
           frameRate: { ideal: 60, max: 60 },
           width: { ideal: 1920, max: 1920 },
@@ -334,8 +342,12 @@ async function startCapture(sourceId = null, captureOptions = {}, session = stre
         }
       });
     }
+    if (captureOptions.audioMode === 'mic') {
+      const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
+      microphone.getAudioTracks().forEach(track => stream.addTrack(track));
+    }
 
-    if (session?.isDisposed) { stream?.getTracks().forEach(track => track.stop()); await streamerState.captureProvider?.stop(); return null; }
+    if (session?.isDisposed || epoch !== streamerState.captureEpoch) { stream?.getTracks().forEach(track => track.stop()); await streamerState.captureProvider?.stop(); return null; }
     streamerState.localStream = stream;
 
     // Transmite a todos os espectadores conectados e autenticados
@@ -345,7 +357,7 @@ async function startCapture(sourceId = null, captureOptions = {}, session = stre
       }
     }
 
-    addOrUpdateVideoCard({
+    addOrUpdateVideoCard({ audioScope: streamerState.session?.audioScope,
       peerId: 'local-me',
       stream,
       label: 'Sua Transmissão (Ao Vivo)',
@@ -363,20 +375,25 @@ async function startCapture(sourceId = null, captureOptions = {}, session = stre
     return stream;
   } catch (err) {
     console.error('[Streamer] Falha ao iniciar captura:', err);
+    stream?.getTracks().forEach(track => track.stop());
+    if (streamerState.captureProvider) { const pending = streamerState.captureProvider.stop(); session?.registerCleanup(() => pending); }
     showToast('Não foi possível iniciar a captura de tela.', 'error');
     throw err;
-  }
+  } finally { streamerState.isStartingStream = false; }
 }
 
 function stopCapture(session = streamerState.session) {
+  streamerState.captureEpoch = (streamerState.captureEpoch || 0) + 1;
   if (streamerState.localStream) {
     streamerState.localStream.getTracks().forEach(t => t.stop());
     streamerState.localStream = null;
   }
 
   if (streamerState.captureProvider) {
-    streamerState.captureProvider.stop();
+    const provider = streamerState.captureProvider;
     streamerState.captureProvider = null;
+    const pending = provider.stop();
+    session?.registerCleanup(() => pending);
   }
 
   for (const call of streamerState.activeCalls.values()) {
@@ -452,6 +469,7 @@ async function initStreamerApp(options = {}) {
   audioScope = session.audioScope;
   session.services = { chatManager, voiceManager, coopController, statsScope };
   session.registerCleanup(() => statsScope.dispose());
+  bindCaptureSettings(session, () => streamerState.captureProvider, showToast);
   installNativeCaptureBridge();
   const sourcePicker = bindSourcePicker(session, {
     start: captureOptions => startCapture(captureOptions.sourceId, captureOptions, session),
@@ -463,6 +481,8 @@ async function initStreamerApp(options = {}) {
   const features = registerSessionFeatures(session, {
     role: 'streamer',
     includeClipping: true,
+    getCaptureProvider: () => streamerState.captureProvider,
+    isAuthorizedPeer: id => streamerState.admissionGate.isAuthenticated(id),
     showToast,
     chatManager,
     getPeerId: () => streamerState.streamerId || 'streamer',
@@ -475,6 +495,8 @@ async function initStreamerApp(options = {}) {
       });
     }
   });
+  streamerState.features = features;
+  session.registerCleanup(() => { if (streamerState.features === features) streamerState.features = null; });
   const messageHandlers = bindSessionMessageHandlers(session, { coopController,
     role: 'streamer',
     chatManager,
@@ -629,14 +651,13 @@ async function initStreamerApp(options = {}) {
     session.registerCleanup(() => discordUI.destroy());
   }
 
-  initTermsModal(() => {
-    initStreamerPeer(options.customId || null, session);
-  });
+  session.registerCleanup(initTermsModal(() => initStreamerPeer(options.customId || null, session)));
 
   return {
     isStreamer: true,
     session,
     dispose: () => {
+      if (session.isDisposed) return;
       stopCapture(session);
       if (streamerState.peer && !streamerState.peer.destroyed) {
         try { streamerState.peer.destroy(); } catch (e) {}

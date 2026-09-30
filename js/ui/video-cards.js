@@ -159,9 +159,9 @@ export function addOrUpdateVideoCard(compatibilityContext, optionsOrPeerId, stre
   const grid = document.getElementById('video-grid');
   if (!grid) return null;
 
-  let stream, peerId, label, isLocal, onDisconnect, onCoopClick, onPanicClick, onClipClick;
+  let stream, peerId, label, isLocal, onDisconnect, onCoopClick, onPanicClick, onClipClick, audioScope;
   if (optionsOrPeerId && typeof optionsOrPeerId === 'object' && ('stream' in optionsOrPeerId || 'peerId' in optionsOrPeerId)) {
-    ({ stream, peerId, label, isLocal = false, onDisconnect, onCoopClick, onPanicClick, onClipClick } = optionsOrPeerId);
+    ({ stream, peerId, label, isLocal = false, onDisconnect, onCoopClick, onPanicClick, onClipClick, audioScope } = optionsOrPeerId);
   } else {
     peerId = optionsOrPeerId;
     stream = streamArg;
@@ -197,7 +197,7 @@ export function addOrUpdateVideoCard(compatibilityContext, optionsOrPeerId, stre
         labelSpan.textContent = label;
       }
 
-      compatibilityContext.initAudioAnalyser(stream, peerId);
+      compatibilityContext.initAudioAnalyser(stream, peerId, audioScope);
 
       const playPromise = existingVideo.play();
       if (playPromise !== undefined) {
@@ -483,7 +483,7 @@ export function addOrUpdateVideoCard(compatibilityContext, optionsOrPeerId, stre
     video.muted = false;
     video.play().catch(e => console.warn(e));
     unmuteOverlay.style.display = 'none';
-    compatibilityContext.initAudioAnalyser(stream, peerId);
+    compatibilityContext.initAudioAnalyser(stream, peerId, audioScope);
   };
 
   videoWrapper.appendChild(statsHud);
@@ -682,7 +682,7 @@ export function addOrUpdateVideoCard(compatibilityContext, optionsOrPeerId, stre
   card.appendChild(videoWrapper);
 
   // Inicia o analisador de VU Meter estéreo
-  compatibilityContext.initAudioAnalyser(stream, peerId);
+  compatibilityContext.initAudioAnalyser(stream, peerId, audioScope);
 
   const playPromise = video.play();
   if (playPromise !== undefined) {

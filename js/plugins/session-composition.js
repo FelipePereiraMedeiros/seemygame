@@ -33,7 +33,7 @@ export function registerSessionFeatures(session, {
   ];
   if (includeClipping) plugins.push(createClippingPlugin({ recorder: new ClipRecorderRegistry({ audioScope: session.audioScope }) }));
   plugins.push(new NativeMediaPlugin({ session, getProvider: getCaptureProvider, isAuthorized: isAuthorizedPeer,
-    onClip: sourceId => session.pluginManager.get('clipping')?.recorder.exportClip(null, sourceId)
+    onClip: sourceId => session.state.features?.clipEditor?.exportClip(sourceId)
   }));
   for (const plugin of plugins) session.pluginManager.register(plugin);
 

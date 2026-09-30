@@ -156,7 +156,14 @@ export class SessionContext {
 
   async disposeAsync() {
     this.dispose();
-    await Promise.allSettled(this._pendingDisposals);
+    // A pending subscription may register its unlisten callback after disposal.
+    // Drain newly registered asynchronous releases before declaring completion.
+    let cursor = 0;
+    while (cursor < this._pendingDisposals.length) {
+      const pending = this._pendingDisposals.slice(cursor);
+      cursor = this._pendingDisposals.length;
+      await Promise.allSettled(pending);
+    }
   }
 }
 

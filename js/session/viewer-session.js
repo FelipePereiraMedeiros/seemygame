@@ -39,7 +39,7 @@ import {
 export function createViewerSession(options = {}) {
 const statsScope = createStatsMonitorScope();
 const { startStatsMonitor, stopStatsMonitor, getLastMetrics } = statsScope;
-const coopController = options.coopController || createCoopController();
+const coopController = options.coopController || createCoopController({ sendMessage: (conn, data) => sendSessionMessage(viewerState.session, conn, data) });
 const {  
   handleViewerCoopMessage, 
   requestCoopControl, 
@@ -274,7 +274,7 @@ function handleIncomingStreamCall(call, session = viewerState.session) {
 
   call.on('stream', (remoteStream) => {
     viewerState.remoteStream = remoteStream;
-    addOrUpdateVideoCard({
+    addOrUpdateVideoCard({ audioScope: viewerState.session?.audioScope,
       peerId: hostId,
       stream: remoteStream,
       label: `Ao Vivo: ${hostId.slice(0, 8)}`,
@@ -354,6 +354,8 @@ async function initViewerApp(options = {}) {
       if (viewerState.activeConn?.open) sendSessionMessage(viewerState.session, viewerState.activeConn, data);
     }
   });
+  viewerState.features = features;
+  session.registerCleanup(() => { if (viewerState.features === features) viewerState.features = null; });
   const messageHandlers = bindSessionMessageHandlers(session, { coopController,
     role: 'viewer',
     chatManager,
@@ -490,9 +492,7 @@ async function initViewerApp(options = {}) {
 
   const targetStreamer = options.targetStreamerId || getTargetStreamerId();
   if (targetStreamer) {
-    initTermsModal(() => {
-      connectToStreamer(targetStreamer, options.pin || null, session);
-    });
+    session.registerCleanup(initTermsModal(() => connectToStreamer(targetStreamer, options.pin || null, session)));
   } else {
     session.registerCleanup(initTermsModal());
   }
@@ -501,6 +501,7 @@ async function initViewerApp(options = {}) {
     isViewer: true,
     session,
     dispose: () => {
+      if (session.isDisposed) return;
       if (viewerState.activeCall) {
         try { viewerState.activeCall.close(); } catch (e) {}
       }
