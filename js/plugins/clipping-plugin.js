@@ -12,6 +12,7 @@ export class ClippingPlugin extends BasePlugin {
   constructor(options = {}) {
     super('clipping', options);
     this.recorder = options.recorder || clipRecorder;
+    this.ownsRecorder = Boolean(options.recorder);
     this._activeStream = null;
   }
 
@@ -78,6 +79,7 @@ export class ClippingPlugin extends BasePlugin {
   destroy() {
     super.destroy();
     this.stop();
+    if (this.ownsRecorder) this.recorder.dispose?.();
   }
 }
 

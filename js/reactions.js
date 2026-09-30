@@ -10,6 +10,7 @@ export class FloatingReactionsManager {
     this.container = options.container || null;
     this.maxConcurrent = options.maxConcurrent || 30;
     this.activeReactionsCount = 0;
+    this.activeElements = new Set();
     this.lastSentTimestamp = 0;
     this.cooldownMs = options.cooldownMs || 250; // Max 4 por segundo por jogador
   }
@@ -83,19 +84,28 @@ export class FloatingReactionsManager {
     }
 
     this.container.appendChild(el);
+    this.activeElements.add(el);
     this.activeReactionsCount++;
 
     const cleanup = () => {
       if (el.parentNode) {
         el.parentNode.removeChild(el);
-        this.activeReactionsCount = Math.max(0, this.activeReactionsCount - 1);
       }
+      this.activeElements.delete(el);
+      this.activeReactionsCount = Math.max(0, this.activeReactionsCount - 1);
     };
 
     el.addEventListener('animationend', cleanup);
     setTimeout(cleanup, (duration + 0.5) * 1000);
 
     return el;
+  }
+
+  dispose() {
+    this.activeElements.forEach((el) => el.remove?.());
+    this.activeElements.clear();
+    this.activeReactionsCount = 0;
+    this.container = null;
   }
 }
 

@@ -307,6 +307,14 @@ export class SoundboardManager {
         return false;
     }
   }
+
+  dispose() {
+    this.changeListeners.clear();
+    if (this.audioContext) {
+      try { this.audioContext.close(); } catch (_) {}
+      this.audioContext = null;
+    }
+  }
 }
 
 export const soundboardManager = new SoundboardManager();

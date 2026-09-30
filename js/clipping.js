@@ -592,6 +592,11 @@ export class ClipRecorder {
     this.lastClipBlob = null;
     this.lastClipFileName = null;
   }
+
+  dispose() {
+    this.stop();
+    this.clear();
+  }
 }
 
 /**

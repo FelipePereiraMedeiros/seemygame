@@ -14,6 +14,7 @@ export class SoundboardPlugin extends BasePlugin {
   constructor(options = {}) {
     super('soundboard', options);
     this.manager = options.manager || soundboardManager;
+    this.ownsManager = Boolean(options.manager);
     this._dispatcherUnsubs = [];
   }
 
@@ -63,6 +64,11 @@ export class SoundboardPlugin extends BasePlugin {
       this._dispatcherUnsubs.forEach(unsub => unsub());
       this._dispatcherUnsubs = [];
     });
+  }
+
+  destroy() {
+    super.destroy();
+    if (this.ownsManager) this.manager.dispose?.();
   }
 }
 

@@ -22,6 +22,7 @@ export class DiscordUIController {
     const {
       chatManager: customChat,
       voiceManager: customVoice,
+      soundboardManager: customSoundboard,
       roomManager: customRoom,
       onSendMessage,
       onJoinVoice,
@@ -39,6 +40,7 @@ export class DiscordUIController {
 
     this.chatManager = customChat || null;
     this.voiceManager = customVoice || null;
+    this.soundboardManager = customSoundboard || soundboardManager;
     this.roomManager = customRoom || null;
 
     this.onSendMessage = onSendMessage || ((text) => {
@@ -158,7 +160,7 @@ export class DiscordUIController {
     this.initEmojis();
     this.initStageDockAutoHide();
     this._destroyed = false;
-    const unsubscribeSoundboard = soundboardManager.onChange(() => {
+    const unsubscribeSoundboard = this.soundboardManager.onChange(() => {
       this.initSoundboard();
     });
     this._cleanupFns.push(unsubscribeSoundboard);
@@ -474,7 +476,7 @@ export class DiscordUIController {
     // Seção 2: Memes Customizados Salvos no SeeMyGame
     const customSection = document.createElement('div');
     customSection.className = 'soundboard-section soundboard-custom-section';
-    const customSounds = soundboardManager.getCustomSounds();
+    const customSounds = this.soundboardManager.getCustomSounds();
 
     customSection.innerHTML = `
       <div class="soundboard-section-title">
@@ -520,7 +522,7 @@ export class DiscordUIController {
             e.stopPropagation();
             const shouldDelete = typeof confirm === 'function' ? confirm(`Excluir o som "${sound.name}" do Soundboard?`) : true;
             if (shouldDelete) {
-              soundboardManager.deleteCustomSound(sound.id);
+              this.soundboardManager.deleteCustomSound(sound.id);
             }
           });
         }

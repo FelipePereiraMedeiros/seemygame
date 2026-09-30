@@ -251,6 +251,17 @@ export class TacticalPingManager {
     }
   }
 
+  dispose() {
+    this.stopRenderLoop();
+    this.clear();
+    this.canvas = null;
+    this.ctx = null;
+    if (this.audioContext) {
+      try { this.audioContext.close(); } catch (_) {}
+      this.audioContext = null;
+    }
+  }
+
   clear() {
     this.pings = [];
     this.laserTrails = [];

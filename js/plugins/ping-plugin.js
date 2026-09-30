@@ -12,6 +12,7 @@ export class TacticalPingPlugin extends BasePlugin {
   constructor(options = {}) {
     super('tactical-ping', options);
     this.manager = options.manager || tacticalPingManager;
+    this.ownsManager = Boolean(options.manager);
     this._abortController = null;
     this._dispatcherUnsubs = [];
   }
@@ -94,6 +95,7 @@ export class TacticalPingPlugin extends BasePlugin {
       this._abortController.abort();
       this._abortController = null;
     }
+    if (this.ownsManager) this.manager.dispose?.();
   }
 }
 

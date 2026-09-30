@@ -12,6 +12,7 @@ export class ReactionsPlugin extends BasePlugin {
   constructor(options = {}) {
     super('reactions', options);
     this.manager = options.manager || floatingReactionsManager;
+    this.ownsManager = Boolean(options.manager);
     this._abortController = null;
     this._dispatcherUnsubs = [];
   }
@@ -89,6 +90,7 @@ export class ReactionsPlugin extends BasePlugin {
       this._abortController.abort();
       this._abortController = null;
     }
+    if (this.ownsManager) this.manager.dispose?.();
   }
 }
 

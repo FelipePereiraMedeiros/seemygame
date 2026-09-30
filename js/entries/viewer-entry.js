@@ -40,7 +40,8 @@ import {
   requestCoopControl, 
   releaseCoopControl, 
   getCoopState, 
-  registerCoopStateChangeHandler 
+  registerCoopStateChangeHandler,
+  setupGamepadTesterModal
 } from '../coop.js';
 import { chatManager } from '../chat.js';
 import { voiceManager } from '../voice.js';
@@ -48,12 +49,12 @@ import { DiscordUIController } from '../discord-ui.js';
 import { globalBus } from '../core/event-bus.js';
 import { p2pDispatcher } from '../core/message-dispatcher.js';
 import { createSessionContext } from '../core/session-context.js';
-import { 
-  createWhiteboardPlugin,
-  createSoundboardPlugin,
-  createTacticalPingPlugin,
-  createReactionsPlugin
-} from '../plugins/index.js';
+import { bindSessionMessageHandlers } from '../protocol/session-handlers.js';
+import { registerSessionFeatures } from '../plugins/session-composition.js';
+import {
+  PROTOCOL_TYPES,
+  AdmissionGate
+} from '../protocol/index.js';
 
 export const isViewerPage = true;
 export const isHost = false;
@@ -66,10 +67,76 @@ export const viewerState = {
   activeConn: null,
   statsMonitorActive: false,
   remoteStream: null,
-  session: null
+  session: null,
+  isPinRequired: false,
+  isAuthenticated: false,
+  messageHandlers: null
 };
 
 export const watchingHosts = new Map();
+
+/**
+ * Exibe o modal de solicitação de PIN na interface do espectador
+ */
+export function promptViewerPin(targetId, errorMsg = null) {
+  viewerState.targetHostId = targetId;
+  const modal = document.getElementById('pin-prompt-modal');
+  const input = document.getElementById('viewer-pin-input');
+  const errorEl = document.getElementById('viewer-pin-error');
+  if (modal) {
+    modal.style.display = 'flex';
+    if (input) {
+      input.value = '';
+      input.focus?.();
+    }
+    if (errorEl) {
+      if (errorMsg) {
+        errorEl.textContent = errorMsg;
+        errorEl.style.display = 'block';
+      } else {
+        errorEl.textContent = '';
+        errorEl.style.display = 'none';
+      }
+    }
+  }
+}
+
+/**
+ * Oculta o modal de solicitação de PIN
+ */
+export function hideViewerPinModal() {
+  const modal = document.getElementById('pin-prompt-modal');
+  const errorEl = document.getElementById('viewer-pin-error');
+  if (modal) modal.style.display = 'none';
+  if (errorEl) {
+    errorEl.textContent = '';
+    errorEl.style.display = 'none';
+  }
+}
+
+/**
+ * Envia tentativa de validação de PIN para o streamer conectado
+ */
+export function submitViewerPin(pin) {
+  const trimmed = pin ? String(pin).trim() : '';
+  const errorEl = document.getElementById('viewer-pin-error');
+  if (!trimmed) {
+    if (errorEl) {
+      errorEl.textContent = 'Por favor, digite o PIN da sala.';
+      errorEl.style.display = 'block';
+    }
+    return false;
+  }
+
+  if (viewerState.activeConn && viewerState.activeConn.open) {
+    viewerState.activeConn.send({
+      type: PROTOCOL_TYPES.MEDIA.REQUEST_STREAM,
+      pin: trimmed
+    });
+    return true;
+  }
+  return false;
+}
 
 /**
  * Extrai o ID do Streamer a partir da URL (#watch=ID ou query ?streamer=ID)
@@ -118,9 +185,9 @@ export async function connectToStreamer(streamerId, pin = null, session = viewer
     const hostEntry = watchingHosts.get(streamerId);
     if (hostEntry) hostEntry.state = 'CONNECTED';
 
-    // Notifica o host sobre a conexão
+    // Notifica o host sobre a conexão e solicita transmissão
     conn.send({
-      type: 'VIEWER_HELLO',
+      type: PROTOCOL_TYPES.MEDIA.REQUEST_STREAM,
       peerId: viewerState.peer.id,
       pin: pin || ''
     });
@@ -129,6 +196,33 @@ export async function connectToStreamer(streamerId, pin = null, session = viewer
   });
 
   conn.on('data', (data) => {
+    if (data && typeof data === 'object') {
+      if (data.type === PROTOCOL_TYPES.ADMISSION.PIN_REQUIRED) {
+        viewerState.isPinRequired = true;
+        viewerState.isAuthenticated = false;
+        promptViewerPin(streamerId, data.error);
+        (session?.eventBus || globalBus).emit('pin:required', { streamerId, error: data.error });
+        return;
+      }
+      if (data.type === PROTOCOL_TYPES.ADMISSION.PIN_ACCEPTED) {
+        viewerState.isPinRequired = false;
+        viewerState.isAuthenticated = true;
+        hideViewerPinModal();
+        showToast('PIN aceito! Conectando à transmissão...', 'success');
+        (session?.eventBus || globalBus).emit('pin:accepted', { streamerId });
+        return;
+      }
+      if (data.type === PROTOCOL_TYPES.MEDIA.STREAM_STATUS) {
+        if (data.isStreaming) {
+          updateCardStatus(streamerId, 'Sincronizando stream em tempo real...');
+        } else {
+          updateCardStatus(streamerId, 'Streamer conectado! Aguardando início da transmissão...');
+        }
+        (session?.eventBus || globalBus).emit('stream:status', data);
+        return;
+      }
+    }
+
     (session?.dispatcher || p2pDispatcher).dispatch(data, conn, viewerState.peer);
   });
 
@@ -136,6 +230,8 @@ export async function connectToStreamer(streamerId, pin = null, session = viewer
     updateCardStatus(streamerId, 'Desconectado do streamer.');
     removeVideoCard(streamerId);
     watchingHosts.delete(streamerId);
+    viewerState.isAuthenticated = false;
+    viewerState.isPinRequired = false;
     (session?.eventBus || globalBus).emit('viewer:disconnected', { streamerId });
   });
 
@@ -169,7 +265,11 @@ export async function initViewerPeer(session = viewerState.session) {
     });
 
     peer.on('call', (call) => {
-      handleIncomingStreamCall(call, session);
+      if (call.metadata?.type === 'VOICE_CHAT') {
+        viewerState.messageHandlers?.answerVoiceCall(call);
+      } else {
+        handleIncomingStreamCall(call, session);
+      }
     });
 
     peer.on('error', (err) => {
@@ -252,6 +352,7 @@ function updateStatsHud(stats) {
 export async function initViewerApp(options = {}) {
   const session = createSessionContext({
     role: 'viewer',
+    exclusiveKey: 'viewer-entry',
     eventBus: options.eventBus,
     messageDispatcher: options.messageDispatcher,
     pluginManager: options.pluginManager,
@@ -259,20 +360,36 @@ export async function initViewerApp(options = {}) {
   });
   viewerState.session = session;
 
-  // Registra plugins relevantes para espectadores
-  try {
-    session.pluginManager.register(createWhiteboardPlugin());
-    session.pluginManager.register(createSoundboardPlugin());
-    session.pluginManager.register(createTacticalPingPlugin());
-    session.pluginManager.register(createReactionsPlugin());
-    session.pluginManager.initAll({
-      eventBus: session.eventBus,
-      p2pDispatcher: session.dispatcher,
-      role: 'viewer'
-    });
-  } catch (err) {
-    console.warn('[Viewer] Falha ao registrar plugins:', err);
-  }
+  const features = registerSessionFeatures(session, {
+    role: 'viewer',
+    showToast,
+    chatManager,
+    getPeerId: () => viewerState.peer?.id || 'viewer',
+    getRole: () => getCoopState().isPlayer2 ? 'player2' : 'viewer',
+    getDisplayName: () => 'Espectador',
+    broadcastDataMessage: (data) => {
+      if (viewerState.activeConn?.open) viewerState.activeConn.send(data);
+    }
+  });
+  const messageHandlers = bindSessionMessageHandlers(session, {
+    role: 'viewer',
+    chatManager,
+    voiceManager,
+    getPeer: () => viewerState.peer,
+    getLocalPeerId: () => viewerState.peer?.id,
+    showToast,
+    broadcast: (data) => {
+      if (viewerState.activeConn?.open) viewerState.activeConn.send(data);
+    },
+    getVideoCard: (peerId) => document.getElementById(`card-${peerId}`)
+  });
+  viewerState.messageHandlers = messageHandlers;
+  session.registerCleanup(() => {
+    if (viewerState.messageHandlers === messageHandlers) viewerState.messageHandlers = null;
+  });
+
+  // Configura modal de teste e calibração de controle físico
+  setupGamepadTesterModal();
 
   // Registra manipuladores Co-op do Jogador 2
   const unregisterCoop = registerCoopStateChangeHandler((state) => {
@@ -280,6 +397,112 @@ export async function initViewerApp(options = {}) {
   });
   if (typeof unregisterCoop === 'function') {
     session.registerCleanup(unregisterCoop);
+  }
+
+  // Vincula controles do modal de PIN se existirem na página
+  const pinSubmitBtn = document.getElementById('viewer-pin-submit-btn');
+  const pinCancelBtn = document.getElementById('viewer-pin-cancel-btn');
+  const pinInput = document.getElementById('viewer-pin-input');
+  if (pinSubmitBtn && pinInput) {
+    const onSubmitClick = () => submitViewerPin(pinInput.value);
+    const onInputKeyDown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitViewerPin(pinInput.value);
+      }
+    };
+    pinSubmitBtn.addEventListener('click', onSubmitClick);
+    pinInput.addEventListener('keydown', onInputKeyDown);
+    session.registerCleanup(() => {
+      pinSubmitBtn.removeEventListener('click', onSubmitClick);
+      pinInput.removeEventListener('keydown', onInputKeyDown);
+    });
+  }
+  if (pinCancelBtn) {
+    const onCancelClick = () => hideViewerPinModal();
+    pinCancelBtn.addEventListener('click', onCancelClick);
+    session.registerCleanup(() => pinCancelBtn.removeEventListener('click', onCancelClick));
+  }
+
+  // Vincula campo de busca e botão de conexão de streamer se existirem
+  const targetInput = document.getElementById('target-id');
+  const connectBtn = document.getElementById('connect-btn');
+  if (targetInput && connectBtn) {
+    const onTargetInput = () => {
+      const val = targetInput.value.trim();
+      connectBtn.disabled = !isValidPeerId(val);
+    };
+    const onConnectClick = () => {
+      const val = targetInput.value.trim();
+      if (val) connectToStreamer(val, null, session);
+    };
+    targetInput.addEventListener('input', onTargetInput);
+    connectBtn.addEventListener('click', onConnectClick);
+    session.registerCleanup(() => {
+      targetInput.removeEventListener('input', onTargetInput);
+      connectBtn.removeEventListener('click', onConnectClick);
+    });
+  }
+
+  // Instancia controlador da interface Discord (Chat, Voz, Emojis, Sons)
+  if (typeof DiscordUIController !== 'undefined') {
+    const discordUI = new DiscordUIController({
+      chatManager,
+      voiceManager,
+      soundboardManager: features.soundboard?.manager,
+      onSendMessage: (text) => {
+        const msg = chatManager.createMessage({
+          senderId: viewerState.peer?.id || 'viewer',
+          senderName: 'Espectador',
+          role: 'viewer',
+          text,
+          channel: chatManager.getActiveChannel()
+        });
+        const stored = msg && chatManager.addMessage(msg);
+        if (stored && viewerState.activeConn && viewerState.activeConn.open) {
+          viewerState.activeConn.send({
+            type: PROTOCOL_TYPES.COMMUNICATION.CHAT_MESSAGE,
+            message: stored
+          });
+        }
+      },
+      onJoinVoice: async () => {
+        try {
+          const stream = await voiceManager.joinVoice({ peerId: viewerState.peer?.id, name: 'Espectador', role: 'viewer' });
+          if (viewerState.activeConn?.open) {
+            viewerState.activeConn.send({ type: 'VOICE_SIGNAL', action: 'VOICE_JOINED', peerId: viewerState.peer?.id, name: 'Espectador', role: 'viewer' });
+          }
+          if (stream && viewerState.targetHostId) messageHandlers.connectVoiceTo(viewerState.targetHostId);
+        } catch (error) {
+          showToast('Não foi possível acessar o microfone.', 'error');
+        }
+      },
+      onLeaveVoice: () => {
+        messageHandlers.activeVoiceCalls.forEach((call) => { try { call.close(); } catch (_) {} });
+        messageHandlers.activeVoiceCalls.clear();
+        voiceManager.leaveVoice();
+        if (viewerState.activeConn?.open) viewerState.activeConn.send({ type: 'VOICE_SIGNAL', action: 'LEAVE', peerId: viewerState.peer?.id });
+      },
+      onPlaySound: (soundId) => {
+        features.soundboard?.manager.playSound(soundId);
+        viewerState.activeConn?.open && viewerState.activeConn.send({ type: 'SOUNDBOARD_PLAY', soundId, senderName: 'Espectador' });
+      },
+      onSendReaction: (emoji) => {
+        const data = { type: 'EMOJI_REACTION', emoji, senderName: 'Espectador' };
+        features.reactions?.manager.spawnReaction(data);
+        if (viewerState.activeConn?.open) viewerState.activeConn.send(data);
+      },
+      onOpenWhiteboard: () => {
+        features.whiteboardUI?.open();
+      },
+      onPlayCustomSound: (sound) => {
+        features.soundboard?.manager.playCustomSound(sound);
+        const data = { type: 'SOUNDBOARD_PLAY_CUSTOM', ...sound, senderName: 'Espectador' };
+        if (viewerState.activeConn?.open) viewerState.activeConn.send(data);
+      }
+    });
+    discordUI.init();
+    session.registerCleanup(() => discordUI.destroy());
   }
 
   const targetStreamer = options.targetStreamerId || getTargetStreamerId();
@@ -315,6 +538,9 @@ export async function initViewerApp(options = {}) {
     connect: (streamerId, pin = null) => connectToStreamer(streamerId, pin, session),
     requestCoop: (hId) => requestCoopControl(hId, viewerState.activeConn),
     releaseCoop: (hId) => releaseCoopControl(hId, viewerState.activeConn),
+    submitPin: (pin) => submitViewerPin(pin),
+    promptPin: (id, err) => promptViewerPin(id, err),
+    hidePin: () => hideViewerPinModal(),
     state: viewerState
   };
 }

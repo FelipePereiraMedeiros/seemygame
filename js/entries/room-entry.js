@@ -49,13 +49,9 @@ import {
 } from '../ui.js';
 import { globalBus } from '../core/event-bus.js';
 import { createSessionContext } from '../core/session-context.js';
-import { 
-  createWhiteboardPlugin,
-  createSoundboardPlugin,
-  createTacticalPingPlugin,
-  createReactionsPlugin,
-  createClippingPlugin
-} from '../plugins/index.js';
+import { bindSessionMessageHandlers } from '../protocol/session-handlers.js';
+import { registerSessionFeatures } from '../plugins/session-composition.js';
+import { setupGamepadTesterModal } from '../coop.js';
 
 export const isRoomPage = true;
 
@@ -69,7 +65,11 @@ export const roomState = {
   currentPin: null,
   userName: 'Gamer',
   isTreeRelayEnabled: true,
-  session: null
+  session: null,
+  coordinatorConn: null,
+  localStream: null,
+  screenCalls: new Map(),
+  messageHandlers: null
 };
 
 /**
@@ -167,17 +167,45 @@ export async function setupRoomSession(peerId, session = roomState.session) {
   roomState.currentPin = roomPin;
   roomState.currentKey = roomKey;
 
-  const isMaster = Boolean(roomState.peer?.id && roomKey && roomState.peer.id.endsWith('_host'));
+  const coordinatorId = getRoomMasterPeerId(roomId, roomKey);
+  const isMaster = peerId === coordinatorId;
 
   // Instancia o RoomManager para a sala indicada com o contrato real de objeto de opções
   const rm = new RoomManager({
     roomId,
     userName: roomState.userName,
-    clientSessionId: peerId,
+    clientSessionId: session?.sessionId || peerId,
     roomPin,
     roomKey
   });
   roomState.roomManager = rm;
+  const submitPinBtn = document.getElementById('viewer-pin-submit-btn');
+  const cancelPinBtn = document.getElementById('viewer-pin-cancel-btn');
+  const pinInput = document.getElementById('viewer-pin-input');
+  const submitPin = () => {
+    const pin = String(pinInput?.value || '').trim();
+    if (!/^[0-9]{4,8}$/.test(pin)) {
+      const error = document.getElementById('viewer-pin-error');
+      if (error) { error.textContent = 'Digite um PIN de 4 a 8 números.'; error.style.display = 'block'; }
+      return;
+    }
+    roomState.currentPin = pin;
+    joinCoordinator(pin);
+  };
+  if (submitPinBtn) {
+    submitPinBtn.addEventListener('click', submitPin);
+    session?.registerCleanup(() => submitPinBtn.removeEventListener('click', submitPin));
+  }
+  if (pinInput) {
+    const onPinKey = (event) => { if (event.key === 'Enter') { event.preventDefault(); submitPin(); } };
+    pinInput.addEventListener('keydown', onPinKey);
+    session?.registerCleanup(() => pinInput.removeEventListener('keydown', onPinKey));
+  }
+  if (cancelPinBtn) {
+    const onCancel = () => { const modal = document.getElementById('pin-prompt-modal'); if (modal) modal.style.display = 'none'; };
+    cancelPinBtn.addEventListener('click', onCancel);
+    session?.registerCleanup(() => cancelPinBtn.removeEventListener('click', onCancel));
+  }
 
   // Instancia RelayManager para escalabilidade em árvore
   roomState.relayManager = new RelayManager({
@@ -185,12 +213,85 @@ export async function setupRoomSession(peerId, session = roomState.session) {
     maxDirectViewers: 8
   });
 
+  // Conecta eventos do RoomManager à UI e ao barramento da sessão
+  rm.on('streamPublished', ({ peerId: streamerPeerId, details, member }) => {
+    if (streamerPeerId !== rm.myPeerId) {
+      showToast(`🎮 ${member?.name || 'Um amigo'} começou a transmitir!`, 'info', 4000);
+      (session?.eventBus || globalBus).emit('room:streamPublished', { peerId: streamerPeerId, details, member });
+    }
+  });
+
+  rm.on('streamUnpublished', ({ peerId: streamerPeerId, member }) => {
+    if (streamerPeerId !== rm.myPeerId) {
+      showToast(`Transmissão de ${member?.name || streamerPeerId.slice(0, 6)} encerrada.`, 'info');
+      removeVideoCard(streamerPeerId);
+      (session?.eventBus || globalBus).emit('room:streamUnpublished', { peerId: streamerPeerId, member });
+    }
+  });
+
+  rm.on('pinRequired', ({ error }) => {
+    const promptModal = document.getElementById('pin-prompt-modal');
+    const errEl = document.getElementById('viewer-pin-error');
+    if (promptModal) promptModal.style.display = 'flex';
+    if (errEl && error) {
+      errEl.textContent = error;
+      errEl.style.display = 'block';
+    }
+    (session?.eventBus || globalBus).emit('room:pinRequired', { error });
+  });
+
+  rm.on('pinAccepted', () => {
+    const promptModal = document.getElementById('pin-prompt-modal');
+    if (promptModal) promptModal.style.display = 'none';
+    showToast('Entrada na sala autorizada!', 'success');
+    (session?.eventBus || globalBus).emit('room:pinAccepted');
+  });
+
+  rm.on('memberLeft', (member) => {
+    if (member && member.peerId) {
+      removeVideoCard(member.peerId);
+      (session?.eventBus || globalBus).emit('room:memberLeft', member);
+    }
+  });
+
+  const connectMeshMembers = () => {
+    if (!roomState.peer || roomState.peer.destroyed || !rm.isInRoom || rm.isMaster) return;
+    for (const member of rm.members.values()) {
+      if (member.peerId === rm.myPeerId || member.peerId === rm.masterPeerId || member.isMaster) continue;
+      if (rm.myPeerId.localeCompare(member.peerId) >= 0) continue;
+      if (rm.meshConnections.get(member.peerId)?.open || rm.pendingConnections.get(member.peerId)?.open) continue;
+      const conn = roomState.peer.connect(member.peerId, { reliable: true, metadata: { type: 'ROOM_MESH', roomId } });
+      if (conn) attachRoomDataConnection(conn, rm, session, { authenticateMember: true });
+    }
+  };
+  rm.on('membersUpdated', connectMeshMembers);
+
+  const joinCoordinator = (pin = roomPin) => {
+    if (rm.isMaster || !roomState.peer || roomState.peer.destroyed) return null;
+    if (roomState.coordinatorConn && roomState.coordinatorConn.open) {
+      try { roomState.coordinatorConn.close(); } catch (_) {}
+    }
+    const conn = roomState.peer.connect(rm.masterPeerId, {
+      reliable: true,
+      metadata: { type: 'ROOM_JOIN', roomId: rm.roomId }
+    });
+    roomState.coordinatorConn = conn;
+    attachRoomDataConnection(conn, rm, session, { requestAdmission: true, pin });
+    return conn;
+  };
+  roomState.requestRoomJoin = joinCoordinator;
+
   // Vincula controlador de UI Discord
   if (typeof DiscordUIController !== 'undefined') {
     roomState.discordUI = new DiscordUIController({
       chatManager,
       voiceManager,
       roomManager: rm,
+      soundboardManager: roomState.session?.pluginManager.get('soundboard')?.manager,
+      onOpenTuning: () => {
+        const modal = document.getElementById('tuning-modal');
+        if (modal) modal.style.display = 'flex';
+      },
       onSendMessage: (text) => {
         if (chatManager) {
           const msg = chatManager.createMessage({
@@ -207,14 +308,32 @@ export async function setupRoomSession(peerId, session = roomState.session) {
         }
       },
       onJoinVoice: () => {
-        if (voiceManager) {
-          voiceManager.joinVoice({ peerId, name: roomState.userName });
-        }
+        joinRoomVoice(rm, session);
       },
       onLeaveVoice: () => {
-        if (voiceManager) {
-          voiceManager.leaveVoice();
-        }
+        leaveRoomVoice(rm, session);
+      },
+      onToggleMic: (isMuted) => rm.setLocalVoiceState({ isMuted }),
+      onToggleDeaf: (isDeafened) => rm.setLocalVoiceState({ isDeafened }),
+      onOpenWhiteboard: () => roomState.features?.whiteboardUI?.open(),
+      onPlaySound: (soundId) => {
+        roomState.session?.pluginManager.get('soundboard')?.manager.playSound(soundId);
+        rm.broadcast({ type: 'SOUNDBOARD_PLAY', soundId, senderName: roomState.userName });
+      },
+      onPlayCustomSound: (sound) => {
+        roomState.features?.soundboard?.manager.playCustomSound(sound);
+        rm.broadcast({ type: 'SOUNDBOARD_PLAY_CUSTOM', ...sound, senderName: rm.userName });
+      },
+      onSendReaction: (emoji) => {
+        const data = { type: 'EMOJI_REACTION', emoji, senderName: roomState.userName };
+        roomState.session?.pluginManager.get('reactions')?.manager.spawnReaction(data);
+        rm.broadcast(data);
+      },
+      onToggleStream: () => roomState.localStream ? stopRoomCapture(rm, session) : startRoomCapture(rm, session),
+      onLeaveRoom: () => {
+        leaveRoomVoice(rm, session);
+        rm.leave();
+        try { roomState.peer?.destroy(); } catch (_) {}
       }
     });
     roomState.discordUI.init();
@@ -223,9 +342,121 @@ export async function setupRoomSession(peerId, session = roomState.session) {
   // Inicia o processo de ingresso na sala P2P
   const joined = await rm.join(peerId, isMaster);
   if (joined !== false) {
+    roomState.peer.on('connection', (conn) => {
+      attachRoomDataConnection(conn, rm, session);
+    });
+    roomState.peer.on('call', (call) => handleRoomMediaCall(call, rm, session));
+    if (isMaster) {
+      connectMeshMembers();
+    } else {
+      joinCoordinator(roomPin);
+    }
     showToast(`Você entrou na sala #${roomId}!`, 'success');
     (session?.eventBus || globalBus).emit('room:joined', { roomId, peerId });
   }
+}
+
+function attachRoomDataConnection(conn, rm, session, { requestAdmission = false, authenticateMember = false, pin = null } = {}) {
+  if (!conn?.peer || !rm.registerConnection(conn.peer, conn)) return false;
+  conn.on('open', () => {
+    if (requestAdmission) {
+      conn.send({
+        type: 'ROOM_JOIN_REQUEST',
+        roomId: rm.roomId,
+        roomKey: rm.roomKey,
+        pin,
+        name: rm.userName,
+        clientSessionId: rm.clientSessionId
+      });
+    } else if (authenticateMember) {
+      conn.send({ type: 'ROOM_MEMBER_AUTH', roomId: rm.roomId, roomKey: rm.roomKey });
+    }
+  });
+  conn.on('data', (message) => {
+    const handled = rm.handleRoomMessage(conn.peer, message, conn);
+    if (!handled) session?.dispatcher.dispatch(message, conn, roomState.peer);
+  });
+  conn.on('close', () => {
+    if (roomState.coordinatorConn === conn) roomState.coordinatorConn = null;
+    rm.removeMember(conn.peer);
+  });
+  conn.on('error', (error) => console.warn(`[Room] Conexão com ${conn.peer} falhou:`, error));
+  return true;
+}
+
+function handleRoomMediaCall(call, rm, session) {
+  if (!call || !rm.isPeerAuthorized(call.peer)) {
+    try { call?.close?.(); } catch (_) {}
+    return;
+  }
+  if (call.metadata?.type === 'VOICE_CHAT') {
+    session?.messageHandlers?.answerVoiceCall(call);
+    return;
+  }
+  call.answer();
+  call.on('stream', (stream) => {
+    const member = rm.members.get(call.peer);
+    addOrUpdateVideoCard({ peerId: call.peer, stream, label: member?.name || `Amigo ${call.peer.slice(-4)}`, isLocal: false });
+  });
+  call.on('close', () => removeVideoCard(call.peer));
+}
+
+async function joinRoomVoice(rm, session) {
+  if (voiceManager.isInVoice) return;
+  try {
+    const stream = await voiceManager.joinVoice({ peerId: rm.myPeerId, name: rm.userName, role: rm.isMaster ? 'host' : 'member' });
+    rm.setLocalVoiceState({ isMuted: voiceManager.isMuted, isDeafened: voiceManager.isDeafened, isSpeaking: false });
+    rm.broadcast({ type: 'VOICE_SIGNAL', action: 'VOICE_JOINED', peerId: rm.myPeerId, name: rm.userName, role: rm.isMaster ? 'host' : 'member' });
+    for (const [memberId, conn] of rm.meshConnections) {
+      if (!conn.open || !rm.isPeerAuthorized(memberId) || rm.myPeerId.localeCompare(memberId) >= 0) continue;
+      const call = roomState.peer?.call(memberId, stream, { metadata: { type: 'VOICE_CHAT', name: rm.userName, role: rm.isMaster ? 'host' : 'member' } });
+      session?.messageHandlers?.bindVoiceCall(call);
+    }
+  } catch (error) {
+    showToast('Não foi possível acessar o microfone.', 'error');
+  }
+}
+
+function leaveRoomVoice(rm, session) {
+  session?.messageHandlers?.activeVoiceCalls.forEach((call) => { try { call.close(); } catch (_) {} });
+  session?.messageHandlers?.activeVoiceCalls.clear();
+  voiceManager.leaveVoice();
+  rm.broadcast({ type: 'VOICE_SIGNAL', action: 'LEAVE', peerId: rm.myPeerId });
+}
+
+async function startRoomCapture(rm, session) {
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getDisplayMedia) {
+    showToast('Captura de tela não está disponível neste navegador.', 'error');
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    roomState.localStream = stream;
+    stream.getVideoTracks().forEach((track) => track.addEventListener('ended', () => stopRoomCapture(rm, session), { once: true }));
+    addOrUpdateVideoCard({ peerId: 'local-me', stream, label: `${rm.userName} (Ao Vivo)`, isLocal: true });
+    roomState.discordUI?.setStreamingState(true);
+    rm.setLocalStreaming(true, { sourceType: 'display', title: 'Compartilhamento de tela' });
+    for (const [memberId, conn] of rm.meshConnections) {
+      if (!conn.open || !rm.isPeerAuthorized(memberId)) continue;
+      const call = roomState.peer?.call(memberId, stream, { metadata: { type: 'ROOM_STREAM', name: rm.userName } });
+      if (call) roomState.screenCalls.set(memberId, call);
+    }
+    session?.eventBus.emit('stream:started', { stream });
+  } catch (error) {
+    showToast('Não foi possível iniciar o compartilhamento.', 'error');
+  }
+}
+
+function stopRoomCapture(rm, session) {
+  if (!roomState.localStream) return;
+  roomState.localStream.getTracks?.().forEach((track) => { try { track.stop(); } catch (_) {} });
+  roomState.screenCalls.forEach((call) => { try { call.close(); } catch (_) {} });
+  roomState.screenCalls.clear();
+  roomState.localStream = null;
+  removeVideoCard('local-me');
+  roomState.discordUI?.setStreamingState(false);
+  rm.setLocalStreaming(false);
+  session?.eventBus.emit('stream:stopped');
 }
 
 /**
@@ -238,22 +469,60 @@ export async function initRoomPeer(customId = null) {
 
   await fetchIceServersFromApi().catch(() => {});
   const config = getPeerConfig();
+  const { roomId, roomKey } = getRoomInfoFromUrl();
+  const coordinatorId = getRoomMasterPeerId(roomId, roomKey);
 
-  return new Promise((resolve, reject) => {
-    const peer = customId ? new Peer(customId, config) : new Peer(config);
+  const createPeer = (id, retryAsGuest) => new Promise((resolve, reject) => {
+    const peer = id ? new Peer(id, config) : new Peer(config);
     roomState.peer = peer;
-
-    peer.on('open', (id) => {
-      console.log(`[Room] Peer registrado com ID: ${id}`);
+    let settled = false;
+    peer.on('open', (openedId) => {
+      settled = true;
+      console.log(`[Room] Peer registrado com ID: ${openedId}`);
       resolve(peer);
     });
-
     peer.on('error', (err) => {
+      if (err?.type === 'unavailable-id' && retryAsGuest && !settled) {
+        settled = true;
+        try { peer.destroy(); } catch (_) {}
+        createPeer(null, false).then(resolve, reject);
+        return;
+      }
+      if (settled) return;
+      settled = true;
       console.error('[Room] Erro no Peer:', err);
       showToast('Erro de conexão ao servidor de sinalização.', 'error');
       reject(err);
     });
   });
+
+  if (customId) return createPeer(customId, false);
+  return createPeer(coordinatorId, true);
+}
+
+/**
+ * Configura os listeners dos botões de fechar e salvar do modal de configurações (#tuning-modal)
+ */
+export function setupTuningModal() {
+  if (typeof document === 'undefined') return;
+  const modal = document.getElementById('tuning-modal');
+  if (!modal) return;
+  if (modal.dataset.tuningMounted === 'true') return;
+  modal.dataset.tuningMounted = 'true';
+
+  const closeBtn = document.getElementById('close-tuning-modal-btn');
+  const saveBtn = document.getElementById('save-tuning-btn');
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+  }
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+  }
 }
 
 /**
@@ -262,6 +531,7 @@ export async function initRoomPeer(customId = null) {
 export async function initRoomApp(options = {}) {
   const session = createSessionContext({
     role: 'room',
+    exclusiveKey: 'room-entry',
     eventBus: options.eventBus,
     messageDispatcher: options.messageDispatcher,
     pluginManager: options.pluginManager,
@@ -269,21 +539,36 @@ export async function initRoomApp(options = {}) {
   });
   roomState.session = session;
 
-  // Registra todos os plugins com clipping ativado
-  try {
-    session.pluginManager.register(createWhiteboardPlugin());
-    session.pluginManager.register(createSoundboardPlugin());
-    session.pluginManager.register(createTacticalPingPlugin());
-    session.pluginManager.register(createReactionsPlugin());
-    session.pluginManager.register(createClippingPlugin());
-    session.pluginManager.initAll({
-      eventBus: session.eventBus,
-      p2pDispatcher: session.dispatcher,
-      role: 'room'
-    });
-  } catch (err) {
-    console.warn('[Room] Falha ao registrar plugins:', err);
-  }
+  const features = registerSessionFeatures(session, {
+    role: 'room',
+    includeClipping: true,
+    showToast,
+    chatManager,
+    getPeerId: () => roomState.peer?.id || 'room-member',
+    getRole: () => roomState.roomManager?.isMaster ? 'host' : 'viewer',
+    getDisplayName: () => roomState.userName,
+    broadcastDataMessage: (data, excludePeerId) => roomState.roomManager?.broadcast(data, excludePeerId)
+  });
+  roomState.features = features;
+  const messageHandlers = bindSessionMessageHandlers(session, {
+    role: 'room',
+    chatManager,
+    voiceManager,
+    getPeer: () => roomState.peer,
+    getLocalPeerId: () => roomState.peer?.id,
+    showToast,
+    broadcast: (data, excludePeerId) => roomState.roomManager?.broadcast(data, excludePeerId)
+  });
+  roomState.messageHandlers = messageHandlers;
+  session.registerCleanup(() => {
+    if (roomState.messageHandlers === messageHandlers) roomState.messageHandlers = null;
+    if (roomState.features === features) roomState.features = null;
+    if (roomState.requestRoomJoin) roomState.requestRoomJoin = null;
+  });
+
+  // Configura modais de calibração de controle e configurações
+  setupTuningModal();
+  setupGamepadTesterModal();
 
   const startRoomFlow = () => {
     initGreenRoomLobby(async () => {
@@ -303,6 +588,8 @@ export async function initRoomApp(options = {}) {
     session,
     dispose: () => {
       if (roomState.roomManager) {
+        if (roomState.localStream) stopRoomCapture(roomState.roomManager, session);
+        leaveRoomVoice(roomState.roomManager, session);
         try { roomState.roomManager.leave(); } catch (e) {}
       }
       if (roomState.discordUI) {
@@ -315,6 +602,8 @@ export async function initRoomApp(options = {}) {
       roomState.roomManager = null;
       roomState.relayManager = null;
       roomState.discordUI = null;
+      roomState.coordinatorConn = null;
+      roomState.screenCalls.clear();
       if (roomState.session === session) roomState.session = null;
       session.dispose();
     },

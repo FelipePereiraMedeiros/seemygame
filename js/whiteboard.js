@@ -795,6 +795,24 @@ export class WhiteboardManager {
     window.addEventListener('touchend', handlePointerUp);
   }
 
+  dispose() {
+    if (this._pointerUpHandler && typeof window !== 'undefined') {
+      window.removeEventListener('mouseup', this._pointerUpHandler);
+      window.removeEventListener('touchend', this._pointerUpHandler);
+    }
+    if (this.canvas) {
+      this.canvas.onmousedown = null;
+      this.canvas.onmousemove = null;
+      this.canvas.ontouchstart = null;
+      this.canvas.ontouchmove = null;
+    }
+    this._pointerUpHandler = null;
+    this.canvas = null;
+    this.ctx = null;
+    this.elements = [];
+    this.imageCache.clear();
+  }
+
   eraseAt(x, y) {
     const threshold = 28;
     for (let i = this.elements.length - 1; i >= 0; i--) {

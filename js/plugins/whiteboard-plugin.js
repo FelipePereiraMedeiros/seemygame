@@ -12,6 +12,7 @@ export class WhiteboardPlugin extends BasePlugin {
   constructor(options = {}) {
     super('whiteboard', options);
     this.manager = options.manager || whiteboardManager;
+    this.ownsManager = Boolean(options.manager);
     this._dispatcherUnsubs = [];
   }
 
@@ -133,6 +134,7 @@ export class WhiteboardPlugin extends BasePlugin {
     this.manager.onBoardCleared = null;
     this.manager.onCursorMoved = null;
     this.manager.onToolChanged = null;
+    if (this.ownsManager) this.manager.dispose?.();
   }
 }
 
