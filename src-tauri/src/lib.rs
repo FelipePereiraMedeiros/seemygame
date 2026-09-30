@@ -14,6 +14,7 @@ mod native_viewer;
 #[cfg(not(test))]
 mod system;
 mod webrtc_bridge;
+mod webrtc_common;
 mod windows_list;
 
 #[cfg(not(test))]
