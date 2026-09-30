@@ -5,7 +5,7 @@
  * suportando os estilos "Gamer" (ex: pixel-turbo-fogo) e "Meet" (ex: abc-defg-hij).
  */
 
-import { sanitizeRoomId } from './room.js';
+import { sanitizeRoomId } from './room/room-id.js';
 
 // Dicionário de palavras gamer em português (sem acentos, foneticamente claras)
 export const GAMER_WORDS = {

@@ -2,16 +2,8 @@ import { initAudioAnalyser, stopAudioAnalyser } from './audio.js';
 import { stopStatsMonitor } from './stats.js';
 import { TERMS_VERSION } from './config.js';
 
-/**
- * Valida o formato e tamanho seguro de um Peer ID
- * @param {string} id
- * @returns {boolean}
- */
-export function isValidPeerId(id) {
-  if (!id || typeof id !== 'string') return false;
-  const trimmed = id.trim();
-  return /^[a-zA-Z0-9_-]{1,64}$/.test(trimmed);
-}
+export { isValidPeerId } from './shared/peer-id.js';
+import { isValidPeerId } from './shared/peer-id.js';
 
 /**
  * Retorna o MediaStream adequado para o elemento <video>.
@@ -180,6 +172,9 @@ export function initTermsModal(onAcceptCallback) {
 
   if (acceptedVersion === TERMS_VERSION || (legacyAccepted && !acceptedVersion)) {
     modal.style.display = 'none';
+    if (typeof onAcceptCallback === 'function') {
+      onAcceptCallback();
+    }
   } else {
     modal.style.display = 'flex';
   }
@@ -342,25 +337,39 @@ export function setCardStreamPaused(peerId, isPaused, message = 'Transmissão pa
  * @param {string} peerId
  */
 export function removeVideoCard(peerId) {
-  const card = document.getElementById(`card-${peerId}`);
+  const normalizedId = (peerId === 'local-stream') ? 'local-me' : peerId;
+  const card = document.getElementById(`card-${normalizedId}`) || document.getElementById(`card-${peerId}`);
   if (card) card.remove();
-  stopStatsMonitor(peerId);
-  stopAudioAnalyser(peerId);
+  stopStatsMonitor(normalizedId);
+  stopAudioAnalyser(normalizedId);
   updateGridEmptyState();
 }
 
 /**
  * Adiciona ou atualiza o player de vídeo na grade com controles de stats, som, PiP e tela cheia
- * @param {Object} options
- * @param {MediaStream} options.stream
- * @param {string} options.peerId
- * @param {string} options.label
- * @param {boolean} [options.isLocal=false]
- * @param {Function} [options.onDisconnect]
+ * @param {Object|string} optionsOrPeerId
+ * @param {MediaStream} [streamArg]
+ * @param {Object} [extraOptions={}]
  */
-export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, onDisconnect, onCoopClick, onPanicClick, onClipClick }) {
+export function addOrUpdateVideoCard(optionsOrPeerId, streamArg, extraOptions = {}) {
   const grid = document.getElementById('video-grid');
   if (!grid) return null;
+
+  let stream, peerId, label, isLocal, onDisconnect, onCoopClick, onPanicClick, onClipClick;
+  if (optionsOrPeerId && typeof optionsOrPeerId === 'object' && ('stream' in optionsOrPeerId || 'peerId' in optionsOrPeerId)) {
+    ({ stream, peerId, label, isLocal = false, onDisconnect, onCoopClick, onPanicClick, onClipClick } = optionsOrPeerId);
+  } else {
+    peerId = optionsOrPeerId;
+    stream = streamArg;
+    label = extraOptions.title || extraOptions.label || 'Stream';
+    isLocal = extraOptions.isLocal ?? extraOptions.isHost ?? false;
+    onDisconnect = extraOptions.onDisconnect;
+    onCoopClick = extraOptions.onCoopClick;
+    onPanicClick = extraOptions.onPanicClick;
+    onClipClick = extraOptions.onClipClick;
+  }
+
+  if (peerId === 'local-stream') peerId = 'local-me';
 
   if (!isValidPeerId(peerId) && peerId !== 'local-me') {
     showToast('ID inválido para adicionar cartão de vídeo.', 'error');
@@ -895,12 +904,24 @@ export function addOrUpdateVideoCard({ stream, peerId, label, isLocal = false, o
  * @param {Function} onApprove
  * @param {Function} onDeny
  */
-export function showCoopPromptModal(requesterId, onApprove, onDeny) {
-  const modal = document.getElementById('coop-modal');
+export function showCoopPromptModal(requesterIdOrOpts, onApprove, onDeny) {
+  const modal = document.getElementById('coop-modal') || document.getElementById('coop-prompt-modal');
   const reqIdSpan = document.getElementById('coop-requester-id');
   const approveBtn = document.getElementById('coop-approve-btn');
   const denyBtn = document.getElementById('coop-deny-btn');
   if (!modal) return;
+
+  let requesterId = '';
+  let approveCb = onApprove;
+  let denyCb = onDeny;
+
+  if (requesterIdOrOpts && typeof requesterIdOrOpts === 'object') {
+    requesterId = requesterIdOrOpts.peerId || requesterIdOrOpts.requesterId || '';
+    approveCb = requesterIdOrOpts.approve || requesterIdOrOpts.onApprove || onApprove;
+    denyCb = requesterIdOrOpts.deny || requesterIdOrOpts.onDeny || onDeny;
+  } else {
+    requesterId = String(requesterIdOrOpts || '');
+  }
 
   if (reqIdSpan) reqIdSpan.textContent = requesterId.slice(0, 8);
   modal.style.display = 'flex';
@@ -908,14 +929,14 @@ export function showCoopPromptModal(requesterId, onApprove, onDeny) {
   if (approveBtn) {
     approveBtn.onclick = () => {
       modal.style.display = 'none';
-      if (onApprove) onApprove();
+      if (approveCb) approveCb();
     };
   }
 
   if (denyBtn) {
     denyBtn.onclick = () => {
       modal.style.display = 'none';
-      if (onDeny) onDeny();
+      if (denyCb) denyCb();
     };
   }
 }

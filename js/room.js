@@ -5,7 +5,10 @@
  * compartilhem presença, chat de voz e transmitam telas sob demanda.
  */
 
-import { isValidPeerId } from './ui.js';
+import { isValidPeerId } from './shared/peer-id.js';
+export { isValidPeerId };
+export { sanitizeRoomId } from './room/room-id.js';
+import { sanitizeRoomId } from './room/room-id.js';
 
 export const ROOM_PREFIX = 'smg_room_';
 export const MASTER_SUFFIX = '_host';
@@ -14,17 +17,6 @@ export const MAX_PENDING_ROOM_CONNECTIONS = 16;
 export const MAX_ROOM_MESSAGE_BYTES = 64 * 1024;
 export const ROOM_HEARTBEAT_INTERVAL_MS = 4000;
 export const ROOM_MEMBER_TIMEOUT_MS = 30000;
-
-/**
- * Sanitiza o ID da sala para garantir caracteres seguros
- * @param {string} rawId 
- * @returns {string}
- */
-export function sanitizeRoomId(rawId) {
-  if (!rawId || typeof rawId !== 'string') return 'general';
-  const clean = rawId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-');
-  return clean.slice(0, 32) || 'general';
-}
 
 export function sanitizeText(str) {
   if (typeof str !== 'string') return '';

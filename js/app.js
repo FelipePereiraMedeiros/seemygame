@@ -96,7 +96,7 @@ import { RoomManager, sanitizeRoomId, getRoomMasterPeerId } from './room.js';
 import { RelayManager, DEFAULT_MAX_DIRECT_VIEWERS } from './relay.js';
 import { EventBus, globalBus } from './core/event-bus.js';
 import { MessageDispatcher, globalDispatcher } from './core/message-dispatcher.js';
-import { PluginManager } from './core/plugin-manager.js';
+import { PluginManager, globalPluginManager } from './core/plugin-manager.js';
 import { audioContextPool, getSharedAudioContext } from './core/audio-context-pool.js';
 import {
   BasePlugin,
@@ -1269,6 +1269,14 @@ export function handlePageUnload() {
       peer.destroy();
     } catch (e) {}
   }
+  try {
+    pluginManager.destroyAll();
+  } catch (e) {}
+  appBootstrapped = false;
+  appDomInitialized = false;
+  if (typeof window !== 'undefined' && window.__SEEMYGAME_BOOTSTRAPPED__ === 'app') {
+    window.__SEEMYGAME_BOOTSTRAPPED__ = null;
+  }
 }
 
 export function isReloadConfirmationPending() {
@@ -2012,7 +2020,7 @@ export function isDuplicateMessage(msgId) {
   return false;
 }
 
-export const p2pDispatcher = new MessageDispatcher();
+export const p2pDispatcher = globalDispatcher;
 
 p2pDispatcher.register('CHAT_MESSAGE', (data, sourceConn) => {
   if (data.message) {
@@ -2067,7 +2075,7 @@ p2pDispatcher.register('VOICE_SIGNAL', (data, sourceConn) => {
   }
 }, { description: 'Voice Signaling' });
 
-export const pluginManager = new PluginManager({ eventBus: globalBus, dispatcher: p2pDispatcher });
+export const pluginManager = globalPluginManager;
 pluginManager.register(whiteboardPlugin);
 pluginManager.register(soundboardPlugin);
 pluginManager.register(tacticalPingPlugin);
@@ -2083,7 +2091,6 @@ export function initPlugins() {
     getDisplayName: () => getLocalUserDisplayName()
   });
 }
-initPlugins();
 
 export function handleIncomingP2PMessage(data, sourceConn) {
   if (!data || typeof data !== 'object') return;
@@ -5628,19 +5635,15 @@ export function initGamerFeatures() {
   });
 }
 
-// Inicializa controles de ID, PIN e Gamer Features se os elementos já existirem no DOM
-if (typeof document !== 'undefined') {
-  initFixedIdAndPinControls();
-  initGamerFeatures();
-}
-
 // ==========================================
 // INICIALIZAÇÃO GERAL
 // ==========================================
 
-function initAppDom() {
-  const acceptedVersion = typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_terms_version') : null;
-  const legacyAccepted = typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_terms_accepted') === 'true' : false;
+let appDomInitialized = false;
+
+export function initAppDom() {
+  if (appDomInitialized) return;
+  appDomInitialized = true;
 
   // Pré-busca credenciais TURN da API serverless em segundo plano se disponível
   fetchIceServersFromApi().catch(() => {});
@@ -5651,6 +5654,9 @@ function initAppDom() {
   // Inicializa suporte e prioridade nativa se estiver rodando em Desktop Tauri
   initDesktopSupport().catch((err) => console.warn('[Desktop Init]', err));
 
+  // Inicializa plugins da sessão legada
+  initPlugins();
+
   // Inicializa recursos Discord (Chat e Voz P2P)
   initDiscordFeatures();
 
@@ -5660,6 +5666,10 @@ function initAppDom() {
   // Inicializa recursos Gamer (Clipping, Pings, Reações, ABR, PiP, Facecam)
   initGamerFeatures();
 
+  // Inicializa atalhos de teclado gamer
+  initGamerKeybindings();
+
+  // Modal de termos: garante que se já aceito, chama o fluxo imediatamente
   initTermsModal(() => {
     if (isRoomMode()) {
       initGreenRoomLobby();
@@ -5667,90 +5677,85 @@ function initAppDom() {
       initPeer();
     }
   });
-
-  // Só conecta à sinalização se os termos já tiverem sido aceitos
-  if (acceptedVersion === TERMS_VERSION || (legacyAccepted && !acceptedVersion)) {
-    if (isRoomMode()) {
-      initGreenRoomLobby();
-    } else {
-      initPeer();
-    }
-  }
-}
-
-if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  if (document.readyState === 'loading') {
-    window.addEventListener('DOMContentLoaded', initAppDom);
-  } else {
-    initAppDom();
-  }
 }
 
 // ==========================================
 // ATALHOS DE TECLADO GAMER (F = Fullscreen, M = Mute)
 // ==========================================
 
-window.addEventListener('keydown', (e) => {
-  const tag = e.target?.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) {
-    return;
-  }
+let gamerKeybindingsInitialized = false;
 
-  if (e.key === 'f' || e.key === 'F') {
-    e.preventDefault();
-    const video = document.querySelector('.video-card:not(#card-local-me) video') || 
-                  document.querySelector('video');
-    if (video) {
-      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        if (video.requestFullscreen) {
-          video.requestFullscreen().catch(err => console.warn(err));
-        } else if (video.webkitRequestFullscreen) {
-          video.webkitRequestFullscreen();
-        }
-      } else {
-        if (document.exitFullscreen) {
-          document.exitFullscreen().catch(err => console.warn(err));
-        } else if (document.webkitExitFullscreen) {
-          document.webkitExitFullscreen();
+export function initGamerKeybindings() {
+  if (gamerKeybindingsInitialized || typeof window === 'undefined') return;
+  gamerKeybindingsInitialized = true;
+
+  window.addEventListener('keydown', (e) => {
+    const tag = e.target?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) {
+      return;
+    }
+
+    if (e.key === 'f' || e.key === 'F') {
+      e.preventDefault();
+      const video = document.querySelector('.video-card:not(#card-local-me) video') || 
+                    document.querySelector('video');
+      if (video) {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+          if (video.requestFullscreen) {
+            video.requestFullscreen().catch(err => console.warn(err));
+          } else if (video.webkitRequestFullscreen) {
+            video.webkitRequestFullscreen();
+          }
+        } else {
+          if (document.exitFullscreen) {
+            document.exitFullscreen().catch(err => console.warn(err));
+          } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+          }
         }
       }
+    } else if (e.key === 'm' || e.key === 'M') {
+      const video = document.querySelector('.video-card:not(#card-local-me) video') || 
+                    document.querySelector('video');
+      if (video) {
+        video.muted = !video.muted;
+        showToast(video.muted ? '🔇 Áudio mutado' : '🔊 Áudio desmutado', 'info', 2000);
+        document.querySelectorAll('.volume-slider').forEach(s => {
+          s.value = video.muted ? '0' : '1';
+        });
+        document.querySelectorAll('.overlay-btn').forEach(btn => {
+          if (btn.innerHTML.includes('🔊') || btn.innerHTML.includes('🔇')) {
+            btn.innerHTML = video.muted ? '🔇' : '🔊';
+          }
+        });
+      }
     }
-  } else if (e.key === 'm' || e.key === 'M') {
-    const video = document.querySelector('.video-card:not(#card-local-me) video') || 
-                  document.querySelector('video');
-    if (video) {
-      video.muted = !video.muted;
-      showToast(video.muted ? '🔇 Áudio mutado' : '🔊 Áudio desmutado', 'info', 2000);
-      document.querySelectorAll('.volume-slider').forEach(s => {
-        s.value = video.muted ? '0' : '1';
-      });
-      document.querySelectorAll('.overlay-btn').forEach(btn => {
-        if (btn.innerHTML.includes('🔊') || btn.innerHTML.includes('🔇')) {
-          btn.innerHTML = video.muted ? '🔇' : '🔊';
-        }
-      });
-    }
-  }
 
-  // Push-to-Talk (PTT) Hotkey (CapsLock ou ControlRight)
-  if (voiceManager.isInVoice && voiceManager.voiceMode === 'ptt' && (e.code === 'CapsLock' || e.code === 'ControlRight')) {
-    e.preventDefault();
-    if (!voiceManager.isPttActive) {
-      voiceManager.setPttActive(true);
+    // Push-to-Talk (PTT) Hotkey (CapsLock ou ControlRight)
+    if (voiceManager.isInVoice && voiceManager.voiceMode === 'ptt' && (e.code === 'CapsLock' || e.code === 'ControlRight')) {
+      e.preventDefault();
+      if (!voiceManager.isPttActive) {
+        voiceManager.setPttActive(true);
+      }
     }
-  }
-});
+  });
 
-window.addEventListener('keyup', (e) => {
-  if (voiceManager.isInVoice && voiceManager.voiceMode === 'ptt' && (e.code === 'CapsLock' || e.code === 'ControlRight')) {
-    e.preventDefault();
-    voiceManager.setPttActive(false);
-  }
-});
+  window.addEventListener('keyup', (e) => {
+    if (voiceManager.isInVoice && voiceManager.voiceMode === 'ptt' && (e.code === 'CapsLock' || e.code === 'ControlRight')) {
+      e.preventDefault();
+      voiceManager.setPttActive(false);
+    }
+  });
+}
 
 export async function initGreenRoomLobby() {
   const greenRoomModal = document.getElementById('green-room-modal');
+  if (greenRoomModal?.dataset.greenRoomInitialized === 'true') {
+    if (greenRoomModal) greenRoomModal.style.display = 'flex';
+    return;
+  }
   if (greenRoomModal) {
+    greenRoomModal.dataset.greenRoomInitialized = 'true';
     greenRoomModal.style.display = 'flex';
   }
   const info = getRoomInfoFromUrl();
@@ -6088,68 +6093,31 @@ export async function initGreenRoomLobby() {
   }
 }
 
+let appBootstrapped = false;
+
 export function bootstrapApp() {
-  const termsModal = document.getElementById('terms-modal');
-  const checkAge = document.getElementById('check-age');
-  const checkTerms = document.getElementById('check-terms');
-  const acceptBtn = document.getElementById('accept-btn');
-
-  const accepted = localStorage.getItem('seemygame_terms_accepted') === 'true' ||
-                   localStorage.getItem('seemygame_terms_version') === TERMS_VERSION;
-
-  if (termsModal && accepted) {
-    termsModal.style.display = 'none';
-    if (isRoomMode()) {
-      initGreenRoomLobby();
-    }
+  if (appBootstrapped) return;
+  if (typeof window !== 'undefined' && window.__SEEMYGAME_BOOTSTRAPPED__) {
+    // Se a página já foi inicializada por um entrypoint dedicado, não executa o bootstrap legado
+    return;
   }
-
-  function sync() {
-    if (acceptBtn && checkAge && checkTerms) {
-      const ok = Boolean(checkAge.checked && checkTerms.checked);
-      acceptBtn.disabled = !ok;
-      acceptBtn.setAttribute('aria-disabled', String(!ok));
-      if (ok) {
-        acceptBtn.removeAttribute('disabled');
-        acceptBtn.classList.remove('disabled');
-      } else {
-        acceptBtn.setAttribute('disabled', 'true');
-        acceptBtn.classList.add('disabled');
-      }
-    }
+  appBootstrapped = true;
+  if (typeof window !== 'undefined') {
+    window.__SEEMYGAME_BOOTSTRAPPED__ = 'app';
   }
-
-  if (checkAge && checkTerms) {
-    ['change', 'input', 'click'].forEach(evt => {
-      checkAge.addEventListener(evt, sync);
-      checkTerms.addEventListener(evt, sync);
-    });
-    sync();
-  }
-
-  if (acceptBtn) {
-    acceptBtn.addEventListener('click', () => {
-      if (checkAge && checkTerms && checkAge.checked && checkTerms.checked) {
-        try {
-          localStorage.setItem('seemygame_terms_version', TERMS_VERSION);
-          localStorage.setItem('seemygame_terms_accepted', 'true');
-        } catch (e) {}
-        if (termsModal) termsModal.style.display = 'none';
-        if (isRoomMode()) {
-          initGreenRoomLobby();
-        }
-      }
-    });
-  }
+  initAppDom();
 }
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => bootstrapApp());
-  } else {
-    bootstrapApp();
+  if (!window.__SEEMYGAME_BOOTSTRAPPED__) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => bootstrapApp());
+    } else {
+      bootstrapApp();
+    }
   }
 }
+
 
 
 

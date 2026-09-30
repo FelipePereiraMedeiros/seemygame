@@ -3,7 +3,7 @@
  */
 
 import { getAudioContext } from './audio.js';
-import { isValidPeerId } from './ui.js';
+import { isValidPeerId } from './shared/peer-id.js';
 
 export const VAD_THRESHOLD = 14; // Limiar de sensibilidade do microfone (0-100)
 export const VAD_SILENCE_DELAY_MS = 300; // Tempo de retenção antes de desligar o anel verde

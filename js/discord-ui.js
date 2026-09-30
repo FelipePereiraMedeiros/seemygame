@@ -18,23 +18,50 @@ export const EMOJI_REACTION_PRESETS = [
 ];
 
 export class DiscordUIController {
-  constructor({
-    onSendMessage,
-    onJoinVoice,
-    onLeaveVoice,
-    onPlaySound,
-    onPlayCustomSound,
-    onSendReaction,
-    onToggleMic,
-    onToggleDeaf,
-    onToggleStream,
-    onOpenTuning,
-    onOpenWhiteboard,
-    onLeaveRoom,
-  } = {}) {
-    this.onSendMessage = onSendMessage || (() => {});
-    this.onJoinVoice = onJoinVoice || (() => {});
-    this.onLeaveVoice = onLeaveVoice || (() => {});
+  constructor(options = {}) {
+    const {
+      chatManager: customChat,
+      voiceManager: customVoice,
+      roomManager: customRoom,
+      onSendMessage,
+      onJoinVoice,
+      onLeaveVoice,
+      onPlaySound,
+      onPlayCustomSound,
+      onSendReaction,
+      onToggleMic,
+      onToggleDeaf,
+      onToggleStream,
+      onOpenTuning,
+      onOpenWhiteboard,
+      onLeaveRoom,
+    } = options;
+
+    this.chatManager = customChat || null;
+    this.voiceManager = customVoice || null;
+    this.roomManager = customRoom || null;
+
+    this.onSendMessage = onSendMessage || ((text) => {
+      if (this.chatManager) {
+        const message = this.chatManager.createMessage({
+          senderId: this.roomManager?.myPeerId || 'anon',
+          senderName: this.roomManager?.userName || 'Amigo',
+          role: this.roomManager?.isMaster ? 'host' : 'viewer',
+          text,
+          channel: this.chatManager.getActiveChannel()
+        });
+        const storedMessage = message && this.chatManager.addMessage(message);
+        if (storedMessage && this.roomManager) {
+          this.roomManager.broadcast({ type: 'CHAT_MESSAGE', message: storedMessage });
+        }
+      }
+    });
+    this.onJoinVoice = onJoinVoice || (() => {
+      if (this.voiceManager) this.voiceManager.joinVoice();
+    });
+    this.onLeaveVoice = onLeaveVoice || (() => {
+      if (this.voiceManager) this.voiceManager.leaveVoice();
+    });
     this.onPlaySound = onPlaySound || (() => {});
     this.onPlayCustomSound = onPlayCustomSound || ((sound) => {
       this.onPlaySound(sound.id);
@@ -50,6 +77,8 @@ export class DiscordUIController {
     this.isDrawerOpen = false;
 
     this.elements = {};
+    this._cleanupFns = [];
+    this._destroyed = false;
   }
 
   init() {
@@ -128,9 +157,27 @@ export class DiscordUIController {
     this.initSoundboard();
     this.initEmojis();
     this.initStageDockAutoHide();
-    soundboardManager.onChange(() => {
+    this._destroyed = false;
+    const unsubscribeSoundboard = soundboardManager.onChange(() => {
       this.initSoundboard();
     });
+    this._cleanupFns.push(unsubscribeSoundboard);
+  }
+
+  listen(target, event, listener, options) {
+    if (!target || typeof target.addEventListener !== 'function') return () => {};
+    target.addEventListener(event, listener, options);
+    const remove = () => {
+      try { target.removeEventListener(event, listener, options); } catch (e) {}
+    };
+    this._cleanupFns.push(remove);
+    return remove;
+  }
+
+  observe(manager, event, listener) {
+    if (!manager || typeof manager.on !== 'function') return;
+    manager.on(event, listener);
+    this._cleanupFns.push(() => manager.off?.(event, listener));
   }
 
   bindEvents() {
@@ -159,60 +206,60 @@ export class DiscordUIController {
 
     // Abertura / Alternância do Drawer (Topo)
     if (toggleChatBtn) {
-      toggleChatBtn.addEventListener('click', () => this.toggleDrawer('chat'));
+      this.listen(toggleChatBtn, 'click', () => this.toggleDrawer('chat'));
     }
     if (toggleVoiceBtn) {
-      toggleVoiceBtn.addEventListener('click', () => this.toggleDrawer('voice'));
+      this.listen(toggleVoiceBtn, 'click', () => this.toggleDrawer('voice'));
     }
     if (toggleEmojisBtn) {
-      toggleEmojisBtn.addEventListener('click', () => this.toggleDrawer('emojis'));
+      this.listen(toggleEmojisBtn, 'click', () => this.toggleDrawer('emojis'));
     }
     if (toggleSoundBtn) {
-      toggleSoundBtn.addEventListener('click', () => this.toggleDrawer('soundboard'));
+      this.listen(toggleSoundBtn, 'click', () => this.toggleDrawer('soundboard'));
     }
 
     // Mini-Rail Lateral Discord (Margem Esquerda)
     if (railChatBtn) {
-      railChatBtn.addEventListener('click', () => this.toggleDrawer('chat'));
+      this.listen(railChatBtn, 'click', () => this.toggleDrawer('chat'));
     }
     if (railVoiceBtn) {
-      railVoiceBtn.addEventListener('click', () => this.toggleDrawer('voice'));
+      this.listen(railVoiceBtn, 'click', () => this.toggleDrawer('voice'));
     }
     if (railEmojisBtn) {
-      railEmojisBtn.addEventListener('click', () => this.toggleDrawer('emojis'));
+      this.listen(railEmojisBtn, 'click', () => this.toggleDrawer('emojis'));
     }
     if (railSoundboardBtn) {
-      railSoundboardBtn.addEventListener('click', () => this.toggleDrawer('soundboard'));
+      this.listen(railSoundboardBtn, 'click', () => this.toggleDrawer('soundboard'));
     }
 
     if (closeBtn) {
-      closeBtn.addEventListener('click', () => this.closeDrawer());
+      this.listen(closeBtn, 'click', () => this.closeDrawer());
     }
 
     // Abas de Canais
     if (tabChat) {
-      tabChat.addEventListener('click', () => this.switchTab('chat'));
+      this.listen(tabChat, 'click', () => this.switchTab('chat'));
     }
     if (tabVoice) {
-      tabVoice.addEventListener('click', () => this.switchTab('voice'));
+      this.listen(tabVoice, 'click', () => this.switchTab('voice'));
     }
     if (tabEmojis) {
-      tabEmojis.addEventListener('click', () => this.switchTab('emojis'));
+      this.listen(tabEmojis, 'click', () => this.switchTab('emojis'));
     }
     if (tabSoundboard) {
-      tabSoundboard.addEventListener('click', () => this.switchTab('soundboard'));
+      this.listen(tabSoundboard, 'click', () => this.switchTab('soundboard'));
     }
 
     // Botão de Emoji no Chat
     if (chatEmojiTriggerBtn) {
-      chatEmojiTriggerBtn.addEventListener('click', () => {
+      this.listen(chatEmojiTriggerBtn, 'click', () => {
         this.switchTab('emojis');
       });
     }
 
     // Atalho Escape para fechar
     if (typeof window !== 'undefined') {
-      window.addEventListener('keydown', (e) => {
+      this.listen(window, 'keydown', (e) => {
         if (e.key === 'Escape' && this.isDrawerOpen) {
           this.closeDrawer();
         }
@@ -230,10 +277,10 @@ export class DiscordUIController {
     };
 
     if (chatSendBtn) {
-      chatSendBtn.addEventListener('click', handleSend);
+      this.listen(chatSendBtn, 'click', handleSend);
     }
     if (chatInput) {
-      chatInput.addEventListener('keydown', (e) => {
+      this.listen(chatInput, 'keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           handleSend();
@@ -243,23 +290,23 @@ export class DiscordUIController {
 
     // Controles de voz
     if (voiceMuteBtn) {
-      voiceMuteBtn.addEventListener('click', () => {
+      this.listen(voiceMuteBtn, 'click', () => {
         voiceManager.toggleMute();
       });
     }
     if (voiceDeafBtn) {
-      voiceDeafBtn.addEventListener('click', () => {
+      this.listen(voiceDeafBtn, 'click', () => {
         voiceManager.toggleDeafen();
       });
     }
     if (voiceModeBtn) {
-      voiceModeBtn.addEventListener('click', () => {
+      this.listen(voiceModeBtn, 'click', () => {
         const nextMode = voiceManager.voiceMode === 'vad' ? 'ptt' : 'vad';
         voiceManager.setVoiceMode(nextMode);
       });
     }
     if (voiceConnectBtn) {
-      voiceConnectBtn.addEventListener('click', () => {
+      this.listen(voiceConnectBtn, 'click', () => {
         if (voiceManager.isInVoice) {
           this.onLeaveVoice();
         } else {
@@ -273,7 +320,7 @@ export class DiscordUIController {
     if (voiceSelfMicSlider) {
       voiceSelfMicSlider.value = voiceManager.inputVolume;
       if (voiceSelfMicVal) voiceSelfMicVal.textContent = `${voiceManager.inputVolume}%`;
-      voiceSelfMicSlider.addEventListener('input', (e) => {
+      this.listen(voiceSelfMicSlider, 'input', (e) => {
         const vol = voiceManager.setInputVolume(e.target.value);
         if (voiceSelfMicVal) voiceSelfMicVal.textContent = `${vol}%`;
       });
@@ -282,14 +329,14 @@ export class DiscordUIController {
     if (voiceSelfOutputSlider) {
       voiceSelfOutputSlider.value = voiceManager.outputVolume;
       if (voiceSelfOutputVal) voiceSelfOutputVal.textContent = `${voiceManager.outputVolume}%`;
-      voiceSelfOutputSlider.addEventListener('input', (e) => {
+      this.listen(voiceSelfOutputSlider, 'input', (e) => {
         const vol = voiceManager.setOutputVolume(e.target.value);
         if (voiceSelfOutputVal) voiceSelfOutputVal.textContent = `${vol}%`;
       });
     }
 
     if (voiceSelfResetBtn) {
-      voiceSelfResetBtn.addEventListener('click', () => {
+      this.listen(voiceSelfResetBtn, 'click', () => {
         voiceManager.setInputVolume(100);
         voiceManager.setOutputVolume(100);
         if (voiceSelfMicSlider) voiceSelfMicSlider.value = 100;
@@ -416,7 +463,7 @@ export class DiscordUIController {
         <span class="sound-emoji">${preset.icon || preset.emoji || '🔊'}</span>
         <span class="sound-name">${preset.name}</span>
       `;
-      btn.addEventListener('click', () => {
+      this.listen(btn, 'click', () => {
         this.onPlaySound(preset.id);
       });
       presetGrid.appendChild(btn);
@@ -462,14 +509,14 @@ export class DiscordUIController {
 
         const playBtn = item.querySelector('.soundboard-custom-btn');
         if (playBtn) {
-          playBtn.addEventListener('click', () => {
+          this.listen(playBtn, 'click', () => {
             this.onPlayCustomSound(sound);
           });
         }
 
         const deleteBtn = item.querySelector('.soundboard-delete-btn');
         if (deleteBtn) {
-          deleteBtn.addEventListener('click', (e) => {
+          this.listen(deleteBtn, 'click', (e) => {
             e.stopPropagation();
             const shouldDelete = typeof confirm === 'function' ? confirm(`Excluir o som "${sound.name}" do Soundboard?`) : true;
             if (shouldDelete) {
@@ -502,7 +549,7 @@ export class DiscordUIController {
         <span class="emoji-name">${preset.name}</span>
         <span class="emoji-desc">${preset.desc}</span>
       `;
-      card.addEventListener('click', () => {
+      this.listen(card, 'click', () => {
         this.onSendReaction(preset.emoji);
       });
       grid.appendChild(card);
@@ -510,11 +557,11 @@ export class DiscordUIController {
   }
 
   bindChatEvents() {
-    chatManager.on('message', (msg) => {
+    this.observe(chatManager, 'message', (msg) => {
       this.renderChatMessage(msg);
     });
 
-    chatManager.on('unread', ({ total }) => {
+    this.observe(chatManager, 'unread', ({ total }) => {
       if (!this.isDrawerOpen || this.activeTab !== 'chat') {
         this.updateChatBadge(total);
       }
@@ -593,11 +640,11 @@ export class DiscordUIController {
   }
 
   bindVoiceEvents() {
-    voiceManager.on('participantUpdate', (participants) => {
+    this.observe(voiceManager, 'participantUpdate', (participants) => {
       this.renderVoiceParticipants(participants);
     });
 
-    voiceManager.on('speakingChange', ({ peerId, isSpeaking }) => {
+    this.observe(voiceManager, 'speakingChange', ({ peerId, isSpeaking }) => {
       const avatar = document.getElementById(`voice-avatar-${peerId}`);
       if (avatar) {
         if (isSpeaking) {
@@ -608,16 +655,16 @@ export class DiscordUIController {
       }
     });
 
-    voiceManager.on('voiceStateChange', (state) => {
+    this.observe(voiceManager, 'voiceStateChange', (state) => {
       this.updateVoiceControls(state);
     });
 
-    voiceManager.on('inputVolumeChange', ({ volume }) => {
+    this.observe(voiceManager, 'inputVolumeChange', ({ volume }) => {
       if (this.elements.voiceSelfMicSlider) this.elements.voiceSelfMicSlider.value = volume;
       if (this.elements.voiceSelfMicVal) this.elements.voiceSelfMicVal.textContent = `${volume}%`;
     });
 
-    voiceManager.on('outputVolumeChange', ({ volume }) => {
+    this.observe(voiceManager, 'outputVolumeChange', ({ volume }) => {
       if (this.elements.voiceSelfOutputSlider) this.elements.voiceSelfOutputSlider.value = volume;
       if (this.elements.voiceSelfOutputVal) this.elements.voiceSelfOutputVal.textContent = `${volume}%`;
     });
@@ -738,7 +785,7 @@ export class DiscordUIController {
         valSpan.className = 'voice-user-volume-val';
         valSpan.textContent = `${userVol}%`;
 
-        muteBtn.addEventListener('click', (e) => {
+        this.listen(muteBtn, 'click', (e) => {
           e.stopPropagation();
           const currentMute = voiceManager.isUserLocallyMuted(p.peerId);
           const nextMute = !currentMute;
@@ -748,7 +795,7 @@ export class DiscordUIController {
           muteBtn.title = nextMute ? 'Desmutar este amigo para você' : 'Mutar este amigo só para você';
         });
 
-        slider.addEventListener('input', (e) => {
+        this.listen(slider, 'input', (e) => {
           e.stopPropagation();
           const newVol = parseInt(e.target.value, 10) || 0;
           voiceManager.setUserVolume(p.peerId, newVol);
@@ -928,14 +975,14 @@ export class DiscordUIController {
       this.onToggleDeaf(isDeaf);
     };
 
-    if (dockMicBtn) dockMicBtn.addEventListener('click', handleMicToggle);
-    if (quickMicBtn) quickMicBtn.addEventListener('click', handleMicToggle);
+    if (dockMicBtn) this.listen(dockMicBtn, 'click', handleMicToggle);
+    if (quickMicBtn) this.listen(quickMicBtn, 'click', handleMicToggle);
 
-    if (dockDeafBtn) dockDeafBtn.addEventListener('click', handleDeafToggle);
-    if (quickDeafBtn) quickDeafBtn.addEventListener('click', handleDeafToggle);
+    if (dockDeafBtn) this.listen(dockDeafBtn, 'click', handleDeafToggle);
+    if (quickDeafBtn) this.listen(quickDeafBtn, 'click', handleDeafToggle);
 
     if (this.elements.sidebarVoiceStatusContainer) {
-      this.elements.sidebarVoiceStatusContainer.addEventListener('click', () => {
+      this.listen(this.elements.sidebarVoiceStatusContainer, 'click', () => {
         if (!voiceManager.isInVoice) {
           this.onJoinVoice();
         } else {
@@ -944,11 +991,11 @@ export class DiscordUIController {
       });
     }
 
-    if (dockStreamBtn) dockStreamBtn.addEventListener('click', () => this.onToggleStream());
-    if (dockTuningBtn) dockTuningBtn.addEventListener('click', () => this.onOpenTuning());
-    if (quickTuningBtn) quickTuningBtn.addEventListener('click', () => this.onOpenTuning());
-    if (dockWhiteboardBtn) dockWhiteboardBtn.onclick = () => this.onOpenWhiteboard();
-    if (dockLeaveBtn) dockLeaveBtn.addEventListener('click', () => this.onLeaveRoom());
+    if (dockStreamBtn) this.listen(dockStreamBtn, 'click', () => this.onToggleStream());
+    if (dockTuningBtn) this.listen(dockTuningBtn, 'click', () => this.onOpenTuning());
+    if (quickTuningBtn) this.listen(quickTuningBtn, 'click', () => this.onOpenTuning());
+    if (dockWhiteboardBtn) this.listen(dockWhiteboardBtn, 'click', () => this.onOpenWhiteboard());
+    if (dockLeaveBtn) this.listen(dockLeaveBtn, 'click', () => this.onLeaveRoom());
   }
 
   setStreamingState(isStreaming) {
@@ -976,6 +1023,12 @@ export class DiscordUIController {
     let isHoveringDock = false;
     let isHoveringReactions = false;
     const INACTIVITY_MS = 3500;
+    this._cleanupFns.push(() => {
+      if (hideTimeout !== null) {
+        clearTimeout(hideTimeout);
+        hideTimeout = null;
+      }
+    });
 
     const isAnyModalOpen = () => {
       if (typeof document === 'undefined') return false;
@@ -1023,31 +1076,31 @@ export class DiscordUIController {
     };
 
     if (bottomControlDock) {
-      bottomControlDock.addEventListener('mouseenter', () => {
+      this.listen(bottomControlDock, 'mouseenter', () => {
         isHoveringDock = true;
         showDocks();
         if (hideTimeout) clearTimeout(hideTimeout);
       });
-      bottomControlDock.addEventListener('mouseleave', () => {
+      this.listen(bottomControlDock, 'mouseleave', () => {
         isHoveringDock = false;
         resetTimer();
       });
-      bottomControlDock.addEventListener('focusin', () => {
+      this.listen(bottomControlDock, 'focusin', () => {
         showDocks();
         if (hideTimeout) clearTimeout(hideTimeout);
       });
-      bottomControlDock.addEventListener('focusout', () => {
+      this.listen(bottomControlDock, 'focusout', () => {
         resetTimer();
       });
     }
 
     if (reactionsDock) {
-      reactionsDock.addEventListener('mouseenter', () => {
+      this.listen(reactionsDock, 'mouseenter', () => {
         isHoveringReactions = true;
         showDocks();
         if (hideTimeout) clearTimeout(hideTimeout);
       });
-      reactionsDock.addEventListener('mouseleave', () => {
+      this.listen(reactionsDock, 'mouseleave', () => {
         isHoveringReactions = false;
         resetTimer();
       });
@@ -1055,13 +1108,13 @@ export class DiscordUIController {
 
     const stage = roomStage || (typeof document !== 'undefined' ? document.getElementById('room-stage') : null);
     if (stage) {
-      stage.addEventListener('mousemove', resetTimer);
-      stage.addEventListener('mousedown', resetTimer);
-      stage.addEventListener('touchstart', resetTimer, { passive: true });
+      this.listen(stage, 'mousemove', resetTimer);
+      this.listen(stage, 'mousedown', resetTimer);
+      this.listen(stage, 'touchstart', resetTimer, { passive: true });
     }
     if (typeof window !== 'undefined') {
-      window.addEventListener('keydown', resetTimer);
-      window.addEventListener('mousemove', (e) => {
+      this.listen(window, 'keydown', resetTimer);
+      this.listen(window, 'mousemove', (e) => {
         // Se o mouse estiver sobre o palco, reseta o timer
         if (stage && stage.contains(e.target)) {
           resetTimer();
@@ -1197,6 +1250,22 @@ export class DiscordUIController {
         voiceStageGrid.style.display = 'flex';
       }
     }
+  }
+
+  dispose() {
+    this.destroy();
+  }
+
+  destroy() {
+    if (this._destroyed) return;
+    this._destroyed = true;
+    for (const fn of this._cleanupFns.splice(0).reverse()) {
+      try { fn(); } catch (e) {}
+    }
+    if (this.elements.drawer) {
+      this.elements.drawer.classList.remove('open');
+    }
+    this.isDrawerOpen = false;
   }
 }
 
