@@ -1,3 +1,4 @@
+import { createAudioScope } from './audio/context-scope.js';
 /**
  * SeeMyGame - Módulo de Telestrator & Tactical Ping (Ping Tático & Laser Pointer)
  * Permite que espectadores e streamer apontem e desenhem na tela com coordenadas normalizadas.
@@ -12,6 +13,8 @@ export class TacticalPingManager {
     this.isDrawingLaser = false;
     this.currentLaserTrail = null;
     this.audioContext = null;
+    this._audioScope = options.audioScope || createAudioScope();
+    this._ownsAudioScope = !options.audioScope;
     this.animFrameId = null;
     this.maxPings = options.maxPings || 100;
     this.maxLaserTrails = options.maxLaserTrails || 24;
@@ -35,7 +38,7 @@ export class TacticalPingManager {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
       if (!this.audioContext) {
-        this.audioContext = new AudioCtx();
+        this.audioContext = this._audioScope.getContext('playback');
       }
       if (this.audioContext.state === 'suspended') {
         this.audioContext.resume().catch(() => {});
@@ -257,7 +260,7 @@ export class TacticalPingManager {
     this.canvas = null;
     this.ctx = null;
     if (this.audioContext) {
-      try { this.audioContext.close(); } catch (_) {}
+      if (this._ownsAudioScope) this._audioScope.dispose().catch(() => {});
       this.audioContext = null;
     }
   }

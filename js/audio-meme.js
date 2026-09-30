@@ -4,6 +4,7 @@
  * e modulações cômicas de voz, exportar em formato WAV e transmitir via P2P.
  */
 
+import { getSharedAudioContext } from './core/audio-context-pool.js';
 export const AUDIO_MEME_EFFECTS = [
   { id: 'none', name: 'Original', icon: '🎵', desc: 'Áudio original limpo sem efeitos' },
   { id: 'chipmunk', name: 'Esquilo', icon: '🐿️', desc: 'Voz fina e acelerada (efeito gás hélio)' },
@@ -21,10 +22,7 @@ export const AUDIO_MEME_EFFECTS = [
  * @returns {AudioContext|null}
  */
 export function getAudioContext() {
-  if (typeof window === 'undefined') return null;
-  const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx) return null;
-  return new AudioCtx();
+  return getSharedAudioContext();
 }
 
 /**

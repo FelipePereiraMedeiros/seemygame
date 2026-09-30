@@ -2,7 +2,7 @@
 // VU METER ESTÉREO (ANALISADOR DE ÁUDIO L/R)
 // ==========================================
 
-let audioCtx = null;
+import { getSharedAudioContext } from './core/audio-context-pool.js';
 const activeAudioPipelines = new Map(); // PeerId -> { source, splitter, analyserL, analyserR, rafId }
 
 /**
@@ -10,13 +10,7 @@ const activeAudioPipelines = new Map(); // PeerId -> { source, splitter, analyse
  * @returns {AudioContext}
  */
 export function getAudioContext() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
-  return audioCtx;
+  return getSharedAudioContext();
 }
 
 /**

@@ -1,0 +1,212 @@
+
+import { WHITEBOARD_TOOLS, WHITEBOARD_COLORS, CURSOR_PALETTE, getPeerCursorColor, isTooBrightOrWhite, getContrastTextColor, drawRoundedRect, getFillAlpha, MAX_WHITEBOARD_ELEMENTS, MAX_WHITEBOARD_POINTS, MAX_WHITEBOARD_TEXT_LENGTH, WHITEBOARD_REF_WIDTH, WHITEBOARD_REF_HEIGHT, WHITEBOARD_ELEMENT_TYPES, isFiniteNumber, isSafeWhiteboardElement, processImageFile } from './shared.js';
+/** WhiteboardManager: document. State and lifetime remain owned by the composed engine. */
+export const withWhiteboardManagerDocument = Base => class extends Base {
+setTool(toolId) {
+    this.selectedTool = toolId;
+    if (toolId !== 'select') {
+      this.selectedElementId = null;
+      this.isDraggingElement = false;
+      if (this.canvas && this.canvas.style) this.canvas.style.cursor = toolId === 'eraser' ? 'cell' : 'crosshair';
+    } else {
+      if (this.canvas && this.canvas.style) this.canvas.style.cursor = 'default';
+    }
+    this.render();
+    if (typeof this.onToolChanged === 'function') {
+      this.onToolChanged(toolId);
+    }
+  }
+
+setColor(hexColor) {
+    this.currentColor = hexColor;
+    if (this.selectedElementId) {
+      const el = this.elements.find(e => e.id === this.selectedElementId);
+      if (el) {
+        el.color = hexColor;
+        this.render();
+        if (typeof this.onElementUpdated === 'function') {
+          this.onElementUpdated(el);
+        }
+      }
+    }
+  }
+
+setStrokeWidth(width) {
+    this.currentWidth = Number(width) || 4;
+    if (this.selectedElementId) {
+      const el = this.elements.find(e => e.id === this.selectedElementId);
+      if (el) {
+        el.strokeWidth = this.currentWidth;
+        this.render();
+        if (typeof this.onElementUpdated === 'function') {
+          this.onElementUpdated(el);
+        }
+      }
+    }
+  }
+
+setFill(fillMode) {
+    this.currentFill = fillMode;
+    if (this.selectedElementId) {
+      const el = this.elements.find(e => e.id === this.selectedElementId);
+      if (el && el.type !== 'pencil' && el.type !== 'line' && el.type !== 'text' && el.type !== 'image') {
+        el.fill = fillMode;
+        this.render();
+        if (typeof this.onElementUpdated === 'function') {
+          this.onElementUpdated(el);
+        }
+      }
+    }
+  }
+
+setRough(isRough) {
+    this.isRough = !!isRough;
+  }
+
+setBackgroundMode(mode) {
+    this.backgroundMode = mode;
+    this.render();
+  }
+
+addElement(element, broadcast = true) {
+    if (!isSafeWhiteboardElement(element) || this.elements.length >= MAX_WHITEBOARD_ELEMENTS) return;
+    if (this.elements.some(el => el.id === element.id)) return;
+    this.undoStack.push([...this.elements]);
+    this.redoStack = [];
+    this.elements.push(element);
+    this.render();
+
+    if (broadcast && typeof this.onElementCreated === 'function') {
+      this.onElementCreated(element);
+    }
+  }
+
+updateElement(element, broadcast = true) {
+    if (!element || !element.id) return;
+    const idx = this.elements.findIndex(el => el.id === element.id);
+    if (idx !== -1) {
+      this.undoStack.push([...this.elements.map(e => ({ ...e }))]);
+      this.redoStack = [];
+      this.elements[idx] = element;
+      this.render();
+
+      if (broadcast && typeof this.onElementUpdated === 'function') {
+        this.onElementUpdated(element);
+      }
+    } else {
+      this.addElement(element, broadcast);
+    }
+  }
+
+removeElement(elementId, broadcast = true) {
+    const idx = this.elements.findIndex(el => el.id === elementId);
+    if (idx !== -1) {
+      this.undoStack.push([...this.elements]);
+      this.redoStack = [];
+      const removed = this.elements.splice(idx, 1)[0];
+      if (this.selectedElementId === elementId) {
+        this.selectedElementId = null;
+      }
+      this.render();
+
+      if (broadcast && typeof this.onElementDeleted === 'function') {
+        this.onElementDeleted(removed);
+      }
+    }
+  }
+
+deleteSelected() {
+    if (!this.selectedElementId) return false;
+    const id = this.selectedElementId;
+    this.selectedElementId = null;
+    this.removeElement(id, true);
+    return true;
+  }
+
+undo() {
+    if (this.undoStack.length === 0) return false;
+    this.redoStack.push([...this.elements]);
+    this.elements = this.undoStack.pop();
+    this.selectedElementId = null;
+    this.render();
+    return true;
+  }
+
+redo() {
+    if (this.redoStack.length === 0) return false;
+    this.undoStack.push([...this.elements]);
+    this.elements = this.redoStack.pop();
+    this.selectedElementId = null;
+    this.render();
+    return true;
+  }
+
+clear(broadcast = true) {
+    if (this.elements.length === 0) return;
+    this.undoStack.push([...this.elements]);
+    this.redoStack = [];
+    this.elements = [];
+    this.selectedElementId = null;
+    this.render();
+
+    if (broadcast && typeof this.onBoardCleared === 'function') {
+      this.onBoardCleared();
+    }
+  }
+
+setElements(elements) {
+    this.elements = Array.isArray(elements)
+      ? elements.filter(isSafeWhiteboardElement).slice(0, MAX_WHITEBOARD_ELEMENTS)
+      : [];
+    this.selectedElementId = null;
+    this.render();
+  }
+
+async addImageFromDataUrl(dataUrl, targetX = null, targetY = null, broadcast = true) {
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return null;
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.naturalWidth || 400;
+        let h = img.naturalHeight || 300;
+        const MAX_W = 640;
+        const MAX_H = 480;
+        if (w > MAX_W || h > MAX_H) {
+          const ratio = Math.min(MAX_W / w, MAX_H / h);
+          w = Math.max(1, Math.round(w * ratio));
+          h = Math.max(1, Math.round(h * ratio));
+        }
+
+        const posX = isFiniteNumber(targetX) ? targetX : Math.round(WHITEBOARD_REF_WIDTH / 2 - w / 2);
+        const posY = isFiniteNumber(targetY) ? targetY : Math.round(WHITEBOARD_REF_HEIGHT / 2 - h / 2);
+
+        const el = {
+          id: 'wb_' + Math.random().toString(36).substring(2, 9),
+          type: 'image',
+          x: posX,
+          y: posY,
+          width: w,
+          height: h,
+          startX: posX,
+          startY: posY,
+          endX: posX + w,
+          endY: posY + h,
+          dataUrl,
+          color: '#ffffff',
+          strokeWidth: 2
+        };
+
+        this.addElement(el, broadcast);
+        this.setTool('select');
+        this.selectedElementId = el.id;
+        this.render();
+        resolve(el);
+      };
+      img.onerror = () => {
+        console.warn('[Whiteboard] Falha ao carregar imagem para renderização');
+        resolve(null);
+      };
+      img.src = dataUrl;
+    });
+  }
+};

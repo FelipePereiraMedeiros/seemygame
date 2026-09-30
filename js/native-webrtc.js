@@ -371,4 +371,3 @@ export function installNativeCaptureBridge({ target = globalThis } = {}) {
     return target.__SEEMYGAME_NATIVE_CAPTURE__;
 }
 
-installNativeCaptureBridge();
