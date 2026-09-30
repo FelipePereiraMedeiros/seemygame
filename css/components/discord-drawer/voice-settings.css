@@ -1,0 +1,93 @@
+/* Painel de Ajuste Pessoal de Microfone e Saída Master (Estilo Discord) */.voice-self-settings {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 10px;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}.voice-self-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  color: #949ba4;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}.btn-voice-self-reset {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}.btn-voice-self-reset:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.25);
+}.voice-self-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}.voice-self-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--text-color);
+}.voice-self-val-badge {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  font-variant-numeric: tabular-nums;
+}.voice-slider {
+  width: 100%;
+  height: 5px;
+  accent-color: #5865f2;
+  cursor: pointer;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+}.voice-dock {
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  gap: 8px;
+}.voice-dock-btn {
+  flex: 1;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-color);
+  transition: all 0.2s;
+}.voice-dock-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}.voice-dock-btn.active {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}.voice-dock-btn.join-btn {
+  background: #059669;
+  border-color: #10b981;
+  color: #fff;
+}.voice-dock-btn.join-btn:hover {
+  background: #047857;
+}.voice-dock-btn.leave-btn {
+  background: #991b1b;
+  border-color: #ef4444;
+  color: #fff;
+}

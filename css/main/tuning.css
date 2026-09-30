@@ -1,0 +1,41 @@
+/* Painel de Tuning em Tempo Real (FPS Priority Engine) */.tuning-bar {
+  background: #141520;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 6px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  flex-shrink: 0;
+}.tuning-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}.fps-lock-badge {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: var(--accent-green);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}.slider-container input[type="range"] {
+  width: 130px;
+  accent-color: var(--accent-purple);
+  cursor: pointer;
+}.bitrate-value {
+  font-weight: 700;
+  color: var(--accent-cyan);
+  min-width: 65px;
+}

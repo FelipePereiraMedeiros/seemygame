@@ -1,0 +1,68 @@
+/* ==========================================================================
+   SeeMyGame - Identidade Cyber Dune / Amber Terracotta Refinada
+   Foco em Clareza, Benefícios Reais, Acessibilidade e Performance Mobile
+   ========================================================================== */:root {
+  /* Paleta Base: Dark Espresso e Neutros Quentes */
+  --dune-bg: #12100F;
+  --dune-bg-alt: #171513;
+  --dune-surface: #1C1917;
+  --dune-surface-card: #231F1C;
+  --dune-surface-hover: #2B2622;
+  --dune-surface-input: #151210;
+  
+  /* Bordas Sutis */
+  --dune-border: #332B25;
+  --dune-border-subtle: #241E1A;
+  --dune-border-hover: #4C3F36;
+  
+  /* Cores de Ação: Cobre & Terracota */
+  --dune-accent: #E06C38;
+  --dune-accent-hover: #EA7743;
+  --dune-accent-glow: rgba(224, 108, 56, 0.22);
+  
+  /* Tons Secundários e Destaques */
+  --dune-gold: #F3C98B;
+  --dune-gold-glow: rgba(243, 201, 139, 0.18);
+  
+  /* Status Funcionais */
+  --dune-green: #22C55E;
+  --dune-green-glow: rgba(34, 197, 94, 0.25);
+  --dune-red: #EF4444;
+  --dune-blue: #38BDF8;
+  
+  /* Tipografia & Contraste */
+  --dune-text: #FDFBF7;
+  --dune-text-muted: #A3998E;
+  --dune-text-dim: #70665C;
+  --dune-text-on-accent: #12100F; /* Contraste > 5.5:1 com --dune-accent */
+  
+  /* Transições e Sombras */
+  --dune-transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  --dune-shadow-card: 0 10px 28px -4px rgba(0, 0, 0, 0.5), 0 3px 10px rgba(0, 0, 0, 0.3);
+}/* ==========================================================================
+   RESET & ACESSIBILIDADE
+   ========================================================================== */* {
+  box-sizing: border-box;
+}*:focus-visible {
+  outline: 2px solid var(--dune-gold);
+  outline-offset: 3px;
+}body.dune-theme {
+  background-color: var(--dune-bg);
+  /* Brilho concentrado no topo, transicionando para neutralidade abaixo */
+  background-image: 
+    radial-gradient(ellipse 70% 450px at 50% 0%, rgba(224, 108, 56, 0.16) 0%, transparent 70%);
+  background-repeat: no-repeat;
+  color: var(--dune-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  line-height: 1.55;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}.dune-container {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 0 20px;
+  width: 100%;
+}

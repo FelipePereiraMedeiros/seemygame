@@ -1,0 +1,288 @@
+/* ==========================================================================
+   Post-Clipping & Audio Meme Generator Modal Styles
+   ========================================================================== */.clip-post-modal-content {
+  max-width: 640px;
+  width: 94vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #11121d;
+  border: 1px solid rgba(236, 72, 153, 0.4);
+  border-radius: 16px;
+  padding: 20px 22px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85), 0 0 30px rgba(236, 72, 153, 0.15);
+  animation: slideIn 0.2s ease-out;
+}.clip-post-modal-content::-webkit-scrollbar {
+  width: 6px;
+}.clip-post-modal-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}.clip-post-modal-content::-webkit-scrollbar-thumb {
+  background: rgba(236, 72, 153, 0.35);
+  border-radius: 3px;
+}.clip-post-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}.clip-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}.clip-format-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #d1d5db;
+}.clip-duration-config-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  color: #e2e8f0;
+}.clip-duration-select {
+  background: transparent;
+  border: none;
+  color: var(--accent-cyan);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}.clip-duration-select option {
+  background: #1e1f2e;
+  color: #fff;
+}.clip-save-soundboard-btn {
+  background: rgba(139, 92, 246, 0.18) !important;
+  border: 1px solid rgba(139, 92, 246, 0.45) !important;
+  color: #c4b5fd !important;
+  font-weight: 600 !important;
+}.clip-save-soundboard-btn:hover {
+  background: rgba(139, 92, 246, 0.32) !important;
+  border-color: var(--accent-purple) !important;
+  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35) !important;
+  color: #fff !important;
+}.clip-post-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(236, 72, 153, 0.2);
+  border: 1px solid rgba(236, 72, 153, 0.5);
+  color: #f472b6;
+  letter-spacing: 0.5px;
+}.clip-video-box {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+}.clip-video-player-container {
+  width: 100%;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+}.clip-preview-player {
+  width: 100%;
+  max-height: 250px;
+  display: block;
+  background: #000;
+  object-fit: contain;
+  outline: none;
+}.clip-video-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}.clip-video-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 200px;
+}.clip-meta-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f3f4f6;
+}.clip-meta-sub {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}.clip-download-main-btn {
+  background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%) !important;
+  color: #fff !important;
+  font-weight: 600 !important;
+  border: none !important;
+  padding: 8px 18px !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 15px rgba(236, 72, 153, 0.3) !important;
+  transition: all 0.2s ease !important;
+  white-space: nowrap;
+}.clip-download-main-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(236, 72, 153, 0.45) !important;
+}.clip-divider {
+  text-align: center;
+  position: relative;
+  margin: 16px 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #a78bfa;
+  letter-spacing: 0.8px;
+}.clip-divider::before,
+.clip-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 20%;
+  height: 1px;
+  background: rgba(167, 139, 250, 0.25);
+}.clip-divider::before { left: 0; }.clip-divider::after { right: 0; }.clip-meme-editor {
+  background: rgba(15, 17, 26, 0.85);
+  border: 1px solid rgba(139, 92, 246, 0.28);
+  border-radius: 12px;
+  padding: 14px;
+}.clip-meme-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #f3f4f6;
+}.clip-status-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #93c5fd;
+}.clip-status-pill.ready {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: var(--accent-green);
+}.clip-trimmer-box {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}.trimmer-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}.trim-duration-badge {
+  color: #34d399;
+  font-weight: 600;
+  background: rgba(16, 185, 129, 0.15);
+  padding: 2px 8px;
+  border-radius: 6px;
+}.trimmer-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}.slider-sublabel {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 78px;
+}.trimmer-sliders input[type="range"] {
+  flex: 1;
+  accent-color: #8b5cf6;
+  cursor: pointer;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+}.trimmer-quick-presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}.presets-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}.btn-preset-quick {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #d1d5db;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}.btn-preset-quick:hover {
+  background: rgba(139, 92, 246, 0.25);
+  border-color: rgba(139, 92, 246, 0.5);
+  color: #fff;
+}.clip-effects-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c4b5fd;
+  margin-bottom: 8px;
+}.clip-effects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}.clip-effect-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}.clip-effect-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}.clip-effect-chip.active {
+  background: rgba(139, 92, 246, 0.25);
+  border-color: #8b5cf6;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);
+}.clip-effect-chip .icon {
+  font-size: 18px;
+  margin-bottom: 3px;
+}.clip-effect-chip .name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #f3f4f6;
+}.clip-effect-chip .desc {
+  font-size: 9.5px;
+  color: var(--text-muted);
+  line-height: 1.2;
+  margin-top: 2px;
+}.clip-meme-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}.clip-meme-actions button {
+  flex: 1;
+  min-width: 120px;
+  font-size: 12px;
+  padding: 8px 12px;
+}

@@ -1,0 +1,21 @@
+/* ==========================================================================
+   BIG CALL TO ACTION
+   ========================================================================== */.dune-cta-banner {
+  margin: 50px 0 70px;
+  background: linear-gradient(135deg, #1F1B18 0%, #171412 100%);
+  border: 1px solid var(--dune-border);
+  border-radius: 20px;
+  padding: 46px 24px;
+  text-align: center;
+}.dune-cta-banner h2 {
+  font-size: 2.2rem;
+  font-weight: 900;
+  letter-spacing: -0.6px;
+  margin-bottom: 12px;
+  color: #fff;
+}.dune-cta-banner p {
+  font-size: 1.05rem;
+  color: var(--dune-text-muted);
+  max-width: 540px;
+  margin: 0 auto 28px;
+}

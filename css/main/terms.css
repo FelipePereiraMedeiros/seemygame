@@ -1,0 +1,62 @@
+/* Modal / Pop-up de Termos de Uso */.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(6px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  padding: 20px;
+}.modal-content {
+  background: #141520;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  max-width: 580px;
+  width: 100%;
+  padding: 26px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.7);
+}.modal-content h3 {
+  font-size: 1.3rem;
+  margin-bottom: 14px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}.terms-box {
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 18px;
+}.terms-box p { 
+  margin-bottom: 10px; 
+}.terms-box strong { 
+  color: #fff; 
+}.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 22px;
+  font-size: 13px;
+  color: var(--text-main);
+}.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}.checkbox-item input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--accent-purple);
+  cursor: pointer;
+}.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}

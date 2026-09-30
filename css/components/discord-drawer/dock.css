@@ -1,0 +1,86 @@
+/* Barra de Controle Inferior (Dock Flutuante) */.bottom-control-dock {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: rgba(18, 19, 28, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(16px);
+  z-index: 60;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease;
+}.bottom-control-dock.dock-hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(28px);
+  pointer-events: none;
+}.bottom-control-dock:hover {
+  background: rgba(18, 19, 28, 0.95);
+  border-color: rgba(255, 255, 255, 0.2);
+}.dock-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 24px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}.dock-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}.dock-btn.dock-btn-stream {
+  background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 0 16px var(--accent-purple-glow);
+}.dock-btn.dock-btn-stream.is-streaming {
+  background: #ef4444;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.3);
+}.dock-btn.dock-btn-stream:hover {
+  transform: scale(1.03);
+}.dock-btn.dock-btn-danger {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+}.dock-btn.dock-btn-danger:hover {
+  background: #ef4444;
+  color: #fff;
+}.dock-btn.is-muted {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+}@media (max-width: 768px) {
+  .room-sidebar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 70;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .room-sidebar.open {
+    transform: translateX(0);
+  }
+  .bottom-control-dock {
+    bottom: 8px;
+    padding: 6px 10px;
+    gap: 5px;
+    width: 95%;
+    justify-content: center;
+  }
+  .dock-btn {
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+}

@@ -1,0 +1,31 @@
+/* ==========================================
+   Tactical Ping & Telestrator Canvas
+   ========================================== */.ping-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  cursor: crosshair;
+  z-index: 40;
+}.ping-mode-bar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: 6px;
+}.ping-mode-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 11.5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}.ping-mode-btn.active {
+  background: var(--accent-cyan);
+  color: #000;
+  font-weight: 700;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.4);
+}

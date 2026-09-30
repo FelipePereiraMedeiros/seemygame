@@ -1,0 +1,110 @@
+/* ==========================================================================
+   RESPONSIVIDADE MOBILE OTIMIZADA (ELIMINA ALTURA EXCESSIVA)
+   ========================================================================== */@media (max-width: 860px) {
+  .dune-hero h1 {
+    font-size: 2.2rem;
+    letter-spacing: -0.6px;
+  }
+  
+  .dune-hero p.lead {
+    font-size: 1.05rem;
+  }
+  
+  .dune-mockup-body {
+    grid-template-columns: 1fr;
+  }
+  
+  .dune-mockup-sidebar {
+    display: none;
+  }
+  
+  .dune-steps-container {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .dune-feature-grid {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+  
+  .dune-feature-grid.reverse {
+    direction: ltr;
+  }
+  
+  .dune-platforms-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .dune-footer-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  
+  .dune-nav-links {
+    display: none;
+  }
+}@media (max-width: 600px) {
+  .dune-hero {
+    padding: 38px 0 28px;
+  }
+
+  .dune-hero h1 {
+    font-size: 1.85rem;
+  }
+  
+  .dune-hero p.lead {
+    font-size: 0.98rem;
+    margin-bottom: 24px;
+  }
+
+  .dune-section {
+    padding: 44px 0;
+  }
+
+  .dune-section-header {
+    margin-bottom: 24px;
+  }
+
+  .dune-section-header h2 {
+    font-size: 1.7rem;
+  }
+
+  .dune-feature-text h2 {
+    font-size: 1.55rem;
+  }
+
+  .dune-steps-container {
+    grid-template-columns: 1fr;
+  }
+
+  .dune-footer-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .dune-cta-banner {
+    padding: 32px 18px;
+    margin: 36px 0 48px;
+  }
+
+  .dune-cta-banner h2 {
+    font-size: 1.7rem;
+  }
+
+  .dune-btn-lg {
+    width: 100%;
+  }
+
+  .dune-hero-cta-group {
+    flex-direction: column;
+    width: 100%;
+  }
+}/* Redução de Movimento */@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
