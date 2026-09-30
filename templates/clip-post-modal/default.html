@@ -1,0 +1,103 @@
+<div id="clip-post-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="clip-post-title">
+    <div class="modal-content clip-post-modal-content">
+      <div class="clip-post-header">
+        <div class="clip-post-badge">
+          <span>🎬</span> <span id="clip-post-title">Clip Gravado! (30s)</span>
+        </div>
+        <div class="clip-header-right">
+          <div class="clip-duration-config-pill" title="Configurar tempo de gravação do buffer de replay">
+            <label for="clip-modal-duration-select">⏱️ Buffer:</label>
+            <select id="clip-modal-duration-select" class="clip-duration-select">
+              <option value="15">15s</option>
+              <option value="30" selected>30s</option>
+              <option value="60">1 min</option>
+              <option value="120">2 min</option>
+              <option value="300">5 min</option>
+              <option value="0">Full</option>
+            </select>
+          </div>
+          <span class="clip-format-badge">WebM HD</span>
+          <button id="clip-post-close-btn" class="drawer-close-btn" title="Fechar modal" aria-label="Fechar modal">✕</button>
+        </div>
+      </div>
+
+      <!-- Seção 1: Vídeo Preview e Download -->
+      <div class="clip-video-box">
+        <div class="clip-video-player-container">
+          <video id="clip-preview-video" controls playsinline preload="auto" class="clip-preview-player" title="Prévia do vídeo gravado"></video>
+        </div>
+        <div class="clip-video-info">
+          <div class="clip-video-meta">
+            <span class="clip-meta-title">📹 <strong>Vídeo Original Completo</strong></span>
+            <span id="clip-meta-sub" class="clip-meta-sub">Últimos 30 segundos da transmissão capturados em alta fluidez</span>
+          </div>
+          <button id="clip-download-video-btn" class="btn-primary clip-download-main-btn" title="Baixar arquivo de vídeo completo (.webm)">
+            <span>📥</span> Baixar Vídeo (.webm)
+          </button>
+        </div>
+      </div>
+
+      <div class="clip-divider">
+        <span>✂️ RECORTAR OU TRANSFORMAR EM ÁUDIO MEME</span>
+      </div>
+
+      <!-- Seção 2: Editor de Áudio Meme & Trimmer -->
+      <div class="clip-meme-editor">
+        <div class="clip-meme-title">
+          <span>🎙️ <strong>Criador de Áudio Meme</strong></span>
+          <span id="clip-audio-status" class="clip-status-pill">Pronto para recortar</span>
+        </div>
+
+        <!-- Trimmer de Trecho (Início e Fim) -->
+        <div class="clip-trimmer-box">
+          <div class="trimmer-labels">
+            <span>Início: <strong id="clip-trim-start-val">0.0s</strong></span>
+            <span class="trim-duration-badge">Duração: <strong id="clip-trim-duration-val">3.0s</strong></span>
+            <span>Fim: <strong id="clip-trim-end-val">3.0s</strong></span>
+          </div>
+          <div class="trimmer-sliders">
+            <div class="slider-row">
+              <label for="clip-trim-start-slider" class="slider-sublabel">Início:</label>
+              <input type="range" id="clip-trim-start-slider" min="0" max="30" step="0.1" value="0" aria-label="Tempo de início do trecho">
+            </div>
+            <div class="slider-row">
+              <label for="clip-trim-end-slider" class="slider-sublabel">Fim:</label>
+              <input type="range" id="clip-trim-end-slider" min="0" max="30" step="0.1" value="3" aria-label="Tempo de fim do trecho">
+            </div>
+          </div>
+          <div class="trimmer-quick-presets">
+            <span class="presets-label">Atalhos rápidos:</span>
+            <button type="button" class="btn-preset-quick" data-preset-range="first3">Primeiros 3s</button>
+            <button type="button" class="btn-preset-quick" data-preset-range="last3">Últimos 3s</button>
+            <button type="button" class="btn-preset-quick" data-preset-range="last5">Últimos 5s</button>
+            <button type="button" class="btn-preset-quick" data-preset-range="last10">Últimos 10s</button>
+            <button type="button" class="btn-preset-quick" data-preset-range="all">Áudio Todo (Full)</button>
+          </div>
+        </div>
+
+        <!-- Moduladores / Efeitos de Voz Engraçados -->
+        <div class="clip-effects-label">
+          🎭 Escolha o Efeito de Voz Engraçado:
+        </div>
+        <div class="clip-effects-grid" id="clip-effects-grid">
+          <!-- Chips gerados dinamicamente via JS com AUDIO_MEME_EFFECTS -->
+        </div>
+
+        <!-- Ações do Áudio Meme -->
+        <div class="clip-meme-actions">
+          <button id="clip-preview-audio-btn" class="btn-secondary" title="Ouvir como ficou o áudio com o efeito selecionado">
+            <span>🎧</span> Ouvir Prévia
+          </button>
+          <button id="clip-download-wav-btn" class="btn-primary" title="Baixar arquivo de áudio WAV para WhatsApp, Discord ou Soundboard">
+            <span>💾</span> Baixar Áudio (.wav)
+          </button>
+          <button id="clip-save-soundboard-btn" class="btn-secondary clip-save-soundboard-btn" title="Salvar este meme diretamente no Soundboard do SeeMyGame">
+            <span>⭐</span> Salvar no Soundboard
+          </button>
+          <button id="clip-broadcast-voice-btn" class="btn-accent" title="Transmitir áudio meme instantaneamente para a sala de voz dos amigos">
+            <span>🔊</span> Tocar na Sala de Voz
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
