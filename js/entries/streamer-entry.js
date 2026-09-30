@@ -76,13 +76,13 @@ import { voiceManager } from '../voice.js';
 import { DiscordUIController } from '../discord-ui.js';
 import { globalBus } from '../core/event-bus.js';
 import { p2pDispatcher } from '../core/message-dispatcher.js';
-import { pluginManager } from '../core/plugin-manager.js';
+import { createSessionContext } from '../core/session-context.js';
 import { 
-  whiteboardPlugin, 
-  soundboardPlugin, 
-  tacticalPingPlugin, 
-  reactionsPlugin, 
-  clippingPlugin 
+  createWhiteboardPlugin,
+  createSoundboardPlugin,
+  createTacticalPingPlugin,
+  createReactionsPlugin,
+  createClippingPlugin
 } from '../plugins/index.js';
 
 export const isStreamerPage = true;
@@ -100,7 +100,8 @@ export const streamerState = {
   targetBitrateBps: DEFAULT_BITRATE_BPS,
   fpsTarget: 60,
   activeCalls: new Map(), // viewerPeerId -> call
-  connectedViewers: new Map() // viewerPeerId -> conn
+  connectedViewers: new Map(), // viewerPeerId -> conn
+  session: null
 };
 
 export const connectedViewers = streamerState.connectedViewers;
@@ -108,7 +109,7 @@ export const connectedViewers = streamerState.connectedViewers;
 /**
  * Inicializa a instância PeerJS do Streamer.
  */
-export async function initStreamerPeer(customId = null) {
+export async function initStreamerPeer(customId = null, session = streamerState.session) {
   if (typeof Peer === 'undefined') {
     throw new Error('PeerJS não está carregado no escopo global.');
   }
@@ -125,19 +126,19 @@ export async function initStreamerPeer(customId = null) {
       streamerState.streamerId = id;
       console.log(`[Streamer] Host registrado com ID: ${id}`);
       updateStreamerUI(id);
-      globalBus.emit('streamer:ready', { streamerId: id });
+      (session?.eventBus || globalBus).emit('streamer:ready', { streamerId: id });
       resolve(peer);
     });
 
     peer.on('connection', (conn) => {
-      handleViewerConnection(conn);
+      handleViewerConnection(conn, session);
     });
 
     peer.on('error', (err) => {
       console.error('[Streamer] Erro no Peer:', err);
       if (err.type === 'unavailable-id') {
         showToast('ID customizado já em uso. Tentando ID aleatório...', 'warning');
-        initStreamerPeer(null).then(resolve).catch(reject);
+        initStreamerPeer(null, session).then(resolve).catch(reject);
       } else {
         reject(err);
       }
@@ -148,7 +149,7 @@ export async function initStreamerPeer(customId = null) {
 /**
  * Gerencia a conexão P2P de dados com um espectador.
  */
-function handleViewerConnection(conn) {
+function handleViewerConnection(conn, session = streamerState.session) {
   const viewerId = conn.peer;
 
   conn.on('open', () => {
@@ -157,7 +158,7 @@ function handleViewerConnection(conn) {
 
     // Se já estiver transmitindo, estabelece chamada de mídia imediatamente
     if (streamerState.localStream) {
-      callViewerWithStream(viewerId);
+      callViewerWithStream(viewerId, session);
     }
 
     updateViewerCount();
@@ -165,7 +166,7 @@ function handleViewerConnection(conn) {
 
   conn.on('data', (data) => {
     // Processamento com isolamento de falha
-    p2pDispatcher.dispatch(data, conn, streamerState.peer);
+    (session?.dispatcher || p2pDispatcher).dispatch(data, conn, streamerState.peer);
   });
 
   conn.on('close', () => {
@@ -179,7 +180,7 @@ function handleViewerConnection(conn) {
 /**
  * Dispara chamada WebRTC com a trilha local para um espectador.
  */
-export function callViewerWithStream(viewerId) {
+export function callViewerWithStream(viewerId, session = streamerState.session) {
   if (!streamerState.peer || !streamerState.localStream) return null;
 
   const call = streamerState.peer.call(viewerId, streamerState.localStream);
@@ -199,18 +200,20 @@ export function callViewerWithStream(viewerId) {
 /**
  * Inicia a captura de tela e áudio do jogo.
  */
-export async function startCapture(sourceId = null, captureOptions = {}) {
+export async function startCapture(sourceId = null, captureOptions = {}, session = streamerState.session) {
   let stream = null;
 
   try {
     if (isDesktopApp() && sourceId) {
       // Captura de alto desempenho via Tauri / GStreamer / WGC
       streamerState.captureProvider = new NativeCaptureProvider();
-      stream = await streamerState.captureProvider.startCapture(sourceId, {
+      const captureResult = await streamerState.captureProvider.start({
+        sourceId,
         fps: streamerState.fpsTarget,
-        bitrate: streamerState.targetBitrateBps,
+        bitrateKbps: Math.round(streamerState.targetBitrateBps / 1000),
         ...captureOptions
       });
+      stream = captureResult?.stream || captureResult;
       setHighPriority(true).catch(() => {});
     } else {
       // Captura via API padrão de navegadores (Screen Capture API)
@@ -228,15 +231,17 @@ export async function startCapture(sourceId = null, captureOptions = {}) {
 
     // Transmite a todos os espectadores conectados
     for (const viewerId of streamerState.connectedViewers.keys()) {
-      callViewerWithStream(viewerId);
+      callViewerWithStream(viewerId, session);
     }
 
-    addOrUpdateVideoCard('local-stream', stream, {
-      title: 'Sua Transmissão (Ao Vivo)',
-      isHost: true
+    addOrUpdateVideoCard({
+      peerId: 'local-me',
+      stream,
+      label: 'Sua Transmissão (Ao Vivo)',
+      isLocal: true
     });
 
-    globalBus.emit('stream:started', { stream });
+    (session?.eventBus || globalBus).emit('stream:started', { stream });
     showToast('Transmissão iniciada com sucesso!', 'success');
     return stream;
   } catch (err) {
@@ -249,7 +254,7 @@ export async function startCapture(sourceId = null, captureOptions = {}) {
 /**
  * Encerra a transmissão local.
  */
-export function stopCapture() {
+export function stopCapture(session = streamerState.session) {
   if (streamerState.localStream) {
     streamerState.localStream.getTracks().forEach(t => t.stop());
     streamerState.localStream = null;
@@ -265,8 +270,8 @@ export function stopCapture() {
   }
   streamerState.activeCalls.clear();
 
-  removeVideoCard('local-stream');
-  globalBus.emit('stream:stopped');
+  removeVideoCard('local-me');
+  (session?.eventBus || globalBus).emit('stream:stopped');
   showToast('Transmissão encerrada.', 'info');
 }
 
@@ -323,16 +328,25 @@ export function setQualityProfile(profileName) {
  * Inicializa a aplicação completa do streamer.
  */
 export async function initStreamerApp(options = {}) {
+  const session = createSessionContext({
+    role: 'streamer',
+    eventBus: options.eventBus,
+    messageDispatcher: options.messageDispatcher,
+    pluginManager: options.pluginManager,
+    initialState: streamerState
+  });
+  streamerState.session = session;
+
   // Registra todos os plugins com clipping ativado para o host
   try {
-    pluginManager.register(whiteboardPlugin);
-    pluginManager.register(soundboardPlugin);
-    pluginManager.register(tacticalPingPlugin);
-    pluginManager.register(reactionsPlugin);
-    pluginManager.register(clippingPlugin);
-    pluginManager.initAll({
-      eventBus: globalBus,
-      p2pDispatcher: p2pDispatcher,
+    session.pluginManager.register(createWhiteboardPlugin());
+    session.pluginManager.register(createSoundboardPlugin());
+    session.pluginManager.register(createTacticalPingPlugin());
+    session.pluginManager.register(createReactionsPlugin());
+    session.pluginManager.register(createClippingPlugin());
+    session.pluginManager.initAll({
+      eventBus: session.eventBus,
+      p2pDispatcher: session.dispatcher,
       role: 'streamer'
     });
   } catch (err) {
@@ -340,27 +354,44 @@ export async function initStreamerApp(options = {}) {
   }
 
   // Registra modal de prompt de Co-op para aceitar/recusar Jogador 2
-  registerCoopPromptHandler((peerId, promptOptions) => {
-    showCoopPromptModal(peerId, promptOptions);
+  const unregisterCoopPrompt = registerCoopPromptHandler((promptOptions) => {
+    showCoopPromptModal(promptOptions);
   });
+  if (typeof unregisterCoopPrompt === 'function') {
+    session.registerCleanup(unregisterCoopPrompt);
+  }
 
   initTermsModal(() => {
-    initStreamerPeer(options.customId || null);
+    initStreamerPeer(options.customId || null, session);
   });
 
   return {
     isStreamer: true,
-    startCapture,
-    stopCapture,
+    session,
+    dispose: () => {
+      stopCapture(session);
+      if (streamerState.peer && !streamerState.peer.destroyed) {
+        try { streamerState.peer.destroy(); } catch (e) {}
+      }
+      streamerState.peer = null;
+      streamerState.connectedViewers.clear();
+      streamerState.activeCalls.clear();
+      if (streamerState.session === session) streamerState.session = null;
+      session.dispose();
+    },
+    startCapture: (sourceId, captureOptions) => startCapture(sourceId, captureOptions, session),
+    stopCapture: () => stopCapture(session),
     setQualityProfile,
     state: streamerState
   };
 }
 
-// Auto-inicialização quando executado diretamente em streamer.html
+// Auto-inicialização somente quando carregado como entrypoint direto da página
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   const isStreamer = window.location && window.location.pathname.endsWith('streamer.html');
-  if (isStreamer) {
+  const isDirectEntry = Boolean(document.querySelector?.('script[src*="streamer-entry"]'));
+  if (isStreamer && isDirectEntry && !window.__SEEMYGAME_BOOTSTRAPPED__) {
+    window.__SEEMYGAME_BOOTSTRAPPED__ = 'streamer';
     if (document.readyState === 'loading') {
       window.addEventListener('DOMContentLoaded', () => initStreamerApp());
     } else {

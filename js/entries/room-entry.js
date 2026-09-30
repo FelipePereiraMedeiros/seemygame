@@ -48,14 +48,13 @@ import {
   removeVideoCard 
 } from '../ui.js';
 import { globalBus } from '../core/event-bus.js';
-import { p2pDispatcher } from '../core/message-dispatcher.js';
-import { pluginManager } from '../core/plugin-manager.js';
+import { createSessionContext } from '../core/session-context.js';
 import { 
-  whiteboardPlugin, 
-  soundboardPlugin, 
-  tacticalPingPlugin, 
-  reactionsPlugin, 
-  clippingPlugin 
+  createWhiteboardPlugin,
+  createSoundboardPlugin,
+  createTacticalPingPlugin,
+  createReactionsPlugin,
+  createClippingPlugin
 } from '../plugins/index.js';
 
 export const isRoomPage = true;
@@ -69,24 +68,31 @@ export const roomState = {
   currentRoomId: 'general',
   currentPin: null,
   userName: 'Gamer',
-  isTreeRelayEnabled: true
+  isTreeRelayEnabled: true,
+  session: null
 };
 
 /**
- * Extrai informações da sala (ID e PIN) a partir do hash da URL (#room=resenha&pin=1234)
+ * Extrai informações da sala (ID, PIN e roomKey) a partir do hash e query da URL
  */
 export function getRoomInfoFromUrl() {
   if (typeof window === 'undefined' || !window.location) {
-    return { roomId: 'general', roomPin: null };
+    return { roomId: 'general', roomPin: null, roomKey: null };
   }
   const hash = window.location.hash || '';
-  const match = hash.match(/room=([a-zA-Z0-9_-]+)/);
+  const search = window.location.search || '';
+  const full = `${search}&${hash.replace(/^#/, '')}`;
+
+  const match = hash.match(/room=([a-zA-Z0-9_-]+)/) || search.match(/room=([a-zA-Z0-9_-]+)/);
   const roomId = match ? sanitizeRoomId(match[1]) : 'general';
 
-  const pinMatch = hash.match(/pin=([0-9]{4,8})/);
+  const pinMatch = full.match(/pin=([0-9]{4,8})/);
   const roomPin = pinMatch ? pinMatch[1] : null;
 
-  return { roomId, roomPin };
+  const keyMatch = full.match(/key=([A-Za-z0-9_-]{16,128})/);
+  const roomKey = keyMatch ? keyMatch[1] : null;
+
+  return { roomId, roomPin, roomKey };
 }
 
 /**
@@ -155,81 +161,138 @@ export async function initGreenRoomLobby(onProceed) {
 /**
  * Inicializa a sessão completa da sala no PeerJS e conecta à rede Mesh.
  */
-export async function setupRoomSession(peerId) {
-  const { roomId, roomPin } = getRoomInfoFromUrl();
+export async function setupRoomSession(peerId, session = roomState.session) {
+  const { roomId, roomPin, roomKey } = getRoomInfoFromUrl();
   roomState.currentRoomId = roomId;
   roomState.currentPin = roomPin;
+  roomState.currentKey = roomKey;
 
-  // Instancia o RoomManager para a sala indicada
-  const rm = new RoomManager(roomState.peer, roomId, roomState.userName, {
-    pin: roomPin
+  const isMaster = Boolean(roomState.peer?.id && roomKey && roomState.peer.id.endsWith('_host'));
+
+  // Instancia o RoomManager para a sala indicada com o contrato real de objeto de opções
+  const rm = new RoomManager({
+    roomId,
+    userName: roomState.userName,
+    clientSessionId: peerId,
+    roomPin,
+    roomKey
   });
   roomState.roomManager = rm;
 
   // Instancia RelayManager para escalabilidade em árvore
-  roomState.relayManager = new RelayManager(roomState.peer, {
+  roomState.relayManager = new RelayManager({
+    originPeerId: isMaster ? peerId : null,
     maxDirectViewers: 8
   });
-
-  // Vincula o VoiceManager à sala
-  if (voiceManager) {
-    voiceManager.init(roomState.peer);
-  }
 
   // Vincula controlador de UI Discord
   if (typeof DiscordUIController !== 'undefined') {
     roomState.discordUI = new DiscordUIController({
       chatManager,
       voiceManager,
-      roomManager: rm
+      roomManager: rm,
+      onSendMessage: (text) => {
+        if (chatManager) {
+          const msg = chatManager.createMessage({
+            senderId: rm.myPeerId || peerId,
+            senderName: rm.userName || roomState.userName,
+            role: rm.isMaster ? 'host' : 'viewer',
+            text,
+            channel: chatManager.getActiveChannel()
+          });
+          const storedMessage = msg && chatManager.addMessage(msg);
+          if (storedMessage) {
+            rm.broadcast({ type: 'CHAT_MESSAGE', message: storedMessage });
+          }
+        }
+      },
+      onJoinVoice: () => {
+        if (voiceManager) {
+          voiceManager.joinVoice({ peerId, name: roomState.userName });
+        }
+      },
+      onLeaveVoice: () => {
+        if (voiceManager) {
+          voiceManager.leaveVoice();
+        }
+      }
     });
     roomState.discordUI.init();
   }
 
   // Inicia o processo de ingresso na sala P2P
-  await rm.join();
-  showToast(`Você entrou na sala #${roomId}!`, 'success');
-  globalBus.emit('room:joined', { roomId, peerId });
+  const joined = await rm.join(peerId, isMaster);
+  if (joined !== false) {
+    showToast(`Você entrou na sala #${roomId}!`, 'success');
+    (session?.eventBus || globalBus).emit('room:joined', { roomId, peerId });
+  }
+}
+
+/**
+ * Inicializa a instância PeerJS da sala.
+ */
+export async function initRoomPeer(customId = null) {
+  if (typeof Peer === 'undefined') {
+    throw new Error('PeerJS não está carregado no escopo global.');
+  }
+
+  await fetchIceServersFromApi().catch(() => {});
+  const config = getPeerConfig();
+
+  return new Promise((resolve, reject) => {
+    const peer = customId ? new Peer(customId, config) : new Peer(config);
+    roomState.peer = peer;
+
+    peer.on('open', (id) => {
+      console.log(`[Room] Peer registrado com ID: ${id}`);
+      resolve(peer);
+    });
+
+    peer.on('error', (err) => {
+      console.error('[Room] Erro no Peer:', err);
+      showToast('Erro de conexão ao servidor de sinalização.', 'error');
+      reject(err);
+    });
+  });
 }
 
 /**
  * Inicializa a aplicação completa de Room.
  */
 export async function initRoomApp(options = {}) {
+  const session = createSessionContext({
+    role: 'room',
+    eventBus: options.eventBus,
+    messageDispatcher: options.messageDispatcher,
+    pluginManager: options.pluginManager,
+    initialState: roomState
+  });
+  roomState.session = session;
+
   // Registra todos os plugins com clipping ativado
   try {
-    pluginManager.register(whiteboardPlugin);
-    pluginManager.register(soundboardPlugin);
-    pluginManager.register(tacticalPingPlugin);
-    pluginManager.register(reactionsPlugin);
-    pluginManager.register(clippingPlugin);
-    pluginManager.initAll({
-      eventBus: globalBus,
-      p2pDispatcher: p2pDispatcher,
+    session.pluginManager.register(createWhiteboardPlugin());
+    session.pluginManager.register(createSoundboardPlugin());
+    session.pluginManager.register(createTacticalPingPlugin());
+    session.pluginManager.register(createReactionsPlugin());
+    session.pluginManager.register(createClippingPlugin());
+    session.pluginManager.initAll({
+      eventBus: session.eventBus,
+      p2pDispatcher: session.dispatcher,
       role: 'room'
     });
   } catch (err) {
     console.warn('[Room] Falha ao registrar plugins:', err);
   }
 
-  // Prepara PeerJS
-  await fetchIceServersFromApi().catch(() => {});
-  const config = getPeerConfig();
-
   const startRoomFlow = () => {
-    initGreenRoomLobby(() => {
-      const peer = new Peer(config);
-      roomState.peer = peer;
-
-      peer.on('open', (id) => {
-        console.log(`[Room] Peer registrado com ID: ${id}`);
-        setupRoomSession(id);
-      });
-
-      peer.on('error', (err) => {
-        console.error('[Room] Erro no Peer:', err);
-        showToast('Erro de conexão ao servidor de sinalização.', 'error');
-      });
+    initGreenRoomLobby(async () => {
+      try {
+        const peer = await initRoomPeer(options.customId || null);
+        await setupRoomSession(peer.id, session);
+      } catch (err) {
+        console.error('[Room] Falha ao inicializar peer da sala:', err);
+      }
     });
   };
 
@@ -237,15 +300,35 @@ export async function initRoomApp(options = {}) {
 
   return {
     isRoom: true,
+    session,
+    dispose: () => {
+      if (roomState.roomManager) {
+        try { roomState.roomManager.leave(); } catch (e) {}
+      }
+      if (roomState.discordUI) {
+        try { roomState.discordUI.destroy(); } catch (e) {}
+      }
+      if (roomState.peer && !roomState.peer.destroyed) {
+        try { roomState.peer.destroy(); } catch (e) {}
+      }
+      roomState.peer = null;
+      roomState.roomManager = null;
+      roomState.relayManager = null;
+      roomState.discordUI = null;
+      if (roomState.session === session) roomState.session = null;
+      session.dispose();
+    },
     state: roomState,
     getRoomInfo: getRoomInfoFromUrl
   };
 }
 
-// Auto-inicialização quando executado diretamente em room.html
+// Auto-inicialização somente quando carregado como entrypoint direto da página
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   const isRoom = window.location && window.location.pathname.endsWith('room.html');
-  if (isRoom) {
+  const isDirectEntry = Boolean(document.querySelector?.('script[src*="room-entry"]'));
+  if (isRoom && isDirectEntry && !window.__SEEMYGAME_BOOTSTRAPPED__) {
+    window.__SEEMYGAME_BOOTSTRAPPED__ = 'room';
     if (document.readyState === 'loading') {
       window.addEventListener('DOMContentLoaded', () => initRoomApp());
     } else {

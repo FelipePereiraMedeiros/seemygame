@@ -47,12 +47,12 @@ import { voiceManager } from '../voice.js';
 import { DiscordUIController } from '../discord-ui.js';
 import { globalBus } from '../core/event-bus.js';
 import { p2pDispatcher } from '../core/message-dispatcher.js';
-import { pluginManager } from '../core/plugin-manager.js';
+import { createSessionContext } from '../core/session-context.js';
 import { 
-  whiteboardPlugin, 
-  soundboardPlugin, 
-  tacticalPingPlugin, 
-  reactionsPlugin 
+  createWhiteboardPlugin,
+  createSoundboardPlugin,
+  createTacticalPingPlugin,
+  createReactionsPlugin
 } from '../plugins/index.js';
 
 export const isViewerPage = true;
@@ -65,7 +65,8 @@ export const viewerState = {
   activeCall: null,
   activeConn: null,
   statsMonitorActive: false,
-  remoteStream: null
+  remoteStream: null,
+  session: null
 };
 
 export const watchingHosts = new Map();
@@ -86,7 +87,7 @@ export function getTargetStreamerId() {
 /**
  * Conecta o visualizador a um streamer pelo seu Peer ID.
  */
-export async function connectToStreamer(streamerId, pin = null) {
+export async function connectToStreamer(streamerId, pin = null, session = viewerState.session) {
   if (!streamerId || !isValidPeerId(streamerId)) {
     showToast('ID do streamer inválido.', 'error');
     return false;
@@ -97,7 +98,7 @@ export async function connectToStreamer(streamerId, pin = null) {
   updateCardStatus(streamerId, 'Conectando ao Streamer...');
 
   if (!viewerState.peer || viewerState.peer.destroyed) {
-    await initViewerPeer();
+    await initViewerPeer(session);
   }
 
   const conn = viewerState.peer.connect(streamerId, { 
@@ -124,18 +125,18 @@ export async function connectToStreamer(streamerId, pin = null) {
       pin: pin || ''
     });
 
-    globalBus.emit('viewer:connected', { streamerId });
+    (session?.eventBus || globalBus).emit('viewer:connected', { streamerId });
   });
 
   conn.on('data', (data) => {
-    p2pDispatcher.dispatch(data, conn, viewerState.peer);
+    (session?.dispatcher || p2pDispatcher).dispatch(data, conn, viewerState.peer);
   });
 
   conn.on('close', () => {
     updateCardStatus(streamerId, 'Desconectado do streamer.');
     removeVideoCard(streamerId);
     watchingHosts.delete(streamerId);
-    globalBus.emit('viewer:disconnected', { streamerId });
+    (session?.eventBus || globalBus).emit('viewer:disconnected', { streamerId });
   });
 
   conn.on('error', (err) => {
@@ -150,7 +151,7 @@ export async function connectToStreamer(streamerId, pin = null) {
 /**
  * Inicializa a instância PeerJS do Viewer.
  */
-export async function initViewerPeer() {
+export async function initViewerPeer(session = viewerState.session) {
   if (typeof Peer === 'undefined') {
     throw new Error('PeerJS não está carregado no escopo global.');
   }
@@ -168,7 +169,7 @@ export async function initViewerPeer() {
     });
 
     peer.on('call', (call) => {
-      handleIncomingStreamCall(call);
+      handleIncomingStreamCall(call, session);
     });
 
     peer.on('error', (err) => {
@@ -181,7 +182,7 @@ export async function initViewerPeer() {
 /**
  * Recebe a chamada audiovisual do host e monta no grid.
  */
-function handleIncomingStreamCall(call) {
+function handleIncomingStreamCall(call, session = viewerState.session) {
   hookPeerConnectionSdp(call.peerConnection);
   call.answer(); // Responde sem enviar stream local
   viewerState.activeCall = call;
@@ -193,25 +194,27 @@ function handleIncomingStreamCall(call) {
 
   call.on('stream', (remoteStream) => {
     viewerState.remoteStream = remoteStream;
-    addOrUpdateVideoCard(hostId, remoteStream, {
-      title: `Ao Vivo: ${hostId.slice(0, 8)}`,
-      isHost: false
+    addOrUpdateVideoCard({
+      peerId: hostId,
+      stream: remoteStream,
+      label: `Ao Vivo: ${hostId.slice(0, 8)}`,
+      isLocal: false
     });
     hideCardLoading(hostId);
 
     // Inicia monitoramento de estatísticas no HUD
     if (call.peerConnection) {
-      startStatsMonitor(call.peerConnection, (stats) => {
+      startStatsMonitor(hostId, call.peerConnection, false, (stats) => {
         updateStatsHud(stats);
       });
       viewerState.statsMonitorActive = true;
     }
 
-    globalBus.emit('stream:received', { hostId, stream: remoteStream });
+    (session?.eventBus || globalBus).emit('stream:received', { hostId, stream: remoteStream });
   });
 
   call.on('close', () => {
-    stopStatsMonitor();
+    stopStatsMonitor(hostId);
     viewerState.statsMonitorActive = false;
     removeVideoCard(hostId);
   });
@@ -221,30 +224,50 @@ function handleIncomingStreamCall(call) {
  * Atualiza valores na interface do HUD de Estatísticas.
  */
 function updateStatsHud(stats) {
+  if (!stats) return;
   const fpsEl = document.getElementById('stat-fps');
   const bitrateEl = document.getElementById('stat-bitrate');
   const rttEl = document.getElementById('stat-rtt');
   const lossEl = document.getElementById('stat-loss');
 
   if (fpsEl && stats.fps != null) fpsEl.textContent = `${Math.round(stats.fps)} FPS`;
-  if (bitrateEl && stats.bitrateKbps != null) bitrateEl.textContent = `${(stats.bitrateKbps / 1000).toFixed(1)} Mbps`;
-  if (rttEl && stats.rttMs != null) rttEl.textContent = `${Math.round(stats.rttMs)} ms`;
-  if (lossEl && stats.packetLossRatio != null) lossEl.textContent = `${(stats.packetLossRatio * 100).toFixed(1)}%`;
+
+  const bitrateVal = stats.bitrateMbps != null
+    ? Number(stats.bitrateMbps).toFixed(1)
+    : (stats.bitrateKbps != null ? (stats.bitrateKbps / 1000).toFixed(1) : null);
+  if (bitrateEl && bitrateVal != null) bitrateEl.textContent = `${bitrateVal} Mbps`;
+
+  const rttVal = stats.rtt != null ? stats.rtt : (stats.rttMs != null ? stats.rttMs : null);
+  if (rttEl && rttVal != null) rttEl.textContent = `${Math.round(rttVal)} ms`;
+
+  const lossVal = stats.packetLossRate != null
+    ? stats.packetLossRate * 100
+    : (stats.packetLossRatio != null ? stats.packetLossRatio * 100 : null);
+  if (lossEl && lossVal != null) lossEl.textContent = `${Number(lossVal).toFixed(1)}%`;
 }
 
 /**
  * Inicializa a aplicação completa do espectador.
  */
 export async function initViewerApp(options = {}) {
+  const session = createSessionContext({
+    role: 'viewer',
+    eventBus: options.eventBus,
+    messageDispatcher: options.messageDispatcher,
+    pluginManager: options.pluginManager,
+    initialState: viewerState
+  });
+  viewerState.session = session;
+
   // Registra plugins relevantes para espectadores
   try {
-    pluginManager.register(whiteboardPlugin);
-    pluginManager.register(soundboardPlugin);
-    pluginManager.register(tacticalPingPlugin);
-    pluginManager.register(reactionsPlugin);
-    pluginManager.initAll({
-      eventBus: globalBus,
-      p2pDispatcher: p2pDispatcher,
+    session.pluginManager.register(createWhiteboardPlugin());
+    session.pluginManager.register(createSoundboardPlugin());
+    session.pluginManager.register(createTacticalPingPlugin());
+    session.pluginManager.register(createReactionsPlugin());
+    session.pluginManager.initAll({
+      eventBus: session.eventBus,
+      p2pDispatcher: session.dispatcher,
       role: 'viewer'
     });
   } catch (err) {
@@ -252,14 +275,17 @@ export async function initViewerApp(options = {}) {
   }
 
   // Registra manipuladores Co-op do Jogador 2
-  registerCoopStateChangeHandler((state) => {
+  const unregisterCoop = registerCoopStateChangeHandler((state) => {
     updateCoopUI(state);
   });
+  if (typeof unregisterCoop === 'function') {
+    session.registerCleanup(unregisterCoop);
+  }
 
   const targetStreamer = options.targetStreamerId || getTargetStreamerId();
   if (targetStreamer) {
     initTermsModal(() => {
-      connectToStreamer(targetStreamer, options.pin || null);
+      connectToStreamer(targetStreamer, options.pin || null, session);
     });
   } else {
     initTermsModal();
@@ -267,17 +293,38 @@ export async function initViewerApp(options = {}) {
 
   return {
     isViewer: true,
-    connect: connectToStreamer,
+    session,
+    dispose: () => {
+      if (viewerState.activeCall) {
+        try { viewerState.activeCall.close(); } catch (e) {}
+      }
+      if (viewerState.activeConn) {
+        try { viewerState.activeConn.close(); } catch (e) {}
+      }
+      if (viewerState.peer && !viewerState.peer.destroyed) {
+        try { viewerState.peer.destroy(); } catch (e) {}
+      }
+      viewerState.peer = null;
+      viewerState.activeCall = null;
+      viewerState.activeConn = null;
+      viewerState.remoteStream = null;
+      watchingHosts.clear();
+      if (viewerState.session === session) viewerState.session = null;
+      session.dispose();
+    },
+    connect: (streamerId, pin = null) => connectToStreamer(streamerId, pin, session),
     requestCoop: (hId) => requestCoopControl(hId, viewerState.activeConn),
     releaseCoop: (hId) => releaseCoopControl(hId, viewerState.activeConn),
     state: viewerState
   };
 }
 
-// Auto-inicialização quando executado diretamente em viewer.html
+// Auto-inicialização somente quando carregado como entrypoint direto da página
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   const isViewer = window.location && window.location.pathname.endsWith('viewer.html');
-  if (isViewer) {
+  const isDirectEntry = Boolean(document.querySelector?.('script[src*="viewer-entry"]'));
+  if (isViewer && isDirectEntry && !window.__SEEMYGAME_BOOTSTRAPPED__) {
+    window.__SEEMYGAME_BOOTSTRAPPED__ = 'viewer';
     if (document.readyState === 'loading') {
       window.addEventListener('DOMContentLoaded', () => initViewerApp());
     } else {

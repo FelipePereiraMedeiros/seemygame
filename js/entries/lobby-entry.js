@@ -4,11 +4,15 @@
  * persistência de apelido de usuário e preflight de dispositivos de áudio (Green Room).
  */
 
-import { 
-  generateFriendlyRoomCode, 
-  parseRoomIdentifier, 
-  formatRoomCodeInput 
+import {
+  generateFriendlyRoomCode,
+  parseRoomIdentifier,
+  formatRoomCodeInput
 } from '../room-codes.js';
+import {
+  buildRoomUrl,
+  createRoomKey
+} from '../navigation/room-links.js';
 import { 
   isDesktopApp, 
   isAlwaysOnTop, 
@@ -23,6 +27,7 @@ import {
 } from '../audio-devices.js';
 import { showToast } from '../ui.js';
 import { TERMS_VERSION } from '../config.js';
+import { createSessionContext } from '../core/session-context.js';
 
 export const isLobbyPage = true;
 
@@ -32,6 +37,11 @@ export const isLobbyPage = true;
 export function initLobbyApp(options = {}) {
   const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
   if (!isBrowser) return { active: false };
+
+  const session = createSessionContext({
+    role: 'lobby',
+    initialState: {}
+  });
 
   const userNameInput = document.getElementById('lobby-user-name');
   const roomIdInput = document.getElementById('lobby-room-id');
@@ -53,8 +63,14 @@ export function initLobbyApp(options = {}) {
 
   // Formatação automática do código da sala enquanto o usuário digita
   if (roomIdInput) {
-    roomIdInput.addEventListener('input', () => {
-      const formatted = formatRoomCodeInput(roomIdInput.value);
+    session.addEventListener(roomIdInput, 'input', () => {
+      const rawValue = roomIdInput.value;
+      // Links e fragmentos carregam identidade da sala, chave e PIN; não os
+      // transforme no formato destinado a códigos digitados manualmente.
+      if (/^\s*(?:[a-z][a-z\d+.-]*:\/\/|www\.|#)/i.test(rawValue)
+        || /(?:[?&])(?:room|watch)=/i.test(rawValue)) return;
+
+      const formatted = formatRoomCodeInput(rawValue);
       if (formatted !== roomIdInput.value) {
         roomIdInput.value = formatted;
       }
@@ -63,21 +79,62 @@ export function initLobbyApp(options = {}) {
 
   // Submissão do formulário para entrar na sala
   if (lobbyForm) {
-    lobbyForm.addEventListener('submit', (e) => {
+    session.addEventListener(lobbyForm, 'submit', (e) => {
       e.preventDefault();
       handleJoinRoom();
     });
   }
 
-  if (createRandomBtn) {
-    createRandomBtn.addEventListener('click', () => {
-      const randomCode = generateFriendlyRoomCode();
-      if (roomIdInput) roomIdInput.value = randomCode;
-      handleJoinRoom(randomCode);
+  if (joinBtn) {
+    session.addEventListener(joinBtn, 'click', () => {
+      handleJoinRoom();
     });
   }
 
-  function handleJoinRoom(forcedCode = null) {
+  if (roomIdInput) {
+    session.addEventListener(roomIdInput, 'keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleJoinRoom();
+      }
+    });
+  }
+
+  // Modal de Termos de Uso
+  const openTermsLink = document.getElementById('open-terms-link');
+  const termsModal = document.getElementById('terms-modal');
+  const closeTermsBtn = document.getElementById('close-terms-btn');
+
+  function openTerms() {
+    if (!termsModal) return;
+    termsModal.style.display = 'flex';
+    closeTermsBtn?.focus();
+    document.addEventListener('keydown', handleTermsKeyDown);
+  }
+
+  function closeTerms() {
+    if (!termsModal) return;
+    termsModal.style.display = 'none';
+    openTermsLink?.focus();
+    document.removeEventListener('keydown', handleTermsKeyDown);
+  }
+
+  function handleTermsKeyDown(e) {
+    if (e.key === 'Escape') closeTerms();
+  }
+
+  if (openTermsLink) session.addEventListener(openTermsLink, 'click', openTerms);
+  if (closeTermsBtn) session.addEventListener(closeTermsBtn, 'click', closeTerms);
+
+  if (createRandomBtn) {
+    session.addEventListener(createRandomBtn, 'click', () => {
+      const randomCode = generateFriendlyRoomCode();
+      if (roomIdInput) roomIdInput.value = randomCode;
+      handleJoinRoom(randomCode, createRoomKey());
+    });
+  }
+
+  function handleJoinRoom(forcedCode = null, explicitKey = null) {
     const rawCode = forcedCode || (roomIdInput ? roomIdInput.value.trim() : '');
     const userName = userNameInput ? userNameInput.value.trim() : '';
 
@@ -100,14 +157,14 @@ export function initLobbyApp(options = {}) {
       } catch (e) {}
     }
 
-    // Navega para room.html preservando o hash da sala
-    const targetUrl = `room.html#room=${encodeURIComponent(parsed.roomId)}`;
+    const effectiveKey = explicitKey || parsed.roomKey;
+    const targetUrl = buildRoomUrl({
+      roomId: parsed.roomId,
+      roomKey: effectiveKey
+    });
+
     try {
-      if (window.location && window.location.origin && window.location.origin !== 'null') {
-        window.location.href = `${window.location.origin}/${targetUrl}`;
-      } else if (window.location) {
-        window.location.href = targetUrl;
-      }
+      window.location.href = targetUrl;
     } catch (e) {
       try {
         window.location = new URL(targetUrl, window.location?.href || 'http://localhost/').href;
@@ -120,6 +177,11 @@ export function initLobbyApp(options = {}) {
 
   return {
     active: true,
+    session,
+    dispose: () => {
+      session.dispose();
+      document.removeEventListener('keydown', handleTermsKeyDown);
+    },
     joinRoom: handleJoinRoom,
     generateCode: generateFriendlyRoomCode
   };
@@ -205,10 +267,12 @@ export async function initGreenRoomPreflight(elements = {}) {
   }
 }
 
-// Auto-inicialização caso carregado diretamente na página lobby.html
+// Auto-inicialização somente quando carregado como entrypoint direto da página
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   const isLobby = window.location && window.location.pathname.endsWith('lobby.html');
-  if (isLobby) {
+  const isDirectEntry = Boolean(document.querySelector?.('script[src*="lobby-entry"]'));
+  if (isLobby && isDirectEntry && !window.__SEEMYGAME_BOOTSTRAPPED__) {
+    window.__SEEMYGAME_BOOTSTRAPPED__ = 'lobby';
     if (document.readyState === 'loading') {
       window.addEventListener('DOMContentLoaded', () => initLobbyApp());
     } else {
