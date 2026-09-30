@@ -156,7 +156,7 @@ describe('ID Fixo do Streamer e Proteção de Sala por Senha (PIN)', () => {
     `;
 
     globalThis.Peer = MockPeer;
-    app = await import('../js/app.js');
+    app = await import('../js/app.js'); app.initLegacyBindings();
   });
 
   beforeEach(() => {

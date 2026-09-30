@@ -29,10 +29,14 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@babel/parser": "^7.29.9",
     "@vitest/coverage-v8": "^5.0.0",
     "jsdom": "^30.0.1",
+    "peerjs": "1.5.2",
     "playwright": "^1.63.0",
-    "vitest": "^5.0.0"
+    "postcss": "^8.5.28",
+    "vitest": "^5.0.0",
+    "ws": "^8.22.0"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

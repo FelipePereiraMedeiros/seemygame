@@ -1,3 +1,4 @@
+import { initLegacyBindings } from '../js/app.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { 
   setMaxCoopPlayers, 
@@ -160,3 +161,5 @@ describe('Fase 4: Endurecimento da Camada Nativa Desktop e Reconciliação (R1 a
     });
   });
 });
+
+initLegacyBindings();

@@ -156,7 +156,7 @@ describe('Integração Room-First no app.js (Paradigma Discord)', () => {
     `;
 
     globalThis.Peer = MockPeer;
-    app = await import('../js/app.js');
+    app = await import('../js/app.js'); app.initLegacyBindings();
   });
 
   it('isRoomMode deve retornar true na página room.html', () => {

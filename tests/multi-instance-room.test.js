@@ -139,7 +139,7 @@ describe('Salas Multi-Instâncias (3+ Participantes: Múltiplos Desktops e Web)'
     globalThis.MediaStreamTrack = MockMediaStreamTrack;
     globalThis.Peer = MockPeer;
 
-    app = await import('../js/app.js');
+    app = await import('../js/app.js'); app.initLegacyBindings();
   });
 
   beforeEach(() => {

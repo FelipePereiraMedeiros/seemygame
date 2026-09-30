@@ -46,7 +46,7 @@ describe('Regressões das pendências da verificação de modularização', () =
       message: { id, senderId: 'remote-host', senderName: 'Host', role: 'host', channel: 'geral', text: 'mensagem recebida' }
     });
     expect(result.handled).toBe(true);
-    expect(chatManager.getMessages('geral').some((message) => message.id === id)).toBe(true);
+    expect(app.session.services.chatManager.getMessages('geral').some((message) => message.id === id)).toBe(true);
     app.dispose();
   });
 

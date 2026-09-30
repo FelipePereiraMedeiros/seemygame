@@ -97,7 +97,7 @@ describe('Desktop Picker Modal (Native Capture Integration)', () => {
     global.RTCPeerConnection = MockRTCPeerConnection;
     global.MediaStream = MockMediaStream;
 
-    app = await import('../js/app.js');
+    app = await import('../js/app.js'); app.initLegacyBindings();
   });
 
   afterEach(() => {

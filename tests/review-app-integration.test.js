@@ -14,7 +14,7 @@ beforeEach(async () => {
   vi.resetModules(); vi.useFakeTimers(); Peer.instances = [];
   vi.stubGlobal('Peer', Peer); vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
   localStorage.clear(); document.body.innerHTML = '<div id="video-grid"></div><div id="toast-container"></div>';
-  app = await import('../js/app.js'); voice = (await import('../js/voice.js')).voiceManager;
+  app = await import('../js/app.js'); app.initLegacyBindings(); voice = (await import('../js/voice.js')).voiceManager;
   peer = app.initPeer(); peer.emit('open', 'review-local');
 });
 afterEach(async () => { await app?.stopLocalStream?.(); voice?.leaveVoice(); app?.roomManager?.leave?.(); peer?.destroy(); vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });

@@ -246,7 +246,7 @@ const join = async (page, url, name) => {
   await page.goto(url); await page.locator('#green-room-join-btn').waitFor({ state: 'visible', timeout: 30000 });
   await page.locator('#green-room-user-name').fill(name);
   await page.locator('#green-room-join-btn').click();
-  await waitApp(page, async () => { const app = await import('/js/app.js'); return app.roomManager?.isInRoom === true && typeof app.roomManager?.myPeerId === 'string'; });
+  await waitApp(page, async () => { const app = (await import('/js/diagnostics/session-api.js')).getActiveSession(); return app.roomManager?.isInRoom === true && typeof app.roomManager?.myPeerId === 'string'; });
 };
 try {
   await record('preflight', async () => {
@@ -356,12 +356,12 @@ try {
     await record('desktop joins room', () => join(hostPage, `${nativeOrigin}/room.html${fragment}`, 'E2E Desktop'));
     await record('web joins same room', () => join(viewerPage, `${webOrigin}/room.html${fragment}`, 'E2E Web'));
     await record('verify mutual authenticated membership', async () => {
-      await waitApp(hostPage, async () => (await import('/js/app.js')).roomManager?.myPeerId != null);
-      await waitApp(viewerPage, async () => (await import('/js/app.js')).roomManager?.myPeerId != null);
-      hostId = await hostPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
-      viewerId = await viewerPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
+      await waitApp(hostPage, async () => (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager?.myPeerId != null);
+      await waitApp(viewerPage, async () => (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager?.myPeerId != null);
+      hostId = await hostPage.evaluate(async () => (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager?.myPeerId);
+      viewerId = await viewerPage.evaluate(async () => (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager?.myPeerId);
       if (!hostId || !viewerId || hostId === viewerId) throw new Error('Identidades dos clientes inválidas');
-      for (const [page, expected] of [[hostPage, viewerId], [viewerPage, hostId]]) await waitApp(page, async id => { const r = (await import('/js/app.js')).roomManager; return r?.members.has(id) && r.isPeerAuthorized(id); }, expected);
+      for (const [page, expected] of [[hostPage, viewerId], [viewerPage, hostId]]) await waitApp(page, async id => { const r = (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager; return r?.members.has(id) && r.isPeerAuthorized(id); }, expected);
     });
     const averageOf = (arr, fn) => {
       const vals = arr.map(fn).filter(n => Number.isFinite(n) && n !== null);
@@ -697,7 +697,7 @@ try {
         await source.evaluate(() => window.focus()).catch(() => {});
         await sleep(500);
         await viewerPage.evaluate(async () => {
-          const app = await import('/js/app.js');
+          const app = (await import('/js/diagnostics/session-api.js')).getActiveSession();
           return app.startLocalStream({
             displaySurface: 'window'
           });
@@ -740,7 +740,7 @@ try {
 
       await record('stop web capture stream', async () => {
         await viewerPage.evaluate(async () => {
-          const app = await import('/js/app.js');
+          const app = (await import('/js/diagnostics/session-api.js')).getActiveSession();
           return app.stopLocalStream();
         }).catch(() => {});
         await sleep(1000);

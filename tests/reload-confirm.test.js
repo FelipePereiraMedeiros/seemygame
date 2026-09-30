@@ -1,3 +1,4 @@
+import { initLegacyBindings } from '../js/app.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as app from '../js/app.js';
 
@@ -111,3 +112,5 @@ describe('Confirmação de Recarga (F5 e Ctrl+R)', () => {
     }
   });
 });
+
+initLegacyBindings();

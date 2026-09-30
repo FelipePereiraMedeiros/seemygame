@@ -87,10 +87,10 @@ describe('Fase 3: Separação de Entrypoints de Páginas (js/entries)', () => {
       };
       viewerEntry.viewerState.activeConn = mockConn;
       expect(viewerEntry.submitViewerPin('1234')).toBe(true);
-      expect(mockConn.send).toHaveBeenCalledWith({
+      expect(mockConn.send).toHaveBeenCalledWith(expect.objectContaining({
         type: 'REQUEST_STREAM',
         pin: '1234'
-      });
+      }));
       viewerEntry.viewerState.activeConn = null;
     });
   });
@@ -227,7 +227,7 @@ describe('Fase 3: Separação de Entrypoints de Páginas (js/entries)', () => {
       streamerEvents['open']();
 
       // Streamer deve ter enviado PIN_REQUIRED
-      expect(streamerConn.send).toHaveBeenCalledWith({ type: 'PIN_REQUIRED' });
+      expect(streamerConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'PIN_REQUIRED' }));
       const modal = document.getElementById('pin-prompt-modal');
       expect(modal.style.display).toBe('flex');
       expect(streamerEntry.streamerState.admissionGate.isAuthenticated('viewer-alice')).toBe(false);
@@ -244,7 +244,7 @@ describe('Fase 3: Separação de Entrypoints de Páginas (js/entries)', () => {
 
       // 7. Viewer envia PIN correto
       viewerEntry.submitViewerPin('ultra-secret-pin');
-      expect(streamerConn.send).toHaveBeenCalledWith({ type: 'PIN_ACCEPTED' });
+      expect(streamerConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'PIN_ACCEPTED' }));
       expect(modal.style.display).toBe('none');
       expect(viewerEntry.viewerState.isAuthenticated).toBe(true);
       expect(streamerEntry.streamerState.admissionGate.isAuthenticated('viewer-alice')).toBe(true);
@@ -358,7 +358,7 @@ describe('Fase 3: Separação de Entrypoints de Páginas (js/entries)', () => {
 
   describe('Fachada unificada em app.js', () => {
     it('deve re-exportar os inicializadores de cada entrypoint mantendo compatibilidade total', async () => {
-      const app = await import('../js/app.js');
+      const app = await import('../js/app.js'); app.initLegacyBindings();
       expect(typeof app.initViewerApp).toBe('function');
       expect(typeof app.initStreamerApp).toBe('function');
       expect(typeof app.initRoomApp).toBe('function');

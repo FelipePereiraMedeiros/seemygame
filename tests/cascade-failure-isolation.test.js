@@ -1,3 +1,4 @@
+import { initLegacyBindings } from '../js/app.js';
 import { describe, it, expect, vi } from 'vitest';
 import { handleIncomingP2PMessage, p2pDispatcher, globalBus } from '../js/app.js';
 import { chatManager } from '../js/chat.js';
@@ -36,3 +37,5 @@ describe('Fase 1: Prevenção de Falhas em Cascata (Blast Radius Containment)', 
     errorSpy.mockRestore();
   });
 });
+
+initLegacyBindings();

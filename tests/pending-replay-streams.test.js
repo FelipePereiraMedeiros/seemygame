@@ -37,7 +37,7 @@ it('mantém buffers independentes quando dois hosts transmitem e um encerra', as
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
   localStorage.clear();
   document.body.innerHTML = '<div id="video-grid"></div><div id="toast-container"></div>';
-  app = await import('../js/app.js');
+  app = await import('../js/app.js'); app.initLegacyBindings();
   const peer = await app.initPeer();
   peer.emit('open', 'local-review-peer');
   const calls = [];

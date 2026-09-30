@@ -141,14 +141,14 @@ describe('Fase 2: Plugins Autônomos de Periféricos', () => {
     const dummyStream = { id: 'stream-1' };
     eventBus.emit('stream:started', { stream: dummyStream });
 
-    expect(mockRecorder.start).toHaveBeenCalledWith(dummyStream);
+    expect(mockRecorder.start).toHaveBeenCalledWith(dummyStream, 'local-me');
 
-    const clipBlob = await plugin.exportClip(30);
+    const clipBlob = await plugin.exportClip('clip.webm', 'host-a');
     expect(clipBlob).not.toBeNull();
-    expect(mockRecorder.exportClip).toHaveBeenCalledWith(30);
+    expect(mockRecorder.exportClip).toHaveBeenCalledWith('clip.webm', 'host-a');
 
     eventBus.emit('stream:stopped');
-    expect(mockRecorder.stop).toHaveBeenCalled();
+    expect(mockRecorder.stop).toHaveBeenCalledWith(null);
 
     plugin.destroy();
   });

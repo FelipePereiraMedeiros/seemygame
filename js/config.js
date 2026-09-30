@@ -215,6 +215,8 @@ export function getPendingIceServersPromise() {
  * @returns {Object}
  */
 export function getPeerConfig(customServers = null) {
+  const signaling = typeof window !== 'undefined' ? window.__SEEMYGAME_PEER_CONFIG__ : null;
+  if (signaling) return { ...signaling, config: { ...PEER_CONFIG.config, ...signaling.config } };
   const servers = customServers || dynamicIceServers || getStaticFallbackIceServers();
   return {
     config: {

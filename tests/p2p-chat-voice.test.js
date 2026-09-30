@@ -1,4 +1,5 @@
-﻿import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { initLegacyBindings } from '../js/app.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   broadcastDataMessage,
   handleIncomingP2PMessage,
@@ -89,3 +90,5 @@ describe('Integração P2P: Chat e Voz (Discord Features)', () => {
     expect(mockCall.answer).not.toHaveBeenCalled();
   });
 });
+
+initLegacyBindings();

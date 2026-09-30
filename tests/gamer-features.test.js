@@ -1,3 +1,4 @@
+import { initLegacyBindings } from '../js/app.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   handleIncomingP2PMessage,
@@ -588,3 +589,5 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
     });
   });
 });
+
+initLegacyBindings();
