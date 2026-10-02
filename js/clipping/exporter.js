@@ -1,4 +1,4 @@
-import { createAudioScope } from ".././audio/context-scope.js";
+import { webmHeader, rebaseWebmClusters } from './webm-timeline.js';
 /** ClipRecorder: exporter. State and lifetime remain owned by the composed engine. */
 export const withClipRecorderExporter = Base => class extends Base {
 async flushPendingData(timeoutMs = 1000) {
@@ -92,67 +92,13 @@ exportClip(customFilename = null) {
 async _exportWithoutStaleInitializationCluster(orderedChunks, cutoff, actualMimeType, customFilename) {
     const initialization = this.initializationChunk;
     const initializationBytes = new Uint8Array(await initialization.blob.arrayBuffer());
-    const clusterMarker = new Uint8Array([0x1f, 0x43, 0xb6, 0x75]);
-    let clusterOffset = -1;
-    for (let index = 0; index <= initializationBytes.length - clusterMarker.length; index += 1) {
-      let matches = true;
-      for (let markerIndex = 0; markerIndex < clusterMarker.length; markerIndex += 1) {
-        if (initializationBytes[index + markerIndex] !== clusterMarker[markerIndex]) {
-          matches = false;
-          break;
-        }
-      }
-      if (matches) {
-        clusterOffset = index;
-        break;
-      }
-    }
-
-    if (clusterOffset < 0) {
-      // A pure initialization chunk has no media payload to remove.
-      return this._finalizeExport(
-        [initialization.blob, ...orderedChunks
-          .filter(item => item !== initialization && item.timestamp >= cutoff)
-          .map(item => item.blob)],
-        actualMimeType,
-        customFilename
-      );
-    }
-
-    const header = initializationBytes.slice(0, clusterOffset);
+    const { header, videoTrack } = webmHeader(initializationBytes);
     const recentChunks = orderedChunks.filter(item => item !== initialization && item.timestamp >= cutoff);
-    if (recentChunks.length === 0) {
-      return this._finalizeExport(orderedChunks.map(item => item.blob), actualMimeType, customFilename);
-    }
-
-    const recentBlobs = recentChunks.map(item => item.blob);
-    const recentCombined = new Uint8Array(await new Blob(recentBlobs).arrayBuffer());
-
-    // Localiza o primeiro marcador de Cluster [0x1f, 0x43, 0xb6, 0x75] válido dentro do stream recente.
-    // Em transmissões contínuas com timeslice, o início de recentBlobs[0] pode conter
-    // resíduos parciais do cluster anterior descartado. Descartar esses bytes até
-    // o próximo marcador garante que o container WebM permaneça perfeitamente alinhado e decodificável.
-    let targetClusterOffset = -1;
-    for (let index = 0; index <= recentCombined.length - clusterMarker.length; index += 1) {
-      let matches = true;
-      for (let markerIndex = 0; markerIndex < clusterMarker.length; markerIndex += 1) {
-        if (recentCombined[index + markerIndex] !== clusterMarker[markerIndex]) {
-          matches = false;
-          break;
-        }
-      }
-      if (matches) {
-        targetClusterOffset = index;
-        break;
-      }
-    }
-
-    if (targetClusterOffset < 0) {
-      // Se nenhum cluster foi localizado nos chunks recentes, preserva o corpo completo
-      return this._finalizeExport([header, recentCombined], actualMimeType, customFilename);
-    }
-
-    const cleanClusters = recentCombined.slice(targetClusterOffset);
+    if (!recentChunks.length) return null;
+    const recentCombined = new Uint8Array(await new Blob(recentChunks.map(item => item.blob)).arrayBuffer());
+    // Select a decodable start and preserve signed A/V offsets while resetting
+    // the retained cluster clock. Otherwise playback waits for old timestamps.
+    const cleanClusters = rebaseWebmClusters(recentCombined, videoTrack);
     return this._finalizeExport([header, cleanClusters], actualMimeType, customFilename);
   }
 

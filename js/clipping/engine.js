@@ -5,6 +5,9 @@ import { withClipRecorderRecorder } from './recorder.js';
 export class ClipRecorder extends withClipRecorderRecorder(withClipRecorderExporter(withClipRecorderMixer(class {}))) {
 constructor(options = {}) {
     super();
+    this.profile = options.profile || 'source';
+    this.codec = options.codec || 'auto';
+    this.videoBitsPerSecond = options.videoBitsPerSecond || 2500000;
     this.maxDurationSeconds = options.maxDurationSeconds !== undefined ? Number(options.maxDurationSeconds) : 30;
     this.timesliceMs = Number(options.timesliceMs) || 3000;
     this.chunks = []; // Array de { blob, timestamp }

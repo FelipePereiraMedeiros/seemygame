@@ -1,4 +1,5 @@
 import { createAudioScope } from ".././audio/context-scope.js";
+import { createRecordingProfile } from './recording-profile.js';
 /** ClipRecorder: recorder. State and lifetime remain owned by the composed engine. */
 export const withClipRecorderRecorder = Base => class extends Base {
 _resolveSupportedMimeType(hasAudio = true) {
@@ -25,8 +26,17 @@ _resolveSupportedMimeType(hasAudio = true) {
     ];
 
     const candidates = hasAudio ? candidatesWithAudio : candidatesVideoOnly;
+    // Preserve the existing codec default until alternatives pass rolling
+    // replay validation on the actual browser. Support alone is insufficient.
+    const preferred = this.codec === 'auto' ? 'vp9' : this.codec;
+    const score = type => (type.includes(preferred) || (preferred === 'h264' && type.includes('avc1'))) ? 10
+      : type.includes('vp8') ? 5 : type === 'video/webm' ? 2 : 0;
+    candidates.sort((a, b) => score(b) - score(a));
 
     for (const type of candidates) {
+      // Fragmented MP4 needs a separate clock/header remuxer for rolling
+      // export. Do not advertise it as a circular replay implementation.
+      if (type.includes('mp4') && this.maxDurationSeconds !== 0) continue;
       if (MediaRecorder.isTypeSupported(type)) {
         return type;
       }
@@ -48,6 +58,8 @@ start(stream) {
     const generation = ++this._recordingGeneration;
 
     try {
+      this._recordingProfile = createRecordingProfile(stream, this.profile);
+      if (this._recordingProfile) stream = this._recordingProfile.stream;
       // Isola o stream encapsulador sem clonar as trilhas físicas.
       // Clonar trilhas de captura (getDisplayMedia) ou WebRTC no Chromium/WebView2
       // impede a entrega de frames ao MediaRecorder e zera os chunks gravados.
@@ -113,7 +125,7 @@ start(stream) {
         }
 
         // Escuta novas trilhas adicionadas ou removidas dinamicamente do stream de origem
-        if (typeof stream.addEventListener === 'function') {
+        if (typeof this.stream.addEventListener === 'function') {
           const onTrackAdded = (e) => {
             if (generation !== this._recordingGeneration || !this.isRecording) return;
             if (!e.track || e.track.readyState === 'ended') return;
@@ -138,7 +150,7 @@ start(stream) {
             const hasAudioNow = typeof this.recordingStream.getAudioTracks === 'function' &&
               this.recordingStream.getAudioTracks().length > 0;
             this.mimeType = this._resolveSupportedMimeType(hasAudioNow);
-            const recOptions = this.mimeType ? { mimeType: this.mimeType } : {};
+            const recOptions = { videoBitsPerSecond: this.videoBitsPerSecond, videoKeyFrameIntervalDuration: 2000, ...(this.mimeType ? { mimeType: this.mimeType } : {}) };
 
             try {
               const newRec = new MediaRecorder(this.recordingStream, recOptions);
@@ -165,8 +177,8 @@ start(stream) {
             }
           };
 
-          stream.addEventListener('addtrack', onTrackAdded);
-          stream.addEventListener('removetrack', onTrackRemoved);
+          this.stream.addEventListener('addtrack', onTrackAdded);
+          this.stream.addEventListener('removetrack', onTrackRemoved);
           this._streamAddTrackHandler = onTrackAdded;
           this._streamRemoveTrackHandler = onTrackRemoved;
         }
@@ -177,14 +189,14 @@ start(stream) {
       const hasAudio = typeof this.recordingStream.getAudioTracks === 'function' &&
         this.recordingStream.getAudioTracks().length > 0;
       this.mimeType = this._resolveSupportedMimeType(hasAudio);
-      const options = this.mimeType ? { mimeType: this.mimeType } : {};
+      const options = { videoBitsPerSecond: this.videoBitsPerSecond, videoKeyFrameIntervalDuration: 2000, ...(this.mimeType ? { mimeType: this.mimeType } : {}) };
 
       let recorder;
       try {
         recorder = new MediaRecorder(this.recordingStream, options);
       } catch (recorderErr) {
         console.warn('[ClipRecorder] Falha ao criar MediaRecorder com mimeType:', this.mimeType, recorderErr);
-        recorder = new MediaRecorder(this.recordingStream);
+        recorder = new MediaRecorder(this.recordingStream, { videoBitsPerSecond: this.videoBitsPerSecond, videoKeyFrameIntervalDuration: 2000 });
       }
       this.mediaRecorder = recorder;
       this._bindRecorderEvents(recorder, generation);
@@ -200,6 +212,8 @@ start(stream) {
       this.isRecording = false;
       this.mediaRecorder = null;
       this._releaseRecordingTracks();
+      this._recordingProfile?.stop();
+      this._recordingProfile = null;
       return false;
     }
   }
@@ -243,6 +257,8 @@ stop() {
     }
     this.isRecording = false;
     this._releaseRecordingTracks();
+    this._recordingProfile?.stop();
+    this._recordingProfile = null;
     this.stream = null;
   }
 
