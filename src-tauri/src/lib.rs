@@ -10,10 +10,12 @@ use tauri::Manager;
 mod capture;
 mod gamepad;
 mod media;
+mod replay;
 mod native_viewer;
 #[cfg(not(test))]
 mod system;
 mod webrtc_bridge;
+mod webrtc_common;
 mod windows_list;
 
 #[cfg(not(test))]
@@ -80,10 +82,14 @@ pub fn run() {
             capture::reconfigure_native_capture,
             capture::set_native_capture_audio_mode,
             capture::stop_native_capture,
+            capture::start_native_replay,
+            capture::stop_native_replay,
+            capture::export_native_replay,
             capture::create_native_capture_peer,
             capture::add_native_capture_ice_candidate,
             capture::close_native_capture_peer,
             capture::create_native_viewer_peer,
+            capture::get_native_stream_stats,
             capture::add_native_viewer_ice_candidate,
             capture::close_native_viewer_peer,
             windows_list::list_capture_sources,

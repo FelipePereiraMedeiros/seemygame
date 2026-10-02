@@ -1,5 +1,6 @@
+import { listFrontendFiles } from './harness/provenance.mjs';
+import { startAssetServer } from './harness/server.mjs';
 import { chromium } from 'playwright';
-import { createServer } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { spawn, execSync } from 'node:child_process';
 import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
@@ -135,6 +136,7 @@ const getProvenance = async (samplePage = null, nativeCaps = null, viewerLaunchA
     exeMtime,
     exeSizeBytes,
     componentHashes: {
+      ...Object.fromEntries(await Promise.all((await listFrontendFiles(root)).map(async file => [file, await hashFile(path.join(root, file))]))),
       'fixtures/deterministic-60fps.html': fixtureSha256,
       'telemetry.mjs': telemetrySha256,
       'test-deterministic-battery.mjs': testScriptSha256,
@@ -160,24 +162,8 @@ const getProvenance = async (samplePage = null, nativeCaps = null, viewerLaunchA
 // Servidor de arquivos estáticos para o cliente web e fixtures
 let server;
 const serve = async () => {
-  server = createServer(async (req, res) => {
-    try {
-      const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-      if (!/^\/(room\.html|index\.html|(?:js|css|assets|fixtures)\/[a-zA-Z0-9_./-]+)$/.test(pathname) || pathname.includes('..')) {
-        res.writeHead(404);
-        return res.end();
-      }
-      const filename = path.resolve(root, '.' + pathname);
-      if (!filename.startsWith(root + path.sep)) throw new Error('Caminho inválido');
-      res.setHeader('Content-Type', pathname.endsWith('.js') ? 'text/javascript' : pathname.endsWith('.css') ? 'text/css' : 'text/html');
-      res.end(await readFile(filename));
-    } catch {
-      res.writeHead(404);
-      res.end();
-    }
-  });
-  await new Promise(r => server.listen(0, '127.0.0.1', r));
-  return `http://127.0.0.1:${server.address().port}`;
+  const assets = await startAssetServer({ root });
+  server = assets.server; return assets.origin;
 };
 
 // Configura contexto sem medição óptica parasitária
@@ -207,7 +193,7 @@ const joinRoom = async (page, url, name) => {
   await page.locator('#green-room-user-name').fill(name);
   await page.locator('#green-room-join-btn').click();
   await waitApp(page, async () => {
-    const app = await import('/js/app.js');
+    const app = (await import('/js/diagnostics/session-api.js')).getActiveSession();
     return app.roomManager?.isInRoom === true && typeof app.roomManager?.myPeerId === 'string';
   });
 };
@@ -378,14 +364,14 @@ const runIsolationSuite = async () => {
   console.log('[Host] Capacidades nativas detectadas:', JSON.stringify(nativeCaps));
   provenance.nativeCapabilities = nativeCaps;
 
-  const hostId = await hostPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
-  const viewerId = await viewerPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
+  const hostId = await hostPage.evaluate(async () => (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager?.myPeerId);
+  const viewerId = await viewerPage.evaluate(async () => (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager?.myPeerId);
   if (!hostId || !viewerId || hostId === viewerId) throw new Error('Identidades dos clientes na sala são inválidas');
   console.log(`Membros na sala: Host=${hostId}, Espectador=${viewerId}. Aguardando admissão mútua autenticada...`);
 
   for (const [page, expected, label] of [[hostPage, viewerId, 'Host'], [viewerPage, hostId, 'Espectador']]) {
     await waitApp(page, async id => {
-      const r = (await import('/js/app.js')).roomManager;
+      const r = (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager;
       return r?.members?.has(id) && r.isPeerAuthorized(id);
     }, expected, 30000).catch(err => {
       throw new Error(`Falha na autorização mútua da sala (${label} esperando ${expected}): ${err.message}`);
@@ -464,7 +450,7 @@ const runIsolationSuite = async () => {
       if (Date.now() - lastDiagTime >= 4000) {
         lastDiagTime = Date.now();
         const hostDiag = await hostPage.evaluate(async () => {
-          const a = await import('/js/app.js').catch(() => null);
+          const a = await import('/js/diagnostics/session-api.js').then(module => module.getActiveSession()).catch(() => null);
           const d = await import('/js/desktop.js').catch(() => null);
           const capState = d?.getNativeCaptureState ? await d.getNativeCaptureState() : null;
           return {
@@ -521,7 +507,7 @@ const runIsolationSuite = async () => {
     console.log('Parando captura nativa e limpando estado WebRTC...');
     // 1. Invoca parada via app.js e desktop.js no host
     await hostPage.evaluate(async () => {
-      const app = await import('/js/app.js').catch(() => null);
+      const app = await import('/js/diagnostics/session-api.js').then(module => module.getActiveSession()).catch(() => null);
       if (app?.stopLocalStream) {
         try { app.stopLocalStream(); } catch {}
       }
@@ -663,13 +649,13 @@ const runIsolationSuite = async () => {
         await setupContext(dedicatedUnmutedContext);
         activeViewerPage = await dedicatedUnmutedContext.newPage();
         await joinRoom(activeViewerPage, `${webOrigin}/room.html${roomHash}`, 'Espectador Desmutado');
-        const unmutedViewerId = await activeViewerPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
+        const unmutedViewerId = await activeViewerPage.evaluate(async () => (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager?.myPeerId);
         await waitApp(hostPage, async id => {
-          const r = (await import('/js/app.js')).roomManager;
+          const r = (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager;
           return r?.members?.has(id) && r.isPeerAuthorized(id);
         }, unmutedViewerId, 30000);
         await waitApp(activeViewerPage, async id => {
-          const r = (await import('/js/app.js')).roomManager;
+          const r = (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager;
           return r?.members?.has(id) && r.isPeerAuthorized(id);
         }, hostId, 30000);
         currentTargetViewerPage = activeViewerPage;
@@ -1176,7 +1162,7 @@ const runIsolationSuite = async () => {
       // Diagnósticos imediatos enquanto o pipeline e os elementos de vídeo ainda estão intactos
       try {
         const hostDiagnostics = await hostPage.evaluate(async () => {
-          const app = await import('/js/app.js').catch(() => null);
+          const app = await import('/js/diagnostics/session-api.js').then(module => module.getActiveSession()).catch(() => null);
           const desktop = await import('/js/desktop.js').catch(() => null);
           const captureState = desktop?.getNativeCaptureState ? await desktop.getNativeCaptureState().catch(() => null) : null;
           const peers = (window.__smgPeers || []).map(p => ({
@@ -1197,7 +1183,7 @@ const runIsolationSuite = async () => {
         }).catch(e => ({ evalError: e.message }));
 
         const viewerDiagnostics = currentTargetViewerPage ? await currentTargetViewerPage.evaluate(async ({ hId }) => {
-          const app = await import('/js/app.js').catch(() => null);
+          const app = await import('/js/diagnostics/session-api.js').then(module => module.getActiveSession()).catch(() => null);
           const card = document.getElementById(`card-${hId}`);
           const video = card?.querySelector('video');
           const stream = video?.srcObject;
@@ -1268,7 +1254,7 @@ const runIsolationSuite = async () => {
 
       // Usa diagnósticos coletados antes do teardown (ou faz fallback se necessário)
       const hostDiagnostics = err.collectedDiagnostics?.host || await hostPage.evaluate(async () => {
-        const app = await import('/js/app.js').catch(() => null);
+        const app = await import('/js/diagnostics/session-api.js').then(module => module.getActiveSession()).catch(() => null);
         const desktop = await import('/js/desktop.js').catch(() => null);
         const captureState = desktop?.getNativeCaptureState ? await desktop.getNativeCaptureState().catch(() => null) : null;
         const peers = (window.__smgPeers || []).map(p => ({
@@ -1289,7 +1275,7 @@ const runIsolationSuite = async () => {
       }).catch(e => ({ evalError: e.message }));
 
       const viewerDiagnostics = err.collectedDiagnostics?.viewer || await currentTargetViewerPage.evaluate(async ({ hId }) => {
-        const app = await import('/js/app.js').catch(() => null);
+        const app = await import('/js/diagnostics/session-api.js').then(module => module.getActiveSession()).catch(() => null);
         const card = document.getElementById(`card-${hId}`);
         const video = card?.querySelector('video');
         const stream = video?.srcObject;

@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ChatManager, sanitizeText, formatTimestamp } from '../js/chat.js';
 
 describe('Módulo: chat.js (Chat de Texto Estilo Discord)', () => {

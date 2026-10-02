@@ -5,7 +5,9 @@ fn main() {
     #[cfg(target_os = "windows")]
     {
         unsafe {
-            use windows::Win32::System::Threading::{GetCurrentProcess, SetPriorityClass, HIGH_PRIORITY_CLASS};
+            use windows::Win32::System::Threading::{
+                GetCurrentProcess, SetPriorityClass, HIGH_PRIORITY_CLASS,
+            };
             let _ = SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
         }
 

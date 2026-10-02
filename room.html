@@ -4,10 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SeeMyGame • Sala de Jogos (Room-First)</title>
-  
+  <meta name="theme-color" content="#101216">
+  <link rel="icon" type="image/png" href="css/assets/portal-logo-ring.png">
+  <script src="js/theme.js"></script>
+
   <!-- Estilos Modulares -->
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/player.css">
+  <link rel="stylesheet" href="css/theme.css">
 
   <!-- PeerJS CDN com Subresource Integrity (SRI) -->
   <script 
@@ -28,10 +32,11 @@
 <body>
 
   <!-- Modal de Termos de Uso e Idade (Acessível) -->
-  <div id="terms-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="terms-title">
+  <!-- smg:partial templates/terms-modal/room.html -->
+<div id="terms-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="terms-title">
     <div class="modal-content">
       <h3 id="terms-title">🛡️ Termos de Uso & Responsabilidade</h3>
-      
+
       <div class="terms-box">
         <p><strong>1. Natureza da Aplicação:</strong> O <em>SeeMyGame</em> é uma ferramenta técnica de comunicação direta ponto-a-ponto (Peer-to-Peer - WebRTC). Todo o tráfego audiovisual ocorre exclusivamente entre os navegadores conectados, sem armazenamento, gravação ou moderação em servidores centrais.</p>
         <p><strong>2. Isenção Total de Responsabilidade do Desenvolvedor:</strong> O desenvolvedor/mantenedor desta aplicação não tem acesso nem controle sobre as telas, transmissões, áudios ou informações compartilhadas. O desenvolvedor <strong>isenta-se integralmente</strong> de qualquer responsabilidade legal, cível ou criminal decorrente de conteúdos ilícitos, direitos autorais violados, dados confidenciais expostos ou condutas inadequadas praticadas pelos usuários.</p>
@@ -54,57 +59,8 @@
       </div>
     </div>
   </div>
-  <script>
-    (function() {
-      try {
-        var v = localStorage.getItem('seemygame_terms_version');
-        var l = localStorage.getItem('seemygame_terms_accepted') === 'true';
-        var m = document.getElementById('terms-modal');
-        if ((v === '1.1' || v === '1.0.0' || (l && !v)) && m) {
-          m.style.display = 'none';
-          var greenModal = document.getElementById('green-room-modal');
-          if (greenModal) greenModal.style.display = 'flex';
-        }
-        var ca = document.getElementById('check-age');
-        var ct = document.getElementById('check-terms');
-        var ab = document.getElementById('accept-btn');
-        function sync() {
-          if (ab && ca && ct) {
-            var ok = Boolean(ca.checked && ct.checked);
-            ab.disabled = !ok;
-            ab.setAttribute('aria-disabled', String(!ok));
-            if (ok) {
-              ab.removeAttribute('disabled');
-              ab.classList.remove('disabled');
-            } else {
-              ab.setAttribute('disabled', 'true');
-              ab.classList.add('disabled');
-            }
-          }
-        }
-        if (ca && ct) {
-          ['change', 'input', 'click'].forEach(function(e) {
-            ca.addEventListener(e, sync);
-            ct.addEventListener(e, sync);
-          });
-          sync();
-        }
-        if (ab) {
-          ab.addEventListener('click', function() {
-            if (ca && ct && ca.checked && ct.checked) {
-              try {
-                localStorage.setItem('seemygame_terms_version', '1.1');
-                localStorage.setItem('seemygame_terms_accepted', 'true');
-              } catch (err) {}
-              if (m) m.style.display = 'none';
-              var greenModal = document.getElementById('green-room-modal');
-              if (greenModal) greenModal.style.display = 'flex';
-            }
-          });
-        }
-      } catch (e) {}
-    })();
-  </script>
+<!-- smg:end -->
+
 
   <!-- Modal de Autorização Co-op (Player 2) -->
   <div id="coop-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="coop-modal-title">
@@ -113,7 +69,7 @@
       <p style="color: var(--text-muted); font-size: 13.5px; line-height: 1.5; margin-bottom: 16px;">
         O amigo <strong id="coop-requester-id" style="color: var(--accent-green);">Amigo</strong> quer jogar com você nesta transmissão como <strong>Player 2</strong>.
       </p>
-      <div style="background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 12px; font-size: 12px; margin-bottom: 20px; color: #c4b5fd;">
+      <div style="background: color-mix(in srgb, var(--accent) 10%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 8px; padding: 12px; font-size: 12px; margin-bottom: 20px; color: var(--accent-text);">
         🛡️ <strong>Segurança:</strong> Você pode revogar o controle a qualquer momento pressionando <strong>Escape</strong> ou no botão de pânico na tela.
       </div>
       <div class="modal-actions">
@@ -124,7 +80,8 @@
   </div>
 
   <!-- Modal Seletor de Jogos Nativo (Desktop Tauri) -->
-  <div id="desktop-picker-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="picker-title">
+  <!-- smg:partial templates/desktop-picker-modal/default.html -->
+<div id="desktop-picker-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="picker-title">
     <div class="modal-content" style="max-width: 580px; max-height: 85vh; display: flex; flex-direction: column;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
         <h3 id="picker-title" style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px;">
@@ -141,7 +98,7 @@
 
       <div id="desktop-windows-list" style="overflow-y: auto; max-height: 340px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; padding-right: 4px;"></div>
 
-      <div id="picker-audio-exclusion-bar" style="margin-bottom: 14px; padding: 10px 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 8px;">
+      <div id="picker-audio-exclusion-bar" style="margin-bottom: 14px; padding: 10px 12px; background: var(--surface-tint); border: 1px solid var(--border-color); border-radius: 8px;">
         <label for="picker-audio-exclude-select" style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">
           <span>🛡️ <strong>Anti-Eco de Áudio:</strong></span>
           <span style="font-size: 10.5px; color: var(--accent-cyan);">Sem eco da sala</span>
@@ -163,6 +120,7 @@
       </div>
     </div>
   </div>
+<!-- smg:end -->
 
   <!-- Modal de Configurações da Sala / ID Fixo & Senha -->
   <div id="custom-id-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="custom-id-title">
@@ -182,7 +140,7 @@
           maxlength="30"
           spellcheck="false"
           autocomplete="off">
-        <div id="custom-id-error" style="color: #f87171; font-size: 12px; margin-top: 6px; display: none;"></div>
+        <div id="custom-id-error" style="color: var(--status-danger-text); font-size: 12px; margin-top: 6px; display: none;"></div>
       </div>
 
       <div style="margin-bottom: 16px;">
@@ -225,7 +183,7 @@
           placeholder="PIN ou senha da sala" 
           maxlength="30"
           autocomplete="current-password">
-        <div id="viewer-pin-error" style="color: #f87171; font-size: 12px; margin-top: 6px; display: none;"></div>
+        <div id="viewer-pin-error" style="color: var(--status-danger-text); font-size: 12px; margin-top: 6px; display: none;"></div>
       </div>
 
       <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 8px;">
@@ -236,7 +194,8 @@
   </div>
 
   <!-- Modal do Lobby Pré-Entrada (Green Room Estilo Google Meet) -->
-  <div id="green-room-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="green-room-title">
+  <!-- smg:partial templates/green-room-modal/default.html -->
+<div id="green-room-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="green-room-title">
     <div class="modal-content green-room-modal-content">
       <div class="green-room-badge">
         <span>🎮</span> Sala Pronta
@@ -290,11 +249,11 @@
 
       <div style="margin-bottom: 20px; text-align: left;">
         <label for="green-room-user-name" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Seu Apelido na Sala:</label>
-        <input 
-          type="text" 
-          id="green-room-user-name" 
+        <input
+          type="text"
+          id="green-room-user-name"
           class="custom-id-field"
-          placeholder="Ex: Diogo, Shadow, Gamer123" 
+          placeholder="Ex: Diogo, Shadow, Gamer123"
           maxlength="24"
           style="width: 100%;">
       </div>
@@ -304,6 +263,8 @@
       </button>
     </div>
   </div>
+
+<!-- smg:end -->
 
   <!-- Modal de Convite & Compartilhamento com QR Code -->
   <div id="share-room-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="share-room-title">
@@ -383,6 +344,8 @@
         <div>
           <label for="quality-preset" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Preset de Fluidez:</label>
           <select id="quality-preset" class="custom-id-field">
+            <option value="hd120">720p / 120 FPS (experimental)</option>
+            <option value="fhd120">1080p / 120 FPS (experimental)</option>
             <option value="ultra">⚡ Modo Competitivo (720p - Fluidez Máxima)</option>
             <option value="balanced" selected>🎮 Modo Dinâmico (1080p - Equilibrado & Fluido)</option>
             <option value="high">💎 Alta Fidelidade (1080p - Alta Nitidez)</option>
@@ -455,8 +418,11 @@
         <div>
           <label for="video-codec-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Codec de Vídeo:</label>
           <select id="video-codec-select" class="custom-id-field">
-            <option value="h264" selected>H.264 / AVC (Padrão e Máxima Compatibilidade)</option>
-            <option value="av1">AV1 (Próxima Geração - 30% menos banda com alta nitidez)</option>
+            <option value="auto" selected>Automático (compatibilidade primeiro)</option>
+            <option value="vp8">VP8</option>
+            <option value="vp9">VP9</option>
+            <option value="h264">H.264 / AVC (Padrão e Máxima Compatibilidade)</option>
+            <option value="av1">AV1 (depende do encoder e do receptor)</option>
             <option value="hevc">HEVC / H.265 (Alta Eficiência)</option>
           </select>
           <div id="video-codec-note" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;"></div>
@@ -465,7 +431,7 @@
         <div id="h264-encoder-group">
           <label for="h264-encoder-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Acelerador / Encoder H.264:</label>
           <select id="h264-encoder-select" class="custom-id-field">
-            <option value="auto" selected>🎮 Automático (GPU prioritária: NVENC / Media Foundation)</option>
+            <option value="auto" selected>🎮 Automático (NVENC / Media Foundation)</option>
             <option value="cpu">🧠 CPU Software (x264enc - Recomendado se GPU em 100%)</option>
             <option value="nvenc">🚀 NVIDIA NVENC (Hardware Dedicado)</option>
             <option value="mf">🖥️ Media Foundation (Hardware Intel / AMD / Windows)</option>
@@ -522,7 +488,8 @@
   </div>
 
   <!-- Modal de Calibração & Teste de Gamepad -->
-  <div id="gamepad-tester-modal" class="modal-overlay" style="display: none; z-index: 10001;" role="dialog" aria-modal="true" aria-labelledby="gamepad-tester-title">
+  <!-- smg:partial templates/gamepad-tester-modal/default.html -->
+<div id="gamepad-tester-modal" class="modal-overlay" style="display: none; z-index: 10001;" role="dialog" aria-modal="true" aria-labelledby="gamepad-tester-title">
     <div class="modal-content" style="max-width: 520px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <h3 id="gamepad-tester-title" style="margin: 0; display: flex; align-items: center; gap: 8px;">
@@ -541,6 +508,7 @@
         <select id="gamepad-select" class="custom-id-field">
           <option value="">Nenhum controle detectado (pressione qualquer botão)</option>
         </select>
+        <div id="gamepad-multi-hint" style="font-size: 11px; color: var(--accent-cyan, var(--accent)); margin-top: 5px;">🎮 Suporta até 4 controles simultâneos (Slots 0 a 3). Pressione um botão em outro controle para conectá-lo.</div>
       </div>
 
       <div class="gamepad-visual-stage" id="gamepad-visual-stage">
@@ -564,16 +532,17 @@
         </div>
         <div style="font-size: 13px;">
           <div><strong>Botões Pressionados:</strong></div>
-          <div id="gamepad-buttons-label" style="color: #fff; font-family: monospace; min-height: 20px; margin-top: 4px;">Nenhum</div>
+          <div id="gamepad-buttons-label" style="color: var(--text-main); font-family: monospace; min-height: 20px; margin-top: 4px;">Nenhum</div>
         </div>
       </div>
 
       <!-- Remapeamento e Presets de Botões (Xbox / Nintendo Switch / Custom) -->
-      <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+      <div style="background: var(--surface-tint); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <label for="gamepad-mapping-preset" style="font-size: 12.5px; font-weight: 600; color: var(--text-color);">Layout de Botões:</label>
           <select id="gamepad-mapping-preset" class="custom-id-field" style="width: auto; padding: 4px 8px; font-size: 12px;">
             <option value="xbox">Padrão Xbox / PC</option>
+            <option value="playstation">PlayStation (DualSense / DualShock - ✕ ○ □ △)</option>
             <option value="nintendo">Nintendo Switch (Inverte A ↔ B e X ↔ Y)</option>
             <option value="custom">Personalizado</option>
           </select>
@@ -597,9 +566,11 @@
       <p id="gamepad-rumble-status" class="gamepad-rumble-status" role="status" aria-live="polite"></p>
     </div>
   </div>
+<!-- smg:end -->
 
   <!-- Modal Pós-Clipping: Download de Vídeo & Gerador de Áudio Meme -->
-  <div id="clip-post-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="clip-post-title">
+  <!-- smg:partial templates/clip-post-modal/default.html -->
+<div id="clip-post-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="clip-post-title">
     <div class="modal-content clip-post-modal-content">
       <div class="clip-post-header">
         <div class="clip-post-badge">
@@ -702,9 +673,11 @@
       </div>
     </div>
   </div>
+<!-- smg:end -->
 
   <!-- Modal da Lousa Interativa Colaborativa -->
-  <div id="whiteboard-modal" class="whiteboard-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="whiteboard-title">
+  <!-- smg:partial templates/whiteboard-modal/default.html -->
+<div id="whiteboard-modal" class="whiteboard-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="whiteboard-title">
     <button id="wb-floating-close-btn" class="wb-floating-close-btn" title="Voltar para a Sala (Esc)" aria-label="Voltar para a Sala">
       <span>✕</span> Voltar para a Sala
     </button>
@@ -746,14 +719,14 @@
       <div class="wb-style-section">
         <label>Cor do Traço:</label>
         <div class="wb-color-palette" id="wb-stroke-palette">
-          <button class="wb-color-dot active" data-color="#ffffff" style="background:#ffffff;"></button>
-          <button class="wb-color-dot" data-color="#ef4444" style="background:#ef4444;"></button>
-          <button class="wb-color-dot" data-color="#10b981" style="background:#10b981;"></button>
-          <button class="wb-color-dot" data-color="#06b6d4" style="background:#06b6d4;"></button>
-          <button class="wb-color-dot" data-color="#a855f7" style="background:#a855f7;"></button>
-          <button class="wb-color-dot" data-color="#f59e0b" style="background:#f59e0b;"></button>
-          <button class="wb-color-dot" data-color="#ec4899" style="background:#ec4899;"></button>
-          <button class="wb-color-dot" data-color="#1e1e2e" style="background:#1e1e2e; border: 1px solid #555;"></button>
+          <button class="wb-color-dot active" data-color="#ffffff" style="background: #ffffff;"></button>
+          <button class="wb-color-dot" data-color="#ef4444" style="background: #ef4444;"></button>
+          <button class="wb-color-dot" data-color="#10b981" style="background: #10b981;"></button>
+          <button class="wb-color-dot" data-color="#06b6d4" style="background: var(--accent);"></button>
+          <button class="wb-color-dot" data-color="#a855f7" style="background: #a855f7;"></button>
+          <button class="wb-color-dot" data-color="#f59e0b" style="background: #f59e0b;"></button>
+          <button class="wb-color-dot" data-color="#ec4899" style="background: #ec4899;"></button>
+          <button class="wb-color-dot" data-color="#1e1e2e" style="background: #1e1e2e; border: 1px solid #555;"></button>
         </div>
       </div>
 
@@ -778,10 +751,11 @@
 
     <canvas id="whiteboard-canvas" class="whiteboard-canvas"></canvas>
   </div>
+<!-- smg:end -->
 
   <!-- Modal de Confirmação de Recarga / Saída da Sala -->
   <div id="reload-confirm-modal" class="modal-overlay" style="display: none; z-index: 10002;" role="dialog" aria-modal="true" aria-labelledby="reload-confirm-title">
-    <div class="modal-content" style="max-width: 460px; background: #141520; border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 14px; padding: 24px; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.8);">
+    <div class="modal-content" style="max-width: 460px; background: var(--bg-card); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 14px; padding: 24px; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.8);">
       <h3 id="reload-confirm-title" style="color: #fbbf24; margin: 0 0 12px 0; font-size: 1.25rem; display: flex; align-items: center; gap: 8px;">
         <span>⚠️</span> Recarregar a Sala?
       </h3>
@@ -796,7 +770,7 @@
         <button id="reload-confirm-cancel-btn" class="btn-secondary" style="padding: 9px 18px; font-size: 13px; border-radius: 8px; cursor: pointer;">
           Continuar na Sala
         </button>
-        <button id="reload-confirm-ok-btn" style="background: #ef4444; color: #fff; border: none; border-radius: 8px; padding: 9px 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.2s;">
+        <button id="reload-confirm-ok-btn" style="background: #ef4444; color: var(--text-main); border: none; border-radius: 8px; padding: 9px 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.2s;">
           Recarregar
         </button>
       </div>
@@ -807,7 +781,7 @@
   <header>
     <div class="brand">
       <a href="index.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 10px;">
-        <div class="brand-icon">🎮</div>
+        <div class="brand-icon"><img src="css/assets/portal-logo-ring.png" width="34" height="34" alt="" aria-hidden="true"></div>
         <div>See<span>MyGame</span></div>
       </a>
       <span class="role-badge" id="room-header-badge">Sala: #geral</span>
@@ -817,6 +791,11 @@
     </div>
 
     <div class="actions-container">
+      <button type="button" class="theme-toggle" data-theme-toggle aria-label="Ativar tema claro" aria-pressed="false" title="Ativar tema claro">
+        <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+        <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20.5 14A9 9 0 0 1 10 3.5 9 9 0 1 0 20.5 14Z"/></svg>
+        <span class="theme-toggle-label">Tema claro</span>
+      </button>
       <div class="stream-actions">
         <span 
           id="copy-badge" 
@@ -840,17 +819,17 @@
           title="Ajustar nome da sala e PIN de acesso">
           <span>⚙️</span> Sala
         </button>
-        <button id="clip-btn" class="btn-clip" title="Salvar últimos 30 segundos da tela em vídeo" style="display:none;">
+        <button id="clip-btn" class="btn-clip" title="Salvar últimos 30 segundos da tela em vídeo" style="display: none;">
           <span>🎬</span> Clipa Isso!
         </button>
         <span id="viewer-count" class="id-badge" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: var(--accent-green);">
           <span>👥</span> <strong>0</strong> online
         </span>
         <button id="toggle-chat-btn" class="discord-toggle-btn" title="Abrir Chat" aria-label="Abrir chat">
-          <span>💬</span> Chat <span id="chat-unread-badge" class="counter-badge" style="display:none;">0</span>
+          <span>💬</span> Chat <span id="chat-unread-badge" class="counter-badge" style="display: none;">0</span>
         </button>
         <button id="toggle-voice-btn" class="discord-toggle-btn" title="Canal de Voz" aria-label="Abrir voz">
-          <span>🔊</span> Voz <span id="voice-badge" class="counter-badge voice-active-badge" style="display:none;">0</span>
+          <span>🔊</span> Voz <span id="voice-badge" class="counter-badge voice-active-badge" style="display: none;">0</span>
         </button>
         <button id="toggle-emojis-btn" class="discord-toggle-btn" title="Emojis e Reações" aria-label="Abrir emojis">
           <span>😀</span> Emojis
@@ -887,9 +866,10 @@
       <div class="room-user-footer" id="local-user-card">
         <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
           <div class="participant-avatar" style="width: 28px; height: 28px; font-size: 12px;" id="local-avatar">V</div>
-          <span style="font-size: 12px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px;" id="local-user-name">Você</span>
+          <span style="font-size: 12px; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px;" id="local-user-name">Você</span>
         </div>
         <div class="user-quick-actions">
+          <button id="open-controller-lab-btn" class="quick-icon-btn" title="Sala de controles: testar com os amigos" aria-label="Abrir sala de controles">🎮</button>
           <button id="quick-mic-btn" class="quick-icon-btn" title="Mutar Microfone">🎙️</button>
           <button id="quick-deaf-btn" class="quick-icon-btn" title="Ensurdecer Áudio">🎧</button>
           <button id="quick-tuning-btn" class="quick-icon-btn" title="Ajustes de Transmissão">⚙️</button>
@@ -966,11 +946,11 @@
   <nav id="discord-left-rail" class="discord-left-rail" aria-label="Menu rápido estilo Discord">
     <button id="rail-btn-chat" class="discord-rail-btn active" title="Chat (#geral)" aria-label="Abrir chat">
       <span>💬</span>
-      <span id="rail-chat-badge" class="rail-badge" style="display:none;">0</span>
+      <span id="rail-chat-badge" class="rail-badge" style="display: none;">0</span>
     </button>
     <button id="rail-btn-voice" class="discord-rail-btn" title="Canal de Voz" aria-label="Abrir canal de voz">
       <span>🔊</span>
-      <span id="rail-voice-badge" class="rail-badge rail-voice-badge" style="display:none;">0</span>
+      <span id="rail-voice-badge" class="rail-badge rail-voice-badge" style="display: none;">0</span>
     </button>
     <button id="rail-btn-emojis" class="discord-rail-btn" title="Emojis & Reações" aria-label="Abrir emojis e reações">
       <span>😀</span>
@@ -1092,7 +1072,7 @@
     </div>
   </aside>
 
-  <!-- Script Modular Principal -->
-  <script type="module" src="js/app.js"></script>
+  <!-- Script Modular da Sala (Discord Mode) -->
+  <script type="module" src="js/pages/room-page.js"></script>
 </body>
 </html>

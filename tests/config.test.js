@@ -39,9 +39,9 @@ describe('Módulo: config.js', () => {
       expect(QUALITY_PROFILES).toHaveProperty('high');
     });
 
-    it('todos os perfis devem travar a taxa em 60 FPS', () => {
+    it('perfis regulares usam 60 FPS e 120 FPS permanece explicitamente experimental', () => {
       Object.values(QUALITY_PROFILES).forEach(profile => {
-        expect(profile.fps).toBe(60);
+        expect(profile.fps).toBe(profile.experimental ? 120 : 60);
       });
     });
 

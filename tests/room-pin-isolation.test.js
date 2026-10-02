@@ -133,7 +133,7 @@ describe('Isolamento de PIN em Salas (Correção do Bug de Solicitação Indevid
     `;
 
     globalThis.Peer = MockPeer;
-    app = await import('../js/app.js');
+    app = await import('../js/app.js'); app.initLegacyBindings();
   });
 
   beforeEach(() => {

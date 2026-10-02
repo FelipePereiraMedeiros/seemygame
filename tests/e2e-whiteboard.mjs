@@ -1,3 +1,6 @@
+import { startAssetServer } from '../tools/e2e/harness/server.mjs';
+import { startSignalingServer } from '../tools/e2e/harness/signaling.mjs';
+import { launchTestBrowser, prepareSessionContext } from '../tools/e2e/harness/browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,69 +10,18 @@ import { chromium } from 'playwright';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
-const PORT = 3045;
-
-const MIME_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.mjs': 'application/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.wav': 'audio/wav',
-  '.mp3': 'audio/mpeg',
-  '.glb': 'model/gltf-binary',
-  '.gltf': 'model/gltf+json'
-};
-
-function startServer() {
-  return new Promise((resolve) => {
-    const server = http.createServer((req, res) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      const url = new URL(req.url, `http://localhost:${PORT}`);
-      let pathname = decodeURIComponent(url.pathname);
-      if (pathname === '/') pathname = '/index.html';
-      const filePath = path.normalize(path.join(root, pathname));
-      if (!filePath.startsWith(root)) {
-        res.writeHead(403);
-        res.end();
-        return;
-      }
-      fs.stat(filePath, (err, stats) => {
-        if (err || !stats.isFile()) {
-          res.writeHead(404);
-          res.end('Not found: ' + pathname);
-          return;
-        }
-        const ext = path.extname(filePath).toLowerCase();
-        res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
-        fs.createReadStream(filePath).pipe(res);
-      });
-    });
-    server.listen(PORT, '127.0.0.1', () => resolve(server));
-  });
-}
-
 async function run() {
-  const server = await startServer();
-  console.log(`[E2E] Servidor local ouvindo na porta ${PORT}`);
-
-  const browser = await chromium.launch({
-    executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    headless: true,
-    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--no-sandbox']
-  });
-
-  const page = await browser.newPage();
+  const server = await startAssetServer({ root });
+  const signaling = await startSignalingServer();
+  let browser;
+  try {
+  browser = await launchTestBrowser();
+  const context = await prepareSessionContext(browser, signaling);
+  const page = await context.newPage();
   const consoleMessages = [];
   page.on('console', msg => consoleMessages.push(`[${msg.type()}] ${msg.text()}`));
   page.on('pageerror', err => consoleMessages.push(`[PAGE_ERROR] ${err.message}`));
 
-  try {
     // Injeta localStorage pré-configurado para pular termos e entrar direto na sala
     await page.addInitScript(() => {
       localStorage.setItem('seemygame_terms_version', '1.1');
@@ -81,7 +33,7 @@ async function run() {
     console.log(`[E2E CENÁRIO 1] Teste da Lousa na Sala (room.html)`);
     console.log(`======================================================`);
 
-    await page.goto(`http://127.0.0.1:${PORT}/room.html`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${server.origin}/room.html`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1000);
 
     // Clica no botão Entrar na Sala (Green Room) se estiver visível
@@ -198,7 +150,7 @@ async function run() {
     console.log(`[E2E CENÁRIO 2] Teste da Lousa no Streamer Clássico (streamer.html)`);
     console.log(`======================================================`);
 
-    await page.goto(`http://127.0.0.1:${PORT}/streamer.html`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${server.origin}/streamer.html`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1000);
 
     const streamerModal = page.locator('#whiteboard-modal');
@@ -229,8 +181,9 @@ async function run() {
     console.error('\n❌ [E2E FALHA]:', err);
     process.exitCode = 1;
   } finally {
-    await browser.close();
-    server.close();
+    await browser?.close();
+    await signaling.close();
+    await server.close();
   }
 }
 

@@ -39,6 +39,9 @@ Desenvolvido para transmitir jogos e telas entre navegadores usando WebRTC e sin
 
 ## 📁 Arquitetura Modular & Páginas Dedicadas
 
+O [guia de arquitetura e colaboração](docs/arquitetura-e-colaboracao.md) é o mapa canônico dos módulos e contratos. Consulte o [status da modularização](docs/status-modularizacao-2026-09-30.md) para as evidências locais.
+
+
 ```
 SeeMyGame/
 ├── index.html            # Portal inicial: seleção de modo e roteamento inteligente
@@ -59,7 +62,7 @@ SeeMyGame/
 │   ├── audio.js          # Analisador estéreo Web Audio API, VU meter e ciclo de vida de nós
 │   ├── stats.js          # Coletor de telemetria getStats (FPS, RTT ativo, bitrate, perda de pacotes)
 │   ├── ui.js             # Manipulação segura do DOM (sem XSS), validação de IDs, modais Co-op
-│   └── app.js            # Orquestrador central: PeerJS, captura autorizada e chamadas
+│   └── app.js            # Fachada de compatibilidade; páginas usam pages/ → session/
 └── README.md             # Documentação técnica e operacional
 ```
 

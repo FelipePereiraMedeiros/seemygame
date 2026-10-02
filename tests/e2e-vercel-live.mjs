@@ -1,6 +1,9 @@
 import { chromium } from 'playwright';
 
-const BASE_URL = 'https://seemygame.vercel.app';
+const urlIndex = process.argv.indexOf('--url');
+const BASE_URL = process.env.SEEMYGAME_E2E_URL || (urlIndex >= 0 ? process.argv[urlIndex + 1] : null);
+if (!BASE_URL) throw new Error('Informe --url ou SEEMYGAME_E2E_URL para selecionar o ambiente E2E.');
+new URL(BASE_URL);
 
 const mockScript = (name) => `
   try {

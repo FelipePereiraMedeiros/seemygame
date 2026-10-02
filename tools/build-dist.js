@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { buildHtmlPartials } from './build-html.mjs';
+buildHtmlPartials();
 
 // Libera trava de arquivo no Windows apenas se explicitamente solicitado (--kill ou KILL_DESKTOP=true)
 const shouldKill = process.env.KILL_DESKTOP === 'true' || process.argv.includes('--kill');

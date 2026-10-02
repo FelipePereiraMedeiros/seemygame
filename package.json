@@ -12,9 +12,28 @@
     "tauri:dev": "cargo tauri dev",
     "tauri:build": "cargo tauri build",
     "test": "vitest run",
+    "test:smoke": "node tools/smoke-esm.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e:whiteboard": "node tests/e2e-whiteboard.mjs"
+    "test:e2e:whiteboard": "node tests/e2e-whiteboard.mjs",
+    "native:prepare": "node tools/build-dist.js",
+    "native:smoke": "cargo check --manifest-path src-tauri/Cargo.toml --locked --offline --lib",
+    "build:html": "node tools/build-html.mjs",
+    "check:html": "node tools/build-html.mjs --check",
+    "check:modules": "node tools/check-modules.mjs",
+    "check:css": "node tools/split-css.mjs",
+    "test:e2e:sessions": "node tests/e2e-sessions.mjs",
+    "test:e2e:historical": "node tools/e2e/historical-suite.mjs",
+    "test:e2e:replay": "node tools/e2e/replay-matrix.mjs",
+    "test:e2e:controllers": "node tests/e2e-controller-lab.mjs",
+    "test:e2e:gamepad": "node tests/e2e-gamepad-visual.mjs",
+    "test:e2e:quality": "node tools/e2e/quality-benchmark.mjs",
+    "test:e2e:instrumentation": "node tools/e2e/instrumentation-matrix.mjs",
+    "test:e2e:native-cadence": "node tools/e2e/native-cadence.mjs",
+    "test:e2e:capture-stages": "node tools/e2e/native-capture-stages.mjs",
+    "test:e2e:viewer-agent": "node tools/e2e/viewer-agent.mjs",
+    "test:e2e:remote-smoke": "node tools/e2e/remote-viewer-smoke.mjs",
+    "verify": "npm run check:modules && npm run check:html && npm run check:css && npm run test:smoke && npm test && npm run build:dist"
   },
   "keywords": [
     "webrtc",
@@ -26,10 +45,14 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@babel/parser": "^7.29.9",
     "@vitest/coverage-v8": "^5.0.0",
     "jsdom": "^30.0.1",
+    "peerjs": "1.5.2",
     "playwright": "^1.63.0",
-    "vitest": "^5.0.0"
+    "postcss": "^8.5.28",
+    "vitest": "^5.0.0",
+    "ws": "^8.22.0"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

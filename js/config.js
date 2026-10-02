@@ -215,6 +215,8 @@ export function getPendingIceServersPromise() {
  * @returns {Object}
  */
 export function getPeerConfig(customServers = null) {
+  const signaling = typeof window !== 'undefined' ? window.__SEEMYGAME_PEER_CONFIG__ : null;
+  if (signaling) return { ...signaling, config: { ...PEER_CONFIG.config, ...signaling.config } };
   const servers = customServers || dynamicIceServers || getStaticFallbackIceServers();
   return {
     config: {
@@ -226,6 +228,8 @@ export function getPeerConfig(customServers = null) {
 
 // Perfis de Qualidade focados em Máxima Fluidez
 export const QUALITY_PROFILES = {
+  hd120: { id: 'hd120', label: '720p / 120 FPS (experimental)', width: 1280, height: 720, fps: 120, bitrate: 9000000, experimental: true },
+  fhd120: { id: 'fhd120', label: '1080p / 120 FPS (experimental)', width: 1920, height: 1080, fps: 120, bitrate: 15000000, experimental: true },
   ultra: {
     id: 'ultra',
     label: 'Modo Competitivo (720p - Fluidez Máxima)',

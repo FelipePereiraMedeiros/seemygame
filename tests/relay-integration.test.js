@@ -141,7 +141,7 @@ describe('Integração de P2P Tree Relay Mesh na Sala', () => {
     globalThis.MediaStreamTrack = MockMediaStreamTrack;
     globalThis.Peer = MockPeer;
 
-    app = await import('../js/app.js');
+    app = await import('../js/app.js'); app.initLegacyBindings();
   });
 
   beforeEach(() => {

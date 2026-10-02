@@ -1,14 +1,42 @@
 import http from 'node:http';
+import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { listFrontendFiles } from '../tools/e2e/harness/provenance.mjs';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { launchHistoricalBrowser, historicalArtifactDir, waitHistorical } from '../tools/e2e/harness/historical-browser.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
 const PORT = 3010;
-const ARTIFACT_DIR = 'C:\\Users\\diogo\\.gemini\\antigravity\\brain\\1dcd93eb-1e09-4570-856b-4ee876bf9f9b';
+const deliveryOnly = process.argv.includes('--delivery-only');
+const replayEnabled = !process.argv.includes('--no-replay');
+const option = (name, fallback) => { const index = process.argv.indexOf(name); return index < 0 ? fallback : process.argv[index + 1]; };
+const replayCase = option('--replay-case', replayEnabled ? 'viewers' : 'none');
+const replayProfile = option('--replay-profile', 'source');
+const replayCodec = option('--replay-codec', 'auto');
+const sampleSeconds = Number(option('--sample-seconds', '8'));
+const warmupSeconds = Number(option('--warmup-seconds', '8'));
+const historySeconds = Number(option('--replay-history', '30'));
+assert.ok(historySeconds >= 5 && historySeconds <= 120);
+const clipCheck = process.argv.includes('--clip-check');
+const ffprobe = process.env.SEEMYGAME_FFPROBE || 'ffprobe';
+if (clipCheck) {
+  try { execFileSync(ffprobe, ['-version'], { stdio: 'ignore', windowsHide: true, timeout: 10000 }); }
+  catch (cause) { throw new Error('O teste de clipes exige ffprobe funcional. Configure SEEMYGAME_FFPROBE com o caminho do executável correto.', { cause }); }
+}
+assert.ok(['none', 'host', 'viewers', 'both'].includes(replayCase));
+assert.ok(['source', 'balanced', 'light'].includes(replayProfile));
+assert.ok(['auto', 'vp8', 'vp9', 'h264'].includes(replayCodec));
+assert.ok(sampleSeconds >= 5 && sampleSeconds <= 120 && warmupSeconds >= 1 && warmupSeconds <= 120);
+const viewerOption = process.argv.indexOf('--viewers');
+const viewerCount = Number(viewerOption < 0 ? 3 : process.argv[viewerOption + 1]);
+assert.ok(Number.isInteger(viewerCount) && viewerCount >= 1 && viewerCount <= 3, '--viewers must be 1..3');
+assert.ok(deliveryOnly || viewerCount === 3, 'The relay scenario requires three spectators');
+const ARTIFACT_DIR = historicalArtifactDir('720p-tree-benchmark');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -65,7 +93,7 @@ function startStaticServer() {
     server.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
         console.log(`[720p Server] Porta ${PORT} em uso, reaproveitando.`);
-        resolve(null);
+        reject(err);
       } else {
         reject(err);
       }
@@ -90,8 +118,15 @@ const mockHost720pScript = (color, label) => `
   canvas.height = 720;
   const ctx = canvas.getContext('2d');
   let frame = 0;
-  function renderFrame() {
+  let lastFrameTime = null;
+  window.__historicalSourceFrames = 0;
+  function renderFrame(now) {
+    requestAnimationFrame(renderFrame);
+    if (lastFrameTime === null) lastFrameTime = now - 1000 / 60;
+    if (now - lastFrameTime < 1000 / 60) return;
+    lastFrameTime += Math.floor((now - lastFrameTime) / (1000 / 60)) * (1000 / 60);
     frame++;
+    window.__historicalSourceFrames = frame;
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, 1280, 720);
 
@@ -116,7 +151,7 @@ const mockHost720pScript = (color, label) => `
 
     ctx.fillStyle = '#38bdf8';
     ctx.font = '22px monospace';
-    ctx.fillText('RESOLUÇÃO NATIVA: 1280x720 @ 60 FPS | TAXA ALVO: 4.5 Mbps', 50, 120);
+    ctx.fillText('FONTE: 1280x720 | CADÊNCIA SOLICITADA: 60 FPS', 50, 120);
 
     ctx.fillStyle = '#10b981';
     ctx.font = '20px monospace';
@@ -129,13 +164,14 @@ const mockHost720pScript = (color, label) => `
     ctx.arc(bx, by, 32, 0, Math.PI * 2);
     ctx.fill();
 
-    requestAnimationFrame(renderFrame);
   }
   requestAnimationFrame(renderFrame);
 
   const mockStream = canvas.captureStream(60);
   try {
     const ac = new (window.AudioContext || window.webkitAudioContext)();
+    window.__historicalSourceAudio = ac;
+    document.addEventListener('click', () => ac.resume(), { once: true });
     const osc = ac.createOscillator();
     const dest = ac.createMediaStreamDestination();
     osc.connect(dest);
@@ -179,7 +215,7 @@ async function captureScreenshotFast(page, filePath) {
 
 async function run() {
   console.log('========================================================================');
-  console.log('--- TESTE E2E: STREAM 720p (4.5 Mbps), SATURAÇÃO & ÁRVORE DE RELAY ---');
+  console.log(deliveryOnly ? '--- E2E: ENTREGA 720p, SEM VALIDAR RELAY ---' : '--- E2E: ENTREGA 720p E ÁRVORE DE RELAY ---');
   console.log('========================================================================');
 
   const server = await startStaticServer();
@@ -187,7 +223,7 @@ async function run() {
   const roomUrl = `http://localhost:${PORT}/room.html?room=${roomId}`;
   console.log(`[720p E2E] URL da sala: ${roomUrl}`);
 
-  const browser = await chromium.launch({
+  const browser = await launchHistoricalBrowser({
     channel: 'chrome',
     headless: true,
     args: [
@@ -213,7 +249,7 @@ async function run() {
     await pageHost.goto(roomUrl);
 
     // Ajusta Preset para 'ultra' (720p @ 60 FPS, 4.5 Mbps)
-    await pageHost.evaluate(() => {
+    await pageHost.evaluate(async () => {
       const select = document.getElementById('quality-preset');
       if (select) {
         select.value = 'ultra';
@@ -257,7 +293,7 @@ async function run() {
       { name: 'Viewer 1', page: pageV1 },
       { name: 'Viewer 2', page: pageV2 },
       { name: 'Viewer 3', page: pageV3 }
-    ];
+    ].slice(0, viewerCount + 1);
 
     for (const p of participants) {
       const btn = p.page.locator('#green-room-join-btn');
@@ -265,29 +301,35 @@ async function run() {
       await btn.click();
       console.log(`[720p E2E] ${p.name} entrou na sala.`);
     }
+    for (const { page, name } of participants) await page.evaluate(async config => {
+      const recorder = (await import('/js/entries/room-entry.js')).roomState.features.clipping.recorder;
+      recorder.setMaxDurationSeconds(config.historySeconds);
+      recorder.setPreferences(config);
+    }, { enabled: name === 'Host' ? ['host', 'both'].includes(replayCase) : ['viewers', 'both'].includes(replayCase),
+      recordLocal: true, profile: replayProfile, codec: replayCodec, historySeconds });
 
     // Aguarda todos os 4 confirmarem "4 online"
-    console.log('[720p E2E] Aguardando presença dos 4 participantes sincronizada...');
+    console.log(`[720p E2E] Aguardando presença dos ${viewerCount + 1} participantes sincronizada...`);
     for (const p of participants) {
-      await p.page.waitForFunction(() => {
+      await waitHistorical(p.page, async count => {
         const badge = document.getElementById('sidebar-members-count');
-        return badge && badge.textContent.includes('4 online');
-      }, { timeout: 25000 });
-      console.log(`[720p E2E] ${p.name} confirmou 4 membros online!`);
+        return badge && badge.textContent.includes(`${count} online`);
+      }, viewerCount + 1, { timeout: 25000 });
+      console.log(`[720p E2E] ${p.name} confirmou ${viewerCount + 1} membros online!`);
     }
 
     // Captura Peer IDs
-    const peerV1Id = await pageV1.evaluate(() => window.roomManager?.myPeerId);
-    const peerV2Id = await pageV2.evaluate(() => window.roomManager?.myPeerId);
-    const peerV3Id = await pageV3.evaluate(() => window.roomManager?.myPeerId);
+    const peerV1Id = await pageV1.evaluate(async () => (await import('/js/entries/room-entry.js')).roomState.roomManager?.myPeerId);
+    const peerV2Id = await pageV2.evaluate(async () => (await import('/js/entries/room-entry.js')).roomState.roomManager?.myPeerId);
+    const peerV3Id = await pageV3.evaluate(async () => (await import('/js/entries/room-entry.js')).roomState.roomManager?.myPeerId);
     console.log(`[720p E2E] Peer IDs: V1=${peerV1Id}, V2=${peerV2Id}, V3=${peerV3Id}`);
 
     // Injeta telemetria de rede simulada no Host para a árvore
-    await pageHost.evaluate(({ v1, v2, v3 }) => {
-      if (window.getRoomRelayManager?.()) {
-        window.getRoomRelayManager().updateTelemetry(v1, { rtt: 20, packetLoss: 0 });
-        window.getRoomRelayManager().updateTelemetry(v2, { rtt: 55, packetLoss: 0 });
-        window.getRoomRelayManager().updateTelemetry(v3, { rtt: 35, packetLoss: 0 });
+    await pageHost.evaluate(async ({ v1, v2, v3 }) => {
+      if ((await import('/js/entries/room-entry.js')).roomState.relayManager) {
+        (await import('/js/entries/room-entry.js')).roomState.relayManager.updateTelemetry(v1, { rtt: 20, packetLoss: 0 });
+        (await import('/js/entries/room-entry.js')).roomState.relayManager.updateTelemetry(v2, { rtt: 55, packetLoss: 0 });
+        (await import('/js/entries/room-entry.js')).roomState.relayManager.updateTelemetry(v3, { rtt: 35, packetLoss: 0 });
       }
     }, { v1: peerV1Id, v2: peerV2Id, v3: peerV3Id });
 
@@ -298,146 +340,186 @@ async function run() {
     await streamBtn.click();
 
     // Verificação de recepção e reprodução nos 3 espectadores
-    console.log('[720p E2E] Aguardando e verificando recepção e reprodução nos 3 espectadores...');
+    console.log(`[720p E2E] Verificando reprodução nos ${viewerCount} espectadores...`);
     const viewers = [
-      { name: 'Viewer 1', page: pageV1, isDirect: true },
-      { name: 'Viewer 2', page: pageV2, isDirect: true },
-      { name: 'Viewer 3', page: pageV3, isDirect: false }
-    ];
+      { name: 'Viewer 1', page: pageV1 },
+      { name: 'Viewer 2', page: pageV2 },
+      { name: 'Viewer 3', page: pageV3 }
+    ].slice(0, viewerCount);
 
     for (const v of viewers) {
       console.log(`[720p E2E] Aguardando vídeo no ${v.name}...`);
       const videoLoc = v.page.locator('.video-card video');
       await videoLoc.waitFor({ state: 'attached', timeout: 35000 });
 
-      await v.page.waitForFunction(() => {
+      await waitHistorical(v.page, async () => {
         const vid = document.querySelector('.video-card video');
         if (vid) {
           vid.muted = true;
           if (vid.paused) vid.play().catch(() => {});
         }
         return Boolean(vid && !vid.paused && vid.readyState >= 2 && vid.videoWidth > 0);
-      }, { timeout: 35000 });
+      }, undefined, { timeout: 35000 });
       console.log(`✅ ${v.name} está reproduzindo o vídeo 720p com sucesso!`);
     }
 
-    // Amostragem de resolução e métricas reais
-    const hostInfo = await pageHost.evaluate(() => {
-      const topology = window.getTreeRelayTopology ? window.getTreeRelayTopology() : null;
-      const savings = window.getTreeRelaySavings ? window.getTreeRelaySavings() : null;
-      return {
-        activeCalls: window.activeMediaCalls ? window.activeMediaCalls.size : 0,
-        topology,
-        savings
-      };
+    // Warm up congestion control before observing actual delivered frames.
+    await pageHost.waitForTimeout(warmupSeconds * 1000);
+    const senderObservation = pageHost.evaluate(async sampleMs => {
+      const state = (await import('/js/entries/room-entry.js')).roomState;
+      const calls = [...state.screenCalls.values()];
+      const snapshot = async call => [...(await call.peerConnection.getStats()).values()]
+        .filter(stat => ['outbound-rtp', 'remote-inbound-rtp', 'codec', 'candidate-pair'].includes(stat.type));
+      const before = await Promise.all(calls.map(snapshot));
+      const sourceFrames = window.__historicalSourceFrames;
+      const started = performance.now();
+      await new Promise(resolve => setTimeout(resolve, sampleMs));
+      return { sourceFps: (window.__historicalSourceFrames - sourceFrames) * 1000 / (performance.now() - started),
+        calls: await Promise.all(calls.map(async (call, index) => ({ peer: call.peer,
+          parameters: call.peerConnection.getSenders().filter(sender => sender.track?.kind === 'video').map(sender => sender.getParameters()),
+          localSdp: call.peerConnection.localDescription?.sdp, remoteSdp: call.peerConnection.remoteDescription?.sdp,
+          before: before[index], after: await snapshot(call) }))) };
+    }, sampleSeconds * 1000);
+    const delivered = await Promise.all(viewers.map(async ({ name, page }) => ({ name,
+      ...await page.evaluate(async sampleMs => {
+        const video = document.querySelector('.video-card video');
+        const state = (await import('/js/entries/room-entry.js')).roomState;
+        const pc = [...state.remoteStreams.values()][0]?.call?.peerConnection;
+        const snapshot = async () => pc ? [...(await pc.getStats()).values()].filter(row => row.type === 'inbound-rtp' && row.kind === 'video') : [];
+        const before = await snapshot();
+        let frames = 0, active = true, callback, lastFrameAt = performance.now();
+        const pauses = [];
+        const start = performance.now();
+        const count = () => { if (active) { const now = performance.now(); pauses.push(now - lastFrameAt); lastFrameAt = now; frames++; callback = video.requestVideoFrameCallback(count); } };
+        callback = video.requestVideoFrameCallback(count);
+        await new Promise(resolve => setTimeout(resolve, sampleMs));
+        active = false; video.cancelVideoFrameCallback(callback);
+        const elapsedMs = performance.now() - start;
+        pauses.push(performance.now() - lastFrameAt); pauses.sort((a, b) => a - b);
+        const after = await snapshot();
+        const previous = before[0], current = after[0];
+        const decoded = previous && current ? current.framesDecoded - previous.framesDecoded : 0;
+        const emitted = previous && current ? current.jitterBufferEmittedCount - previous.jitterBufferEmittedCount : 0;
+        return { width: video.videoWidth, height: video.videoHeight, presentedFrames: frames,
+          presentationFps: Number((1000 * frames / elapsedMs).toFixed(2)), elapsedMs,
+          maxPauseMs: pauses.at(-1), pauseP95Ms: pauses[Math.floor((pauses.length - 1) * 0.95)],
+          pausesOver100Ms: pauses.filter(pause => pause > 100).length,
+          inbound: { before, after, decodedFps: decoded * 1000 / elapsedMs,
+            decodeMsPerFrame: decoded ? (current.totalDecodeTime - previous.totalDecodeTime) * 1000 / decoded : null,
+            jitterBufferMs: emitted ? (current.jitterBufferDelay - previous.jitterBufferDelay) * 1000 / emitted : null } };
+      }, sampleSeconds * 1000)
+    })));
+    const hostInfo = await pageHost.evaluate(async () => {
+      const state = (await import('/js/entries/room-entry.js')).roomState;
+      return { activeCalls: state.screenCalls.size, topology: state.relayManager.getTopology(),
+        maxDirectViewers: state.relayManager.maxDirectViewers,
+        sourceSettings: state.localStream.getVideoTracks()[0].getSettings() };
     });
-
-    const v1Details = await pageV1.evaluate(() => {
-      const v = document.querySelector('.video-card video');
-      return { width: v?.videoWidth, height: v?.videoHeight, readyState: v?.readyState };
-    });
-    const v2Details = await pageV2.evaluate(() => {
-      const v = document.querySelector('.video-card video');
-      return { width: v?.videoWidth, height: v?.videoHeight, readyState: v?.readyState };
-    });
-    const v3Details = await pageV3.evaluate(() => {
-      const v = document.querySelector('.video-card video');
-      const card = document.querySelector('.video-card');
-      const label = card?.querySelector('.streamer-name')?.textContent || '';
-      return {
-        width: v?.videoWidth,
-        height: v?.videoHeight,
-        readyState: v?.readyState,
-        cardLabel: label,
-        isRelayed: label.includes('Relay')
-      };
-    });
-
-    console.log(`\n========================================================================`);
-    console.log(`📊 [DIAGNÓSTICO COMPROVADO - STREAM 720p @ 60 FPS]:`);
-    console.log(`   - Resolução no Viewer 1 (Direto): ${v1Details.width}x${v1Details.height}`);
-    console.log(`   - Resolução no Viewer 2 (Direto): ${v2Details.width}x${v2Details.height}`);
-    console.log(`   - Resolução no Viewer 3 (Relay):  ${v3Details.width}x${v3Details.height} | Label: "${v3Details.cardLabel}"`);
-    console.log(`   - Topologia Tree Relay: ${JSON.stringify(hostInfo.topology, null, 2)}`);
-    console.log(`   - Chamadas WebRTC ativas no Host: ${hostInfo.activeCalls} (Capped em 2!)`);
-    console.log(`   - Economia de Banda de Upload: ${hostInfo.savings?.percentSaved}% (${(hostInfo.savings?.savingsBps / 1000000).toFixed(1)} Mbps economizados)`);
-
-    // Captura Screenshots de Auditoria
-    console.log('\n[720p E2E] Capturando screenshots instantâneos...');
-    const shotHost = path.join(ARTIFACT_DIR, 'audit_720p_01_host.png');
-    const shotV1 = path.join(ARTIFACT_DIR, 'audit_720p_02_viewer1.png');
-    const shotV2 = path.join(ARTIFACT_DIR, 'audit_720p_03_viewer2.png');
-    const shotV3 = path.join(ARTIFACT_DIR, 'audit_720p_04_viewer3.png');
-
-    await captureScreenshotFast(pageHost, shotHost);
-    await captureScreenshotFast(pageV1, shotV1);
-    await captureScreenshotFast(pageV2, shotV2);
-    await captureScreenshotFast(pageV3, shotV3);
-    console.log('📸 Todos os 4 screenshots de auditoria 720p foram salvos com sucesso!');
-
-    // Relatório Consolidado de Saturação (720p vs 1080p, Full Mesh vs Tree Relay)
-    const saturationReport = {
-      timestamp: new Date().toISOString(),
-      profile: {
-        id: 'ultra',
-        label: 'Modo Competitivo (720p - Fluidez Máxima)',
-        resolution: `${v1Details.width}x${v1Details.height}`,
-        fps: 60,
-        targetBitrateMbps: 4.5
-      },
-      e2eVerification: {
-        all3ViewersStreaming60Fps: true,
-        hostCallsActive: hostInfo.activeCalls,
-        electedRelayParent: hostInfo.topology?.relayed?.[0]?.parentPeerId,
-        bandwidthSavings: hostInfo.savings
-      },
-      saturationMath: {
-        fullMesh720p: {
-          bitratePerStreamMbps: 4.5,
-          viewers: [
-            { count: 1, uploadRequiredMbps: 4.5, sat15Mbps: 'NÃO (30% do uplink)', sat20Mbps: 'NÃO (23% do uplink)', sat25Mbps: 'NÃO (18% do uplink)' },
-            { count: 2, uploadRequiredMbps: 9.0, sat15Mbps: 'NÃO (60% do uplink)', sat20Mbps: 'NÃO (45% do uplink)', sat25Mbps: 'NÃO (36% do uplink)' },
-            { count: 3, uploadRequiredMbps: 13.5, sat15Mbps: 'ALERTA (90% do uplink)', sat20Mbps: 'NÃO (68% do uplink)', sat25Mbps: 'NÃO (54% do uplink)' },
-            { count: 4, uploadRequiredMbps: 18.0, sat15Mbps: '🚨 SATURADO (>100%)', sat20Mbps: 'ALERTA (90% do uplink)', sat25Mbps: 'NÃO (72% do uplink)' },
-            { count: 5, uploadRequiredMbps: 22.5, sat15Mbps: '🚨 SATURADO', sat20Mbps: '🚨 SATURADO (>100%)', sat25Mbps: 'ALERTA (90% do uplink)' },
-            { count: 6, uploadRequiredMbps: 27.0, sat15Mbps: '🚨 SATURADO', sat20Mbps: '🚨 SATURADO', sat25Mbps: '🚨 SATURADO (>100%)' }
-          ],
-          saturationPoints: {
-            uplink15Mbps: '4º espectador (18.0 Mbps)',
-            uplink20Mbps: '5º espectador (22.5 Mbps)',
-            uplink25Mbps: '6º espectador (27.0 Mbps)'
-          }
-        },
-        fullMesh1080pComparison: {
-          bitratePerStreamMbps: 7.5,
-          saturationPoints: {
-            uplink15Mbps: '2º espectador (15.0 Mbps)',
-            uplink20Mbps: '3º espectador (22.5 Mbps)',
-            uplink25Mbps: '4º espectador (30.0 Mbps)'
-          }
-        },
-        treeRelayMeshAdvantage: {
-          hostUploadCapMbps: 9.0,
-          maxDirectViewers: 2,
-          explanation: 'Com Tree Relay Mesh ativo no SeeMyGame, o Host transmite exclusivamente para 2 espectadores diretos (2 x 4.5 = 9.0 Mbps). Do 3º espectador em diante, o tráfego é retransmitido pelos nós filhos com folga de internet. Logo, a saturação no Host NUNCA ocorre, independentemente da quantidade de espectadores na sala!'
-        }
+    const replayRecorders = await Promise.all(participants.map(async ({ name, page }) => ({ name,
+      ...await page.evaluate(async () => {
+        const clipping = (await import('/js/entries/room-entry.js')).roomState.features.clipping;
+        return { enabled: clipping.enabled, replayEnabled: clipping.recorder.preferences.enabled, recorders: [...clipping.recorder.recorders].map(([sourceId, recorder]) => ({
+          sourceId, isRecording: recorder.isRecording, mimeType: recorder.mediaRecorder?.mimeType,
+          videoBitsPerSecond: recorder.mediaRecorder?.videoBitsPerSecond,
+          recordingSettings: recorder.recordingStream?.getVideoTracks()[0]?.getSettings(),
+          profileTelemetry: recorder._recordingProfile?.telemetry, error: recorder.lastError?.message,
+          audioContextState: recorder._audioContext?.state,
+          incomingAudio: recorder.stream?.getAudioTracks().map(t => ({ enabled: t.enabled, muted: t.muted, state: t.readyState })),
+          audioMixerSources: recorder._audioTrackSources?.size
+        })) };
+      })
+    })));
+    console.log('[Replay recorders]', JSON.stringify(replayRecorders));
+    const clipResults = [];
+    const observed = { timestamp: new Date().toISOString(), mode: deliveryOnly ? 'delivery-only' : 'delivery-and-relay',
+      sourceHashes: Object.fromEntries((await listFrontendFiles(root)).map(file => [file, createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex')])),
+      viewerCount, replayEnabled: replayCase !== 'none', replayCase, replayProfile, replayCodec, sampleSeconds, warmupSeconds,
+      status: 'measured', historySeconds, clipResults, replayRecorders, hostInfo, delivered, senderObservation: await senderObservation,
+      limitations: ['Shared physical CPU/GPU/memory across transmitter and all receivers; results do not isolate publisher overhead.', 'Headless synthetic source, local network; no GPU/game stress or physical capture.',
+        'Presentation FPS measured by requestVideoFrameCallback; requested capture FPS is not delivered FPS.',
+        'No optical latency measurement or measured saturation/bitrate in this historical runner.'] };
+    fs.writeFileSync(path.join(ARTIFACT_DIR, 'observed-720p.json'), JSON.stringify(observed, null, 2));
+    console.log(JSON.stringify({ evidence: path.join(ARTIFACT_DIR, 'observed-720p.json') }));
+    if (clipCheck) for (const { name, page } of participants) {
+      const expected = name === 'Host' ? ['host', 'both'].includes(replayCase) : ['viewers', 'both'].includes(replayCase);
+      if (expected) {
+        const raw = await page.evaluate(async () => {
+          const recorder = (await import('/js/entries/room-entry.js')).roomState.features.clipping.recorder.getRecorder();
+          await recorder.flushPendingData();
+          return new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result.slice(reader.result.lastIndexOf(',') + 1)); reader.readAsDataURL(new Blob(recorder.chunks.map(c => c.blob))); });
+        });
+        fs.writeFileSync(path.join(ARTIFACT_DIR, `${name.replaceAll(' ', '-')}-raw-history.webm`), Buffer.from(raw, 'base64'));
       }
-    };
-
-    const reportFile = path.join(ARTIFACT_DIR, 'relatorio_saturacao_720p.json');
-    fs.writeFileSync(reportFile, JSON.stringify(saturationReport, null, 2));
-    console.log(`\n📄 Relatório JSON salvo em: ${reportFile}`);
-
-    console.log('\n========================================================================');
-    console.log('🎉 SUCESSO TOTAL NO BENCHMARK DE SATURAÇÃO EM 720p!');
-    console.log('========================================================================');
-    console.log(`- Perfil: 720p60 @ 4.5 Mbps`);
-    console.log(`- Ponto de Saturação Full Mesh (Uplink 15 Mbps): 4º espectador (18.0 Mbps)`);
-    console.log(`- Ponto de Saturação Full Mesh (Uplink 20 Mbps): 5º espectador (22.5 Mbps)`);
-    console.log(`- Ponto de Saturação Full Mesh (Uplink 25 Mbps): 6º espectador (27.0 Mbps)`);
-    console.log(`- Ponto de Saturação com Tree Relay Mesh: NUNCA SATURA O HOST (Capped em 9.0 Mbps fixos)`);
-
+      const clip = await page.evaluate(async expected => {
+        const registry = (await import('/js/entries/room-entry.js')).roomState.features.clipping.recorder;
+        if (!expected) return { recorders: registry.recorders.size };
+        const start = performance.now();
+        const blob = await registry.exportClip();
+        if (!blob?.size) throw new Error('Replay has no clip bytes');
+        window.__replayLastClip = blob;
+        const url = URL.createObjectURL(blob), video = document.createElement('video');
+        video.src = url; video.muted = false; video.playsInline = true;
+        video.style.cssText = 'position:fixed;bottom:0;left:0;width:320px;z-index:100000';
+        document.body.appendChild(video);
+        const audio = new AudioContext(), analyser = audio.createAnalyser(), gain = audio.createGain();
+        gain.gain.value = 0;
+        audio.createMediaElementSource(video).connect(analyser); analyser.connect(gain); gain.connect(audio.destination);
+        const timeout = setTimeout(() => video.dispatchEvent(new Event('error')), 10000);
+        try {
+          await audio.resume();
+          await new Promise((resolve, reject) => { video.onloadeddata = resolve; video.onerror = () => reject(new Error('Exported clip cannot decode')); });
+          // Startup can contain silence before the remote audio track unmutes.
+          // Decode from the start; inspect audio across several seconds so a
+          // silent startup is not mistaken for a missing audio track.
+          await video.play();
+          let frames = 0, active = true;
+          const count = () => { if (active) { frames++; video.requestVideoFrameCallback(count); } };
+          video.requestVideoFrameCallback(count);
+          let audioRms = 0;
+          for (let i = 0; i < 40; i++) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            const samples = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(samples);
+            audioRms = Math.max(audioRms, Math.sqrt(samples.reduce((sum, x) => sum + x*x, 0) / samples.length));
+          }
+          active = false;
+          return { size: blob.size, mime: blob.type, width: video.videoWidth, height: video.videoHeight,
+            frames, audioRms, exportAndDecodeMs: performance.now() - start, recorders: registry.recorders.size };
+        } finally { clearTimeout(timeout); video.pause(); video.src = ''; video.remove(); URL.revokeObjectURL(url); await audio.close(); }
+      }, expected);
+      if (expected) {
+        const data = await page.evaluate(() => new Promise(resolve => {
+          const reader = new FileReader(); reader.onload = () => resolve(reader.result.slice(reader.result.lastIndexOf(',') + 1)); reader.readAsDataURL(window.__replayLastClip);
+        }));
+        const filename = path.join(ARTIFACT_DIR, `${name.replaceAll(' ', '-')}-clip.webm`);
+        fs.writeFileSync(filename, Buffer.from(data, 'base64'));
+        const container = JSON.parse(execFileSync(ffprobe, ['-v', 'error', '-show_entries', 'stream=codec_name,codec_type,width,height,start_time,duration', '-of', 'json', filename], { encoding: 'utf8', windowsHide: true, timeout: 15000 }));
+        assert.ok(container.streams.some(s => s.codec_type === 'video'));
+        assert.ok(container.streams.some(s => s.codec_type === 'audio'));
+        clip.containerStreams = container.streams;
+      }
+      console.log('[Replay clip]', name, JSON.stringify(clip));
+      assert.equal(clip.recorders, expected ? 1 : 0, `${name}: explicit recording policy`);
+      if (expected) { assert.ok(clip.frames > 2, `${name}: clip presents video`); assert.ok(clip.audioRms > 0.001, `${name}: clip has audible source`); }
+      clipResults.push({ name, ...clip });
+    }
+    observed.status = 'clips-verified';
+    fs.writeFileSync(path.join(ARTIFACT_DIR, 'observed-720p.json'), JSON.stringify(observed, null, 2));
+    console.log(JSON.stringify({ mode: observed.mode, viewerCount, replayEnabled, hostInfo, delivered,
+      sourceFps: observed.senderObservation.sourceFps, evidence: path.join(ARTIFACT_DIR, 'observed-720p.json') }, null, 2));
+    for (const [index, { page }] of viewers.entries()) await captureScreenshotFast(page, path.join(ARTIFACT_DIR, 'viewer-' + (index + 1) + '.png'));
+    for (const viewer of delivered) {
+      assert.ok(viewer.presentedFrames > 0, 'Each spectator must present frames');
+      assert.equal(viewer.width, 1280, 'Actual steady resolution must be 720p');
+      assert.equal(viewer.height, 720);
+    }
+    if (!deliveryOnly) {
+      assert.equal(hostInfo.topology.relayedCount, 1, '720p tree benchmark requires a real relay route');
+      assert.equal(hostInfo.activeCalls, 2, 'Origin must have only two media calls');
+    }
+    console.log(deliveryOnly ? 'PASS Actual 720p delivery verified; relay was not tested' : 'PASS Actual 720p delivery and relay route verified');
   } catch (err) {
+    const checkpoint = path.join(ARTIFACT_DIR, 'observed-720p.json');
+    if (fs.existsSync(checkpoint)) { const report = JSON.parse(fs.readFileSync(checkpoint, 'utf8')); report.status = 'failed'; report.error = err.message; fs.writeFileSync(checkpoint, JSON.stringify(report, null, 2)); }
     console.error('❌ ERRO NO BENCHMARK:', err);
     throw err;
   } finally {

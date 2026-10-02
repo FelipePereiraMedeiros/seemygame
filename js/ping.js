@@ -1,3 +1,4 @@
+import { createAudioScope } from './audio/context-scope.js';
 /**
  * SeeMyGame - Módulo de Telestrator & Tactical Ping (Ping Tático & Laser Pointer)
  * Permite que espectadores e streamer apontem e desenhem na tela com coordenadas normalizadas.
@@ -8,14 +9,30 @@ export class TacticalPingManager {
     this.canvas = options.canvas || null;
     this.ctx = this.canvas ? this.canvas.getContext('2d') : null;
     this.pings = []; // Array de { id, x, y, type, color, senderName, startTime, duration }
-    this.laserTrails = []; // Array de { points: [{ x, y, time }], color, maxAge }
+    this.laserTrails = []; // Array de { senderId, points: [{ x, y, time }], color, maxAge }
+    this.activeLaserTrails = new Map(); // senderId -> trail
     this.isDrawingLaser = false;
-    this.currentLaserTrail = null;
+    this._localLaserTrail = null;
     this.audioContext = null;
+    this._audioScope = options.audioScope || createAudioScope();
+    this._ownsAudioScope = !options.audioScope;
     this.animFrameId = null;
     this.maxPings = options.maxPings || 100;
     this.maxLaserTrails = options.maxLaserTrails || 24;
     this.maxLaserPoints = options.maxLaserPoints || 600;
+  }
+
+  get currentLaserTrail() {
+    return this.activeLaserTrails.get('local') || this._localLaserTrail || null;
+  }
+
+  set currentLaserTrail(trail) {
+    this._localLaserTrail = trail;
+    if (trail) {
+      this.activeLaserTrails.set('local', trail);
+    } else {
+      this.activeLaserTrails.delete('local');
+    }
   }
 
   setCanvas(canvas) {
@@ -35,7 +52,7 @@ export class TacticalPingManager {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
       if (!this.audioContext) {
-        this.audioContext = new AudioCtx();
+        this.audioContext = this._audioScope.getContext('playback');
       }
       if (this.audioContext.state === 'suspended') {
         this.audioContext.resume().catch(() => {});
@@ -103,46 +120,61 @@ export class TacticalPingManager {
   /**
    * Inicia um traçado de laser pointer
    */
-  startLaserTrail({ color = '#10b981' } = {}) {
+  startLaserTrail({ senderId = 'local', color = '#10b981' } = {}) {
     if ((!this.canvas || !this.canvas.isConnected) && typeof document !== 'undefined') {
       const canvasEl = document.getElementById('ping-canvas');
       if (canvasEl) this.setCanvas(canvasEl);
     }
+    const safeSender = String(senderId || 'local');
     const safeColor = typeof color === 'string' && /^#[0-9a-f]{3,8}$/i.test(color) ? color : '#10b981';
     if (this.laserTrails.length >= this.maxLaserTrails) this.laserTrails.shift();
-    this.isDrawingLaser = true;
-    this.currentLaserTrail = {
+    if (safeSender === 'local') {
+      this.isDrawingLaser = true;
+    }
+    const trail = {
+      senderId: safeSender,
       points: [],
       color: safeColor,
       maxAge: 2200
     };
-    this.laserTrails.push(this.currentLaserTrail);
+    this.activeLaserTrails.set(safeSender, trail);
+    if (safeSender === 'local') {
+      this._localLaserTrail = trail;
+    }
+    this.laserTrails.push(trail);
+    return trail;
   }
 
   /**
-   * Adiciona um ponto ao traço de laser ativo
+   * Adiciona um ponto ao traço de laser ativo de um remetente
    */
-  addLaserPoint({ x, y, color = '#10b981' }) {
+  addLaserPoint({ senderId = 'local', x, y, color = '#10b981' }) {
     const clampedX = Math.max(0, Math.min(1, Number(x) || 0));
     const clampedY = Math.max(0, Math.min(1, Number(y) || 0));
+    const safeSender = String(senderId || 'local');
     const safeColor = typeof color === 'string' && /^#[0-9a-f]{3,8}$/i.test(color) ? color : '#10b981';
 
-    if (!this.currentLaserTrail) {
-      this.startLaserTrail({ color: safeColor });
+    let trail = this.activeLaserTrails.get(safeSender);
+    if (!trail) {
+      trail = this.startLaserTrail({ senderId: safeSender, color: safeColor });
     }
 
-    if (this.currentLaserTrail.points.length >= this.maxLaserPoints) return;
+    if (trail.points.length >= this.maxLaserPoints) return;
 
-    this.currentLaserTrail.points.push({
+    trail.points.push({
       x: clampedX,
       y: clampedY,
       time: Date.now()
     });
   }
 
-  stopLaserTrail() {
-    this.isDrawingLaser = false;
-    this.currentLaserTrail = null;
+  stopLaserTrail(senderId = 'local') {
+    const safeSender = String(senderId || 'local');
+    this.activeLaserTrails.delete(safeSender);
+    if (safeSender === 'local') {
+      this.isDrawingLaser = false;
+      this._localLaserTrail = null;
+    }
   }
 
   /**
@@ -251,9 +283,33 @@ export class TacticalPingManager {
     }
   }
 
-  clear() {
+  dispose() {
+    this.stopRenderLoop();
+    this.clear();
+    this.canvas = null;
+    this.ctx = null;
+    if (this.audioContext) {
+      if (this._ownsAudioScope) this._audioScope.dispose().catch(() => {});
+      this.audioContext = null;
+    }
+  }
+
+  clear(senderId = null) {
+    if (senderId) {
+      const safeSender = String(senderId);
+      this.activeLaserTrails.delete(safeSender);
+      this.laserTrails = this.laserTrails.filter(t => t.senderId !== safeSender);
+      if (safeSender === 'local') {
+        this.isDrawingLaser = false;
+        this._localLaserTrail = null;
+      }
+      return;
+    }
     this.pings = [];
     this.laserTrails = [];
+    this.activeLaserTrails.clear();
+    this.isDrawingLaser = false;
+    this._localLaserTrail = null;
     if (this.ctx && this.canvas) {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }

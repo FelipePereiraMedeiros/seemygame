@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { beforeAll, afterEach, expect, it, vi } from 'vitest';
 import { MockMediaStream, MockMediaStreamTrack } from './mocks/webrtc.mock.js';
 
 class Connection {
@@ -22,7 +22,7 @@ class Recorder {
   stop() { this.state = 'inactive'; }
 }
 
-let app;
+let app, clipRecorder;
 afterEach(() => {
   app?.disconnectHost('replay-host-a');
   app?.disconnectHost('replay-host-b');
@@ -30,14 +30,23 @@ afterEach(() => {
   vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks();
 });
 
-it('mantém buffers independentes quando dois hosts transmitem e um encerra', async () => {
-  vi.useFakeTimers();
+// Module linking belongs to setup, outside the timed replay behavior and fake clock.
+beforeAll(async () => {
   vi.stubGlobal('Peer', Peer);
   vi.stubGlobal('MediaRecorder', Recorder);
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
   localStorage.clear();
   document.body.innerHTML = '<div id="video-grid"></div><div id="toast-container"></div>';
   app = await import('../js/app.js');
+  ({ clipRecorder } = await import('../js/clipping.js'));
+}, 15000);
+
+it('grava somente o host selecionado e preserva seu replay quando outro encerra', async () => {
+  vi.useFakeTimers();
+  // This unit fixture mocks tracks, not canvas capture. The real reduced
+  // recording profile and clip decoding are covered by the browser E2E.
+  clipRecorder.setPreferences({ enabled: true, profile: 'source' });
+  app.initLegacyBindings();
   const peer = await app.initPeer();
   peer.emit('open', 'local-review-peer');
   const calls = [];
@@ -48,8 +57,12 @@ it('mantém buffers independentes quando dois hosts transmitem e um encerra', as
     call.emit('stream', new MockMediaStream([new MockMediaStreamTrack('video')]));
     calls.push(call);
   }
+  expect(Recorder.instances).toHaveLength(1);
+  expect(Recorder.instances[0].state, 'Chegada de B não deve reiniciar A').toBe('recording');
+  expect(clipRecorder.sources.size).toBe(2);
+  clipRecorder.selectSource('replay-host-b');
   expect(Recorder.instances).toHaveLength(2);
-  expect.soft(Recorder.instances[0].state, 'B não pode parar o buffer de A').toBe('recording');
+  expect(Recorder.instances[0].state).toBe('inactive');
   expect(Recorder.instances[1].state).toBe('recording');
   calls[0].emit('close');
   expect(Recorder.instances[1].state, 'Encerrar A não pode parar o buffer de B').toBe('recording');

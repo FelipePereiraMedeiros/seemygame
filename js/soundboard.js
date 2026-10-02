@@ -1,3 +1,4 @@
+import { createAudioScope } from './audio/context-scope.js';
 /**
  * SeeMyGame - Módulo de Soundboard P2P na Sala de Voz
  * Sintetizador gamer via Web Audio API, sem arquivos externos e sincronizado via WebRTC.
@@ -35,6 +36,8 @@ export function base64ToArrayBuffer(base64) {
 export class SoundboardManager {
   constructor(options = {}) {
     this.audioContext = null;
+    this._audioScope = options.audioScope || createAudioScope();
+    this._ownsAudioScope = !options.audioScope;
     this.cooldownMs = options.cooldownMs || 1200;
     this.lastTriggerTime = 0;
     this.changeListeners = new Set();
@@ -145,7 +148,7 @@ export class SoundboardManager {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return null;
     if (!this.audioContext) {
-      this.audioContext = new AudioCtx();
+      this.audioContext = this._audioScope.getContext('playback');
     }
     if (this.audioContext.state === 'suspended') {
       this.audioContext.resume().catch(() => {});
@@ -305,6 +308,14 @@ export class SoundboardManager {
 
       default:
         return false;
+    }
+  }
+
+  dispose() {
+    this.changeListeners.clear();
+    if (this.audioContext) {
+      if (this._ownsAudioScope) this._audioScope.dispose().catch(() => {});
+      this.audioContext = null;
     }
   }
 }

@@ -2,7 +2,7 @@
 // VU METER ESTÉREO (ANALISADOR DE ÁUDIO L/R)
 // ==========================================
 
-let audioCtx = null;
+import { getSharedAudioContext } from './core/audio-context-pool.js';
 const activeAudioPipelines = new Map(); // PeerId -> { source, splitter, analyserL, analyserR, rafId }
 
 /**
@@ -10,13 +10,7 @@ const activeAudioPipelines = new Map(); // PeerId -> { source, splitter, analyse
  * @returns {AudioContext}
  */
 export function getAudioContext() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
-  return audioCtx;
+  return getSharedAudioContext();
 }
 
 /**
@@ -24,14 +18,14 @@ export function getAudioContext() {
  * @param {MediaStream} stream
  * @param {string} peerId
  */
-export function initAudioAnalyser(stream, peerId) {
+export function initAudioAnalyser(stream, peerId, audioScope = null) {
   if (!stream || stream.getAudioTracks().length === 0) return;
 
   // Garante que qualquer loop/pipeline anterior desse peer seja completamente encerrado e desconectado
   stopAudioAnalyser(peerId);
 
   try {
-    const ctx = getAudioContext();
+    const ctx = audioScope ? audioScope.getContext('playback') : getAudioContext();
     const source = ctx.createMediaStreamSource(stream);
     const splitter = ctx.createChannelSplitter(2);
 
@@ -156,6 +150,7 @@ export function stopAllAudioAnalysers() {
  * @returns {{ processedStream: MediaStream, setEnabled: Function, setThreshold: Function, destroy: Function }}
  */
 export function applyMicrophoneProcessing(inputStream, options = {}) {
+  const audioScope = options.audioScope;
   if (!inputStream || typeof inputStream.getAudioTracks !== 'function') {
     return {
       processedStream: inputStream,
@@ -176,7 +171,7 @@ export function applyMicrophoneProcessing(inputStream, options = {}) {
   }
 
   try {
-    const ctx = getAudioContext();
+    const ctx = audioScope ? audioScope.getContext('playback') : getAudioContext();
     const source = ctx.createMediaStreamSource(inputStream);
 
     // 1. Filtro High-Pass (80 Hz) para cortar sub-graves mecânicos (vibração de mesa, AC hum, ventoinhas)

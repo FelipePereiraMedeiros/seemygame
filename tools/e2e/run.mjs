@@ -1,5 +1,9 @@
+import { startAssetServer } from './harness/server.mjs';
+import { startSignalingServer } from './harness/signaling.mjs';
+import { bounded, createCleanupCollector } from './harness/lifecycle.mjs';
+import { listFrontendFiles, listRustFiles } from './harness/provenance.mjs';
+import { createMotionFixture } from './fixtures/motion.mjs';
 import { chromium } from 'playwright';
-import { createServer } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { spawn, execSync } from 'node:child_process';
 import { readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises';
@@ -11,6 +15,16 @@ import { installTelemetry, deltaMetrics } from './telemetry.mjs';
 import { computeSessionMagic, crc16, MARKER_CONFIG } from './optical.mjs';
 import { waitForAsync } from './wait.mjs';
 import { ensureDefaultDesktop } from './desktop-affinity.mjs';
+import { QUALITY_PROFILES } from '../../js/config.js';
+import { assessQuality } from '../../js/streaming/quality.js';
+import { startResourceSampler } from './harness/resources.mjs';
+import { evaluateStreamVerdict } from './harness/verdict.mjs';
+import { readSourceStatsSummary } from './harness/source-summary.mjs';
+import { createRequire } from 'node:module';
+import { machineFingerprint, readViewerControl, prepareRemoteViewer, resourceWindow, redactViewerSecrets } from './harness/remote-viewer.mjs';
+import { summarizeResources } from './harness/resources.mjs';
+import { readDisplayModes, validateWindowPosition } from './harness/displays.mjs';
+import { startReverseTunnel } from './harness/ssh-reverse.mjs';
 
 ensureDefaultDesktop();
 
@@ -22,9 +36,23 @@ const duration = Number(option('--seconds', '30'));
 if (!Number.isFinite(duration) || duration < 5 || duration > 1800) throw new Error('--seconds: intervalo permitido 5..1800');
 const minFps = Number(option('--min-fps', '0'));
 if (!Number.isFinite(minFps) || minFps < 0 || minFps > 240) throw new Error('--min-fps: intervalo permitido 0..240');
+const remoteViewerEndpoint = option('--viewer-endpoint', null);
+const viewerSshHost = option('--viewer-ssh-host', null);
+if(viewerSshHost&&!remoteViewerEndpoint)throw new Error('--viewer-ssh-host requires --viewer-endpoint');
+const opticalHz = Number(option('--optical-hz', remoteViewerEndpoint ? '0' : '8'));
+if (!Number.isFinite(opticalHz) || opticalHz < 0 || opticalHz > 60) throw new Error('--optical-hz: 0 (desativado) ou 1..60');
+if (opticalHz > 0 && opticalHz < 1) throw new Error('--optical-hz: 0 (desativado) ou 1..60');
+const requireQuality = args.includes('--require-quality');
 const channel = option('--channel', 'msedge');
 const preset = option('--preset', 'balanced');
+if (!QUALITY_PROFILES[preset]) throw new Error('Preset de transmissão inválido');
+const requestedCodec = option('--codec', 'h264');
+if (!['auto', 'h264', 'av1', 'hevc'].includes(requestedCodec)) throw new Error('Codec nativo inválido');
 const isCompareMode = args.includes('--compare');
+if(remoteViewerEndpoint&&isCompareMode)throw new Error('Remote receiver currently supports the native phase only; --compare reverses the local sender/receiver roles and is not valid across machines yet');
+if(remoteViewerEndpoint&&opticalHz>0)throw new Error('Optical latency across independent clocks is disabled; use --optical-hz 0 until clock calibration is implemented');
+const nativeReplay = args.includes('--native-replay');
+const viewerReplay = args.includes('--viewer-replay');
 const isWebFirst = args.includes('--web-first') || option('--order', 'native-first') === 'web-first';
 const customWebOrigin = option('--web-url', option('--web-origin', null));
 const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}`;
@@ -39,34 +67,33 @@ const report = {
   steps: [],
   measurements: [],
   checks: [],
+  replayConditions: { nativePhase: { transmitter: nativeReplay, receiver: viewerReplay } },
+  qualityConditions: { preset, requestedCodec, requestedFps: QUALITY_PROFILES[preset].fps, requestedWidth: QUALITY_PROFILES[preset].width, requestedHeight: QUALITY_PROFILES[preset].height },
+  instrumentation: {opticalHz, systemMetrics:!args.includes('--no-system-metrics')},
   limitations: [
+    'Transmitter, synthetic source and receiver share one physical CPU/GPU; performance does not isolate real two-machine usage.',
     'LAN/local test: not a two-network TURN test',
-    'Captura direcionada exclusivamente à janela sintética dedicada (1280x720) em ambos os testes'
+    'Dedicated synthetic window; requested canvas size does not prove compositor/capture dimensions. Delivered dimensions are qualified separately.'
   ]
 };
-let desktop, viewerBrowser, sourceBrowser, nativeBrowser, hostPage, viewerPage, server;
+let desktop, viewerBrowser, sourceBrowser, nativeBrowser, hostPage, viewerPage, server, remoteViewer;
+let reverseTunnel;
+const resources = await startResourceSampler({enabled:!args.includes('--no-system-metrics')});
+let signaling;
 let viewerContext = null;
 let nativeLogSize = 0;
 let hostId, viewerId;
 const previous = new Map();
-const checkpoint = () => writeFile(path.join(output, 'report.json'), JSON.stringify(report, null, 2));
-const bounded = async (name, action, ms = 15000) => {
-  let timer;
-  try {
-    return await Promise.race([action(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${name}: timeout ${ms}ms`)), ms); })]);
-  } finally { clearTimeout(timer); }
-};
-const cleanup = async (name, action) => {
-  try { await bounded(name, action); }
-  catch (error) { (report.cleanupErrors ||= []).push(error.message); report.status = 'failed'; process.exitCode = 1; }
-};
+const serializeReport = () => JSON.stringify(report, (_,value)=>redactViewerSecrets(value,{controlEndpoint:remoteViewerEndpoint,wsEndpoint:remoteViewer?.wsEndpoint}), 2);
+const checkpoint = () => writeFile(path.join(output, 'report.json'), serializeReport());
+const cleanup = createCleanupCollector(report);
 // Tauri rewrites HTML at build time (CSP/bootstrap); compare unmodified JS assets.
-const frontendFiles = (await readdir(path.join(root, 'js'))).filter(p => p.endsWith('.js')).map(p => `js/${p}`);
+const frontendFiles = await listFrontendFiles(root);
 let sourceStats = null;
 const sampleBoth = async () => {
   const activeSourcePage = sourceBrowser && sourceBrowser.contexts().length > 0 && sourceBrowser.contexts()[0].pages()[0];
   if (activeSourcePage && !activeSourcePage.isClosed()) {
-    sourceStats = await activeSourcePage.evaluate(() => window.__smgSourceStats).catch(() => null);
+    sourceStats = await activeSourcePage.evaluate(readSourceStatsSummary).catch(() => null);
   }
   for (const [side, page] of [['desktop', hostPage], ['web', viewerPage]]) {
     if (!page || page.isClosed()) continue;
@@ -80,9 +107,15 @@ const sampleBoth = async () => {
     report.measurements.push({ side, sourceStats, ...sample });
   }
 };
-const watchErrors = (page, side) => page.on('pageerror', error => {
-  (report.pageErrors ||= []).push({ side, at: Date.now(), message: error.message });
-});
+const watchErrors = (page, side) => {
+  page.on('pageerror', error => {
+    (report.pageErrors ||= []).push({ side, at: Date.now(), message: error.message });
+  });
+  page.on('console', message => {
+    if (['error', 'warning'].includes(message.type()) && (report.browserMessages ||= []).length < 200)
+      report.browserMessages.push({ side, type: message.type(), message: message.text() });
+  });
+};
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 // In this Playwright version, waitForFunction treats the returned Promise as
 // truthy before inspecting its resolved value. Await every async observation.
@@ -93,152 +126,16 @@ const record = async (name, action) => { const started = Date.now(); console.log
 const hash = data => createHash('sha256').update(data).digest('hex');
 const freePort = async () => { const s = createTcpServer(); await new Promise(r => s.listen(0, '127.0.0.1', r)); const port = s.address().port; await new Promise(r => s.close(r)); return port; };
 const syntheticTitle = `SMG E2E Motion ${runId}`;
-const fixture = `<!doctype html>
-<title>${syntheticTitle}</title>
-<style>
-  html, body { background:#0a0f18; color:white; font:24px monospace; margin:0; padding:0; overflow:hidden; }
-  canvas { display:block; width:1280px; height:720px; }
-</style>
-<canvas width="1280" height="720"></canvas>
-<script>
-const c = document.querySelector('canvas'), x = c.getContext('2d');
-let frame = 0;
-let lastSec = performance.now();
-let framesThisSec = 0;
-let instantFps = 60;
-const runMagic = ${sessionMagic};
-
-window.__smgSourceStats = {
-  framesProduced: 0,
-  fps: 60,
-  lastTime: Date.now(),
-  sessionMagic: runMagic,
-  frameLog: []
-};
-
-function crc16(bytes) {
-  let crc = 0xFFFF;
-  for (let i = 0; i < bytes.length; i++) {
-    crc ^= (bytes[i] << 8);
-    for (let j = 0; j < 8; j++) {
-      if ((crc & 0x8000) !== 0) crc = ((crc << 1) ^ 0x1021) & 0xFFFF;
-      else crc = (crc << 1) & 0xFFFF;
-    }
-  }
-  return crc;
-}
-
-function encodeOptical(seq, timeMs) {
-  const magic = runMagic & 0xFFFF;
-  const s = seq & 0xFFFFFF;
-  const t = (Math.floor(timeMs) >>> 0);
-  const payload = [
-    (magic >> 8) & 0xFF, magic & 0xFF,
-    (s >> 16) & 0xFF, (s >> 8) & 0xFF, s & 0xFF,
-    (t >>> 24) & 0xFF, (t >>> 16) & 0xFF, (t >>> 8) & 0xFF, t & 0xFF
-  ];
-  const checksum = crc16(payload);
-
-  const bits = [1, 0, 1, 0, 1, 1, 0, 0];
-  for (let i = 15; i >= 0; i--) bits.push((magic >> i) & 1);
-  for (let i = 23; i >= 0; i--) bits.push((s >> i) & 1);
-  for (let i = 31; i >= 0; i--) bits.push((t >>> i) & 1);
-  for (let i = 15; i >= 0; i--) bits.push((checksum >> i) & 1);
-
-  const blockW = 8;
-  const blockH = 16;
-  x.fillStyle = '#000000';
-  x.fillRect(0, 0, bits.length * blockW + 4, blockH + 4);
-  for (let i = 0; i < bits.length; i++) {
-    x.fillStyle = bits[i] === 1 ? '#FFFFFF' : '#000000';
-    x.fillRect(2 + i * blockW, 2, blockW, blockH);
-  }
-}
-
-let lastFrameTime = 0;
-const targetIntervalMs = 1000 / 60; // 16.666667 ms
-
-function renderFrame(now) {
-  if (!lastFrameTime) lastFrameTime = now;
-  const elapsed = now - lastFrameTime;
-  if (elapsed < targetIntervalMs - 1.0) {
-    return;
-  }
-  const steps = Math.max(1, Math.floor((elapsed + 1.0) / targetIntervalMs));
-  lastFrameTime += steps * targetIntervalMs;
-  if (now - lastFrameTime > targetIntervalMs * 2) {
-    lastFrameTime = now;
-  }
-  const nowMs = Date.now();
-  framesThisSec++;
-  if (now - lastSec >= 1000) {
-    instantFps = Math.round((framesThisSec * 1000) / (now - lastSec));
-    framesThisSec = 0;
-    lastSec = now;
-  }
-  window.__smgSourceStats.framesProduced = frame;
-  window.__smgSourceStats.fps = instantFps;
-  window.__smgSourceStats.lastTime = nowMs;
-  window.__smgSourceStats.frameLog.push({ seq: frame, timeMs: nowMs });
-  if (window.__smgSourceStats.frameLog.length > 10000) {
-    window.__smgSourceStats.frameLog.shift();
-  }
-
-  x.fillStyle = '#142033';
-  x.fillRect(0, 0, 1280, 720);
-
-  // Marcador óptico no topo esquerdo (772px de largura, 20px de altura)
-  encodeOptical(frame, nowMs);
-
-  // Bloco de movimento suave de alta visibilidade
-  const posX = (now * 0.5) % 1100;
-  const posY = 180 + Math.sin(now / 200) * 80;
-  x.fillStyle = '#00e5bb';
-  x.fillRect(posX, posY, 80, 80);
-
-  // Segundo bloco em contra-fase para teste de judder
-  x.fillStyle = '#ff4081';
-  x.fillRect((1100 - posX), 320, 60, 60);
-
-  // Informações de telemetria legíveis
-  x.fillStyle = 'white';
-  x.font = '36px monospace';
-  x.fillText('SeeMyGame Glass-to-Glass Source', 380, 70);
-  x.font = '28px monospace';
-  x.fillText('Frame: ' + frame + '  |  FPS: ' + instantFps + '  |  Magic: ' + runMagic, 40, 130);
-
-  frame++;
-}
-
-function onRaf(t) {
-  requestAnimationFrame(onRaf);
-  renderFrame(t);
-}
-requestAnimationFrame(onRaf);
-
-// Heartbeat resiliente a backgrounding / oclusão do DWM
-setInterval(() => {
-  renderFrame(performance.now());
-}, 8);
-</script>`;
+const fixture = createMotionFixture(syntheticTitle, sessionMagic, QUALITY_PROFILES[preset].fps, QUALITY_PROFILES[preset]);
 const serve = async () => {
-  server = createServer(async (req, res) => {
-    try {
-      const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-      if (pathname === '/e2e-motion.html') { res.setHeader('Content-Type', 'text/html'); return res.end(fixture); }
-      // Never serve repository secrets, .git, profiles, reports or arbitrary files.
-      if (!/^\/(room\.html|index\.html|(?:js|css)\/[a-zA-Z0-9_./-]+)$/.test(pathname) || pathname.includes('..')) { res.writeHead(404); return res.end(); }
-      const filename = path.resolve(root, '.' + pathname);
-      if (!filename.startsWith(root + path.sep)) throw new Error('invalid path');
-      res.setHeader('Content-Type', pathname.endsWith('.js') ? 'text/javascript' : pathname.endsWith('.css') ? 'text/css' : 'text/html');
-      res.end(await readFile(filename));
-    } catch { res.writeHead(404); res.end(); }
-  });
-  await new Promise(r => server.listen(0, '127.0.0.1', r));
-  return `http://127.0.0.1:${server.address().port}`;
+  const assets = await startAssetServer({ root, fixtures: { '/e2e-motion.html': fixture } });
+  server = assets.server; return assets.origin;
 };
 const isolatedInit = async context => {
-  await context.addInitScript(installTelemetry, { expectedSessionMagic: sessionMagic });
+  await context.route('**/peerjs.min.js', route => route.fulfill({ path: path.join(root, 'node_modules/peerjs/dist/peerjs.min.js') }));
+  await context.route('**/api/turn', route => route.fulfill({ status: 404, body: '{}' }));
+  await context.addInitScript(config => { window.__SEEMYGAME_PEER_CONFIG__ = config; }, signaling.config);
+  await context.addInitScript(installTelemetry, { expectedSessionMagic: sessionMagic, enableOptical:opticalHz>0, opticalSampleHz:opticalHz||8 });
   // Test fixture state in a fresh profile. No personal account/profile is used.
   await context.addInitScript(() => { localStorage.setItem('seemygame_terms_version', '1.1'); localStorage.setItem('seemygame_terms_accepted', 'true'); });
 };
@@ -246,17 +143,33 @@ const join = async (page, url, name) => {
   await page.goto(url); await page.locator('#green-room-join-btn').waitFor({ state: 'visible', timeout: 30000 });
   await page.locator('#green-room-user-name').fill(name);
   await page.locator('#green-room-join-btn').click();
-  await waitApp(page, async () => { const app = await import('/js/app.js'); return app.roomManager?.isInRoom === true && typeof app.roomManager?.myPeerId === 'string'; });
+  await waitApp(page, async () => { const app = (await import('/js/diagnostics/session-api.js')).getActiveSession(); return app.roomManager?.isInRoom === true && typeof app.roomManager?.myPeerId === 'string'; });
 };
 try {
   await record('preflight', async () => {
     if (process.platform !== 'win32') throw new Error('Desktop E2E requer Windows/WebView2');
     await stat(exe); report.executable = { path: exe, sha256: hash(await readFile(exe)) };
-    report.sourceHashes = Object.fromEntries(await Promise.all([...frontendFiles, 'src-tauri/src/media.rs', 'src-tauri/src/capture.rs'].map(async p => [p, hash(await readFile(path.join(root, p)))])));
+    report.displayModes=await readDisplayModes();
+    report.sourceHashes = Object.fromEntries(await Promise.all([...frontendFiles, ...await listRustFiles(root),'tools/e2e/run.mjs','tools/e2e/fixtures/motion.mjs','tools/e2e/telemetry/installer.mjs','tools/e2e/harness/resources.mjs','tools/e2e/harness/resource-counters.cs','tools/e2e/harness/resource-counters.ps1','tools/e2e/harness/verdict.mjs','tools/e2e/harness/source-summary.mjs','tools/e2e/harness/remote-viewer.mjs','tools/e2e/harness/displays.mjs','tools/e2e/harness/display-info.ps1'].map(async p => [p, hash(await readFile(path.join(root, p)))])));
+    if(remoteViewerEndpoint){
+      const metadata=await readViewerControl(remoteViewerEndpoint,'metadata');
+      remoteViewer=prepareRemoteViewer(metadata,remoteViewerEndpoint,{localPlaywrightVersion:createRequire(import.meta.url)('playwright/package.json').version,localFingerprint:machineFingerprint(),wsPort:option('--viewer-ws-port',undefined),allowSameMachine:args.includes('--allow-same-machine-remote')});
+      report.receiverConditions=remoteViewer.conditions;
+      report.limitations=report.limitations.filter(s=>!s.startsWith('Transmitter, synthetic source and receiver share'));
+      report.limitations.push(remoteViewer.conditions.sameMachine?'Remote-browser harness self-test on one physical machine; not a two-machine performance result':'Receiver runs on a machine with a different hostname/platform/CPU fingerprint; transmitter and synthetic source still share their machine');
+      report.limitations.push('Independent clocks: optical latency disabled. Receiver resource/quality windows use its own clock. HTTP/signaling use Playwright loopback forwarding; WebRTC media must establish its own ICE route.');
+      if(remoteViewer.conditions.headless)report.limitations.push('Headless receiver: decode/network/callback cadence tested; physical display presentation is not certified.');
+    }
   });
   if (args.includes('--check')) { report.status = 'preflight-only'; console.log('Preflight OK; no capture was started.'); }
   else {
     const localOrigin = await serve();
+    signaling = await startSignalingServer();
+    if(viewerSshHost){
+      reverseTunnel=await record('forward fixture and signaling to receiver loopback',()=>startReverseTunnel({host:viewerSshHost,ports:[Number(new URL(localOrigin).port),signaling.config.port]}));
+      report.receiverConditions.localServersTransport='explicit SSH reverse forwarding (HTTP/signaling only)';
+      report.limitations.push('HTTP and signaling ports reverse-forwarded to receiver loopback; WebRTC media still requires its own ICE route.');
+    }
     const webOrigin = customWebOrigin || localOrigin;
     report.webOrigin = webOrigin;
     const port = await freePort();
@@ -265,6 +178,10 @@ try {
       WEBVIEW2_USER_DATA_FOLDER: path.join(output, 'webview-profile'),
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1 --use-fake-device-for-media-stream --use-fake-ui-for-media-stream --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion --autoplay-policy=no-user-gesture-required`
     };
+    if (args.includes('--cold-gstreamer-registry')) {
+      env.GST_REGISTRY_1_0 = path.join(output, 'gst-registry.bin');
+      report.gstreamerRegistry = { mode: 'isolated-cold', path: env.GST_REGISTRY_1_0 };
+    }
     const logPath = path.join(path.dirname(exe), 'native_debug.log');
     nativeLogSize = await stat(logPath).then(s => s.size).catch(() => 0);
     desktop = spawn(exe, [], { cwd: path.dirname(exe), env, windowsHide: false, stdio: 'ignore' });
@@ -279,6 +196,11 @@ try {
       if (!nativeBrowser) throw new Error('WebView2 CDP indisponível; confira runtime e executável');
       const context = nativeBrowser.contexts()[0]; await isolatedInit(context);
       hostPage = context.pages()[0] || await context.newPage();
+      // The shipping CSP intentionally rejects arbitrary localhost signaling ports.
+      // Scope the bypass to this isolated E2E WebView; do not relax application CSP.
+      const cdp = await context.newCDPSession(hostPage);
+      await cdp.send('Page.setBypassCSP', { enabled: true });
+      report.limitations.push('Isolated desktop page bypasses CSP to use ephemeral local signaling; shipping CSP is not validated by this run.');
       watchErrors(hostPage, 'desktop');
       if (!hostPage.url() || hostPage.url() === 'about:blank') {
         await hostPage.waitForURL(u => u && u.href !== 'about:blank', { timeout: 15000 });
@@ -309,6 +231,9 @@ try {
         viewerWindowPos = '50,50';
       }
     } catch {}
+    sourceWindowPos=validateWindowPosition(option('--source-position',sourceWindowPos));
+    viewerWindowPos=validateWindowPosition(option('--viewer-position',viewerWindowPos));
+    report.windowPositions={source:sourceWindowPos,viewer:viewerWindowPos};
 
     sourceBrowser = await chromium.launch({
       channel,
@@ -319,17 +244,17 @@ try {
         '--disable-renderer-backgrounding',
         '--disable-features=CalculateNativeWinOcclusion',
         `--window-position=${sourceWindowPos}`,
-        '--window-size=1280,720'
+        `--window-size=${QUALITY_PROFILES[preset].width},${QUALITY_PROFILES[preset].height}`
       ],
       timeout: 30000
     });
-    const sourceContext = await sourceBrowser.newContext({ viewport: { width: 1280, height: 720 } });
+    const sourceContext = await sourceBrowser.newContext({ viewport: { width: QUALITY_PROFILES[preset].width, height: QUALITY_PROFILES[preset].height } });
     const source = (await sourceContext.pages())[0] || await sourceContext.newPage();
     if (source.url() !== `${localOrigin}/e2e-motion.html`) {
       await source.goto(`${localOrigin}/e2e-motion.html`);
     }
     await source.bringToFront();
-    viewerBrowser = await chromium.launch({
+    viewerBrowser = remoteViewer ? await chromium.connect(remoteViewer.wsEndpoint,{...(viewerSshHost?{}:{exposeNetwork:'<loopback>'}),timeout:30000}) : await chromium.launch({
       channel,
       headless: false,
       args: [
@@ -346,6 +271,7 @@ try {
       ],
       timeout: 30000
     });
+    report.receiverBrowserVersion=viewerBrowser.version();
     viewerContext = await viewerBrowser.newContext();
     await viewerContext.grantPermissions(['camera', 'microphone']);
     await isolatedInit(viewerContext);
@@ -355,13 +281,16 @@ try {
     const fragment = `#room=${room}&key=${key}`;
     await record('desktop joins room', () => join(hostPage, `${nativeOrigin}/room.html${fragment}`, 'E2E Desktop'));
     await record('web joins same room', () => join(viewerPage, `${webOrigin}/room.html${fragment}`, 'E2E Web'));
+    await viewerPage.evaluate(async enabled => {
+      (await import('/js/entries/room-entry.js')).roomState.features.clipping.recorder.setPreferences({ enabled, recordLocal: false });
+    }, viewerReplay);
     await record('verify mutual authenticated membership', async () => {
-      await waitApp(hostPage, async () => (await import('/js/app.js')).roomManager?.myPeerId != null);
-      await waitApp(viewerPage, async () => (await import('/js/app.js')).roomManager?.myPeerId != null);
-      hostId = await hostPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
-      viewerId = await viewerPage.evaluate(async () => (await import('/js/app.js')).roomManager?.myPeerId);
+      await waitApp(hostPage, async () => (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager?.myPeerId != null);
+      await waitApp(viewerPage, async () => (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager?.myPeerId != null);
+      hostId = await hostPage.evaluate(async () => (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager?.myPeerId);
+      viewerId = await viewerPage.evaluate(async () => (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager?.myPeerId);
       if (!hostId || !viewerId || hostId === viewerId) throw new Error('Identidades dos clientes inválidas');
-      for (const [page, expected] of [[hostPage, viewerId], [viewerPage, hostId]]) await waitApp(page, async id => { const r = (await import('/js/app.js')).roomManager; return r?.members.has(id) && r.isPeerAuthorized(id); }, expected);
+      for (const [page, expected] of [[hostPage, viewerId], [viewerPage, hostId]]) await waitApp(page, async id => { const r = (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager; return r?.members.has(id) && r.isPeerAuthorized(id); }, expected);
     });
     const averageOf = (arr, fn) => {
       const vals = arr.map(fn).filter(n => Number.isFinite(n) && n !== null);
@@ -372,9 +301,13 @@ try {
       const startIndex = report.measurements.length;
       const videoTimes = [];
       const timeline = [];
+      const measurementStartedAt = Date.now();
+      let steadyStartedAt = null, steadyEndedAt = null, receiverSteadyStart = null, receiverSteadyEnd = null;
 
       for (let i = 0; i < durationSec; i++) {
         const currentPhase = i < 5 ? 'warmup' : (i < durationSec - 2 ? 'steady' : 'cooldown');
+        if(currentPhase==='steady'&&steadyStartedAt===null){steadyStartedAt=Date.now();receiverSteadyStart=await receiverPage.evaluate(()=>({perf:performance.now(),epoch:Date.now()}));}
+        if(currentPhase==='cooldown'&&steadyEndedAt===null){steadyEndedAt=Date.now();receiverSteadyEnd=await receiverPage.evaluate(()=>({perf:performance.now(),epoch:Date.now()}));}
         await bounded(`${label} stream telemetry`, sampleBoth);
         const receiverVid = await receiverPage.evaluate(({ id, phase }) => {
           const v = document.getElementById(`card-${id}`)?.querySelector('video');
@@ -415,6 +348,7 @@ try {
           phase: i < 5 ? 'warmup' : (i < durationSec - 2 ? 'steady' : 'cooldown'),
           source: {
             fps: recentStreamer?.sourceStats?.fps ?? null,
+            rafFps: recentStreamer?.sourceStats?.rafFps ?? null,
             framesProduced: recentStreamer?.sourceStats?.framesProduced ?? null
           },
           bridge: {
@@ -432,6 +366,8 @@ try {
             encoderImplementation: outbound?.encoderImplementation ?? null
           },
           webInbound: {
+            width: remoteInbound?.frameWidth ?? null,
+            height: remoteInbound?.frameHeight ?? null,
             decodedFps: remoteInbound?.delta?.decodedFps ?? null,
             decodeTimeMs: remoteInbound?.delta?.decodeTimeMs ?? null,
             jitterBufferMs: remoteInbound?.delta?.jitterBufferMs ?? null,
@@ -450,7 +386,12 @@ try {
           },
           system: {
             freeMemMb: Math.round(os.freemem() / (1024 * 1024)),
-            totalMemMb: Math.round(os.totalmem() / (1024 * 1024))
+            totalMemMb: Math.round(os.totalmem() / (1024 * 1024)),
+            resourceSampleTimestamp:resources.latest()?.timestamp??null,
+            resourceSampleAgeMs:resources.latest()?Date.now()-resources.latest().timestamp:null,
+            cpu:resources.latest()?.cpu??null,
+            gpuBusiestEnginePercent:resources.latest()?.gpu?.busiestEnginePercent??null,
+            processGroups:resources.latest()?.processGroups??null
           }
         });
 
@@ -478,6 +419,9 @@ try {
         const fresh = await activeSourcePage.evaluate(() => window.__smgSourceStats).catch(() => null);
         if (fresh) sourceStats = fresh;
       }
+      const sourceEvidenceFile = `${label.replace(/[^a-z0-9]/gi, '-')}-source.json`;
+      // Save the full provenance once, outside the hot measurement loop.
+      await writeFile(path.join(output,sourceEvidenceFile),JSON.stringify(sourceStats));
 
       // Isolamento de fases: métricas de performance calculadas exclusivamente no steady state
       const steadyTimeline = timeline.filter(t => t.phase === 'steady');
@@ -500,7 +444,7 @@ try {
       const recentDecodedSeqs = finalPresentation?.recentSeqs?.length ? finalPresentation.recentSeqs : (lastDecodedSeq != null && lastDecodedSeq > 0 ? [lastDecodedSeq] : []);
       const isProvenanceValid = recentDecodedSeqs.some(s => sourceSeqMap.has(s));
       const validSamples = finalPresentation?.validSamplesCount || 0;
-      const measurementValid = validSamples >= 5 && isProvenanceValid;
+      const measurementValid = opticalHz>0 ? validSamples >= 5 && isProvenanceValid : null;
 
       let glassToGlassLatency = null;
       // Prioridade metodológica estrita: steadyLatency isola o regime permanente sem contaminação do warmup
@@ -560,7 +504,7 @@ try {
         stuttersDetected: stutters.length,
         stutterEvents: stutters,
         measurementValid,
-        measurementReason: measurementValid ? 'Proveniência óptica e CRC-16 validados' : 'Leituras ópticas insuficientes ou sequência ausente no log da fonte',
+        measurementReason: opticalHz===0 ? 'Medição óptica desativada; latência visual não avaliada' : measurementValid ? 'Proveniência óptica e CRC-16 validados' : 'Leituras ópticas insuficientes ou sequência ausente no log da fonte',
         provenance: {
           isProvenanceValid,
           lastDecodedSeq,
@@ -572,8 +516,32 @@ try {
       const startupDynamics = finalPresentation?.startupDynamics || null;
       const warmupLatency = finalPresentation?.warmupLatency || null;
       const cooldownLatency = finalPresentation?.cooldownLatency || null;
+      const readProductionDiagnostic = page => page.evaluate(async () => {
+        const runtime = (await import('/js/entries/room-entry.js')).roomState;
+        const diagnostic=runtime.session?.services?.statsScope?.exportDiagnostic();
+        return diagnostic ? {...diagnostic,clockTimeOrigin:performance.timeOrigin} : null;
+      }).catch(() => null);
+      const receiverDiagnostic = await readProductionDiagnostic(receiverPage);
+      const senderDiagnostic = await readProductionDiagnostic(streamerPage);
+      const qualitySamples=(receiverDiagnostic?.streams||[]).flatMap(s=>s.samples).filter(s=>s.timestamp>=(receiverSteadyStart?.perf??Infinity)&&s.timestamp<=(receiverSteadyEnd?.perf??Infinity));
+      const qualification=assessQuality(qualitySamples,{...QUALITY_PROFILES[preset],codec:requestedCodec});
+      await writeFile(path.join(output, `${label.replace(/[^a-z0-9]/gi, '-')}-diagnostic.json`), JSON.stringify({ receiver: receiverDiagnostic, sender: senderDiagnostic }, null, 2));
+      let receiverResources=null;
+      if(remoteViewer&&receiverPage===viewerPage){
+        const remoteResources=await readViewerControl(remoteViewerEndpoint,'resources');
+        const samples=resourceWindow(remoteResources,receiverSteadyStart?.epoch??Infinity,receiverSteadyEnd?.epoch??Infinity);
+        receiverResources={metadata:remoteResources.metadata,clock:'receiver-epoch',summary:summarizeResources(samples),samples};
+        await writeFile(path.join(output,`${label}-receiver-resources.json`),JSON.stringify(receiverResources,null,2));
+      }
 
       return {
+        sourceEvidenceFile,
+        receiverResources,
+        qualification,
+        resources:resources.window(steadyStartedAt??measurementStartedAt,steadyEndedAt??Date.now()),
+        deliveredResolutions: [...new Set(steadyTimeline.map(t => t.webInbound.width && t.webInbound.height
+          ? `${t.webInbound.width}x${t.webInbound.height}` : null).filter(Boolean))],
+        productionDiagnostic: { receiver: receiverDiagnostic, sender: senderDiagnostic },
         timeline,
         performance: perf,
         glassToGlassLatency,
@@ -610,18 +578,18 @@ try {
 
     const executeNativePhase = async () => {
       console.log('\n--- Executando Fase: Captura Nativa (Direct3D 11 / WGC) ---');
+      await hostPage.evaluate(async enabled => {
+        (await import('/js/entries/room-entry.js')).roomState.features.clipping.recorder.setPreferences({ enabled, recordLocal: enabled });
+      }, nativeReplay);
       await record('select native synthetic window and transmit', async () => {
         await hostPage.locator('#audio-mode-select').selectOption('none', { force: true });
         await hostPage.locator('#quality-preset').selectOption(preset, { force: true }).catch(() => {});
+        await hostPage.locator('#video-codec-select').selectOption(requestedCodec, { force: true });
         await hostPage.locator('#dock-stream-btn').click({ force: true });
         await hostPage.locator('.window-item').first().waitFor({ state: 'visible', timeout: 45000 });
 
         let targetWindow = hostPage.locator('.window-item').filter({ hasText: syntheticTitle }).first();
         let hasTarget = (await targetWindow.count().catch(() => 0)) > 0;
-        if (!hasTarget) {
-          targetWindow = hostPage.locator('.window-item').filter({ hasText: 'SMG E2E Motion' }).first();
-          hasTarget = (await targetWindow.count().catch(() => 0)) > 0;
-        }
         if (!hasTarget) {
           const availableItems = await hostPage.locator('.window-item .window-title').allInnerTexts().catch(() => []);
           throw new Error(`Janela sintética "${syntheticTitle}" não foi encontrada no seletor nativo. Janelas listadas: ${JSON.stringify(availableItems)}`);
@@ -653,6 +621,12 @@ try {
         if (!ready) throw new Error('Espectador não reproduziu vídeo do host em 45s; veja measurements e native-debug.log');
         report.nativeState = await hostPage.evaluate(async () => (await import('/js/desktop.js')).getNativeCaptureState());
         if (!report.nativeState.sessionId) throw new Error('Vídeo sem sessão nativa ativa');
+        report.nativeTransport = await hostPage.evaluate(async () => {
+          const state = (await import('/js/entries/room-entry.js')).roomState;
+          return { browserMediaCalls: state.screenCalls.size, directNativePeers: state.features.nativeMedia.senders.size };
+        });
+        if (report.nativeTransport.browserMediaCalls !== 0 || report.nativeTransport.directNativePeers !== 1)
+          throw new Error('A fase nativa deve usar envio direto GStreamer, sem recodificação no navegador');
       });
 
       const res = await record('sample native bridge, outbound and remote receiver', async () => {
@@ -673,8 +647,32 @@ try {
       report.glassToGlassLatency = res.glassToGlassLatency;
       report.diagnostics = res.diagnostics;
       report.native = res;
+      if (nativeReplay) report.nativeReplay = await record('export native replay and decode MP4', async () => hostPage.evaluate(async () => {
+        const registry = (await import('/js/entries/room-entry.js')).roomState.features.clipping.recorder;
+        const recorder = registry.getRecorder('local-me'); await recorder?.ready;
+        if (!recorder?.sessionId || recorder.mediaRecorder) throw new Error('Replay must reuse native encoded data');
+        const blob = await registry.exportClip(null, 'local-me');
+        if (!blob?.size) throw new Error('Empty native clip');
+        const url = URL.createObjectURL(blob), video = document.createElement('video');
+        video.src = url; video.muted = true; video.style.cssText = 'position:fixed;bottom:0;left:0;width:320px;z-index:100000';
+        document.body.appendChild(video);
+        try {
+          await Promise.race([new Promise((resolve, reject) => { video.onloadeddata = resolve; video.onerror = () => reject(new Error('Native MP4 does not decode')); }), new Promise((_, reject) => setTimeout(() => reject(new Error('Native MP4 decode timeout')), 10000))]);
+          await video.play(); await new Promise(resolve => setTimeout(resolve, 700));
+          const decodedFrames = video.getVideoPlaybackQuality().totalVideoFrames;
+          if (decodedFrames < 3) throw new Error('Native clip has no moving video');
+          const dataBase64 = await new Promise(resolve => {
+            const reader = new FileReader(); reader.onload = () => resolve(reader.result.slice(reader.result.lastIndexOf(',') + 1)); reader.readAsDataURL(blob);
+          });
+          return { bytes: blob.size, mime: blob.type, width: video.videoWidth, height: video.videoHeight, decodedFrames, mediaRecorder: false, dataBase64 };
+        } finally { video.pause(); video.remove(); URL.revokeObjectURL(url); }
+      }));
+      if (report.nativeReplay?.dataBase64) {
+        await writeFile(path.join(output, 'native-replay.mp4'), Buffer.from(report.nativeReplay.dataBase64, 'base64'));
+        delete report.nativeReplay.dataBase64;
+        report.nativeReplay.artifact = path.join(output, 'native-replay.mp4');
+      }
 
-      if (minFps && report.performance.p10DecodedFps < minFps) throw new Error(`FPS p10 abaixo da meta ${minFps}`);
       report.checks.push({ name: 'remote decoded frames progress', status: 'passed' });
 
       await hostPage.screenshot({ path: path.join(output, isCompareMode ? 'desktop-native.png' : 'desktop.png') });
@@ -693,11 +691,12 @@ try {
       await record('start web capture transmission', async () => {
         await viewerPage.locator('#audio-mode-select').selectOption('none', { force: true }).catch(() => {});
         await viewerPage.locator('#quality-preset').selectOption(preset, { force: true }).catch(() => {});
+        await viewerPage.locator('#video-codec-select').selectOption(requestedCodec, { force: true });
         await source.bringToFront().catch(() => {});
         await source.evaluate(() => window.focus()).catch(() => {});
         await sleep(500);
         await viewerPage.evaluate(async () => {
-          const app = await import('/js/app.js');
+          const app = (await import('/js/diagnostics/session-api.js')).getActiveSession();
           return app.startLocalStream({
             displaySurface: 'window'
           });
@@ -740,7 +739,7 @@ try {
 
       await record('stop web capture stream', async () => {
         await viewerPage.evaluate(async () => {
-          const app = await import('/js/app.js');
+          const app = (await import('/js/diagnostics/session-api.js')).getActiveSession();
           return app.stopLocalStream();
         }).catch(() => {});
         await sleep(1000);
@@ -786,13 +785,16 @@ try {
       const measurementValidBoth = nativeResult.diagnostics.measurementValid && webResult.diagnostics.measurementValid;
 
       report.comparison = {
+        captureMethodIsolated: false,
         declaredFactors: [
           'Streamer: WebView2 (Nativo) vs Chromium (Web)',
           'Receiver: Chromium (Nativo) vs WebView2 (Web)',
           'Fonte: Janela sintética idêntica SMG E2E Motion (1280x720)',
           'Superfície de Captura: Janela vs Janela (Direct3D 11/WGC vs getDisplayMedia)',
-          'Resolução e Cadência: 1280x720 @ 60 FPS'
+          'Fonte solicitada: 1280x720 @ 60 FPS; resolução entregue registrada separadamente',
+          'Os receptores são diferentes; esta execução não isola apenas o método de captura'
         ],
+        deliveredResolutions: { native: nativeResult.deliveredResolutions, web: webResult.deliveredResolutions },
         native: {
           medianDecodedFps: natFps,
           glassToGlassP50Ms: natLat,
@@ -834,7 +836,8 @@ try {
         verdict: {
           measurementValid: measurementValidBoth,
           localPreviewCostMs: bridgeObservableMs,
-          latencyEvaluation: measurementValidBoth && natLat !== null && webLat !== null
+          latencyEvaluation: 'Comparação exploratória: receptores distintos; deltas não isolam o método de captura',
+          observedLatencyDifference: measurementValidBoth && natLat !== null && webLat !== null
             ? (natLat <= webLat
                 ? `Envio nativo direto é ${(webLat - natLat).toFixed(0)}ms mais rápido que web capture`
                 : (natLat <= webLat + 35
@@ -847,14 +850,14 @@ try {
         }
       };
 
-      console.log('\n=== Matriz Comparativa Rigorosa (Nativo vs Web) ===');
+      console.log('\n=== Comparação observada (Nativo vs Web; veja condições no relatório) ===');
       console.table({
         'Nativo (Direct3D 11)': {
           'FPS Mediano (Steady)': natFps?.toFixed(1),
           'Latência p50 Steady (ms)': natLat ?? 'Inconclusivo',
           'Latência p90 Steady (ms)': nativeResult.glassToGlassLatency?.p90Ms ?? 'N/A',
           'Latência p99 Steady (ms)': nativeResult.glassToGlassLatency?.p99Ms ?? 'N/A',
-          'Encode Outbound (ms)': natEncodeMs ?? 'N/A (NVENC HW)',
+          'Encode Outbound (ms)': natEncodeMs ?? 'N/A (encoder nativo não medido)',
           'Preview Local Obs. (ms)': bridgeObservableMs ?? 'N/A',
           'Pausa Warmup (ms)': nativeResult.startupDynamics?.startupMaxPauseMs ?? 0,
           'Stutters Steady': nativeResult.diagnostics.stuttersDetected,
@@ -878,19 +881,16 @@ try {
     const measurementValid = isCompareMode
       ? (report.comparison?.verdict?.measurementValid ?? false)
       : (nativeResult.diagnostics.measurementValid);
-    const performancePassed = (!minFps || report.performance.medianDecodedFps >= minFps);
-
-    report.verdict = {
-      functionalPassed,
-      measurementValid,
-      performancePassed,
-      overallStatus: functionalPassed && measurementValid && performancePassed ? 'passed' : (measurementValid ? 'failed' : 'inconclusive')
-    };
+    const qualifications=[nativeResult.qualification,...(isCompareMode?[webResult.qualification]:[])];
+    const qualificationStatus=qualifications.some(q=>q.status==='failed')?'failed':qualifications.every(q=>q.status==='passed')?'passed':'insufficient-evidence';
+    const fpsResults=[nativeResult.performance.p10DecodedFps,...(isCompareMode?[webResult.performance.p10DecodedFps]:[])];
+    report.verdict = evaluateStreamVerdict({functionalPassed,measurementRequested:opticalHz>0,measurementValid,qualificationStatus,requireQuality,minFps,p10Fps:fpsResults.every(Number.isFinite)?Math.min(...fpsResults):null});
 
     report.status = report.verdict.overallStatus;
   }
 } catch (error) { report.status = 'failed'; report.error = error.message; process.exitCode = 1; }
 finally {
+  await resources.stop();report.resources=resources.report();
   await checkpoint();
   if (report.status === 'failed') {
     for (const [side, page] of [['desktop', hostPage], ['viewer', viewerPage]]) {
@@ -901,6 +901,7 @@ finally {
     // Stop only this isolated session; never taskkill processes by name.
     if (!hostPage.isClosed()) await cleanup('stop native capture', () => hostPage.evaluate(async () => (await import('/js/desktop.js')).stopNativeCapture()));
   }
+  if(remoteViewer&&viewerContext)await cleanup('close owned remote viewer context',()=>viewerContext.close());
   for (const [name, browser] of [['viewer', viewerBrowser], ['source', sourceBrowser], ['desktop CDP', nativeBrowser]]) if (browser) await cleanup(`close ${name}`, () => browser.close());
   if (desktop && desktop.exitCode === null) { desktop.kill(); }
   if (desktop) {
@@ -908,6 +909,9 @@ finally {
     if (log.length > nativeLogSize) await writeFile(path.join(output, 'native-debug.log'), log.subarray(nativeLogSize));
   }
   if (server) { server.closeAllConnections(); await cleanup('close HTTP server', () => new Promise(r => server.close(r))); }
-  await writeFile(path.join(output, 'report.json'), JSON.stringify(report, null, 2));
+  if (signaling) await cleanup('close local signaling', () => signaling.close());
+  if (reverseTunnel) await cleanup('close owned reverse SSH forwarding',()=>reverseTunnel.stop());
+  await writeFile(path.join(output, 'report.json'), serializeReport());
   console.log(`E2E ${report.status}: ${path.join(output, 'report.json')}`);
 }
+if(report.status==='failed')process.exitCode=1;else if(report.status==='inconclusive')process.exitCode=2;

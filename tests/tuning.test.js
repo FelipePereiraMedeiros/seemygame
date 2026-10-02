@@ -1,3 +1,4 @@
+import { initLegacyBindings } from '../js/app.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DiscordUIController } from '../js/discord-ui.js';
 import { reconfigureNativeCapture } from '../js/desktop.js';
@@ -186,3 +187,5 @@ describe('Ocultação Automática da Barra Inferior e Reações (DiscordUI)', ()
     expect(reactions.classList.contains('dock-hidden')).toBe(false);
   });
 });
+
+initLegacyBindings();

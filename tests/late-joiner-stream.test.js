@@ -138,7 +138,7 @@ describe('Transmissão em Andamento: Novo Participante na Sala (Late-Joiner)', (
     globalThis.MediaStreamTrack = MockMediaStreamTrack;
     globalThis.Peer = MockPeer;
 
-    app = await import('../js/app.js');
+    app = await import('../js/app.js'); app.initLegacyBindings();
   });
 
   beforeEach(() => {

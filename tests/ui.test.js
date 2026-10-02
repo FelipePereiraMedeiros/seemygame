@@ -110,6 +110,14 @@ describe('Módulo: ui.js', () => {
       expect(modal.style.display).toBe('none');
     });
 
+    it('deve invocar onAcceptCallback imediatamente caso os termos já tenham sido aceitos', () => {
+      localStorage.setItem('seemygame_terms_accepted', 'true');
+      const callback = vi.fn();
+      initTermsModal(callback);
+
+      expect(callback).toHaveBeenCalledOnce();
+    });
+
     it('deve salvar aceite no localStorage e fechar o modal ao clicar em aceitar', () => {
       initTermsModal();
 

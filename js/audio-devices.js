@@ -3,6 +3,7 @@
  * Permite listar, selecionar, persistir e testar microfones e alto-falantes/fones de ouvido.
  */
 
+import { createAudioScope } from './audio/context-scope.js';
 export const STORAGE_KEY_INPUT = 'seemygame_audio_input_id';
 export const STORAGE_KEY_OUTPUT = 'seemygame_audio_output_id';
 
@@ -145,7 +146,10 @@ export async function playTestTone(sinkId = '') {
   const AudioContextClass = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
   if (!AudioContextClass) return;
 
-  const ctx = new AudioContextClass();
+  const scope = createAudioScope({ AudioContextClass });
+  const ctx = scope.getContext('device-test');
+  let audioElem = null;
+  try {
   if (ctx.state === 'suspended') {
     await ctx.resume().catch(() => {});
   }
@@ -179,7 +183,6 @@ export async function playTestTone(sinkId = '') {
   osc1.connect(gain);
   osc2.connect(gain);
 
-  let audioElem = null;
   if (sinkId && typeof ctx.createMediaStreamDestination === 'function' && typeof Audio !== 'undefined') {
     try {
       const dest = ctx.createMediaStreamDestination();
@@ -204,15 +207,13 @@ export async function playTestTone(sinkId = '') {
 
   await new Promise((resolve) => setTimeout(resolve, 500));
 
-  try {
+  } finally {
     if (audioElem) {
       audioElem.pause();
       audioElem.srcObject = null;
     }
-    if (ctx.state !== 'closed') {
-      await ctx.close().catch(() => {});
-    }
-  } catch (e) {}
+    await scope.dispose();
+  }
 }
 
 /**

@@ -24,8 +24,12 @@ import {
   setGamepadMappingPreset,
   swapGamepadButtons,
   resetGamepadMapping,
-  applyButtonMapping
+  applyButtonMapping,
+  detectGamepadType,
+  getButtonDisplayLabel,
+  setupGamepadTesterModal
 } from '../js/coop.js';
+import { renderCoopLobbyDock } from '../js/ui/coop-controls.js';
 
 describe('Módulo: coop.js', () => {
   beforeEach(() => {
@@ -51,6 +55,7 @@ describe('Módulo: coop.js', () => {
     setCoopEnabled(false);
     const mockConn = { send: vi.fn() };
 
+    mockConn.peer = 'peer-viewer-1'; mockConn.open = true;
     handleHostCoopMessage('peer-viewer-1', { type: 'COOP_REQUEST' }, mockConn);
 
     expect(mockConn.send).toHaveBeenCalledWith({
@@ -68,6 +73,7 @@ describe('Módulo: coop.js', () => {
       promptData = data;
     });
 
+    mockConn.peer = 'viewer-player-2'; mockConn.open = true;
     handleHostCoopMessage('viewer-player-2', { type: 'COOP_REQUEST' }, mockConn);
 
     expect(promptData).not.toBeNull();
@@ -78,7 +84,8 @@ describe('Módulo: coop.js', () => {
 
     expect(mockConn.send).toHaveBeenCalledWith({
       type: 'COOP_RESPONSE',
-      approved: true
+      approved: true,
+      slot: 1
     });
     expect(getCoopState().activePlayer2PeerId).toBe('viewer-player-2');
   });
@@ -89,9 +96,11 @@ describe('Módulo: coop.js', () => {
 
     registerCoopPromptHandler(({ approve }) => approve());
 
+    mockConn1.peer = 'p2-first'; mockConn1.open = true;
     handleHostCoopMessage('p2-first', { type: 'COOP_REQUEST' }, mockConn1);
     expect(getCoopState().activePlayer2PeerId).toBe('p2-first');
 
+    mockConn2.peer = 'p2-second'; mockConn2.open = true;
     handleHostCoopMessage('p2-second', { type: 'COOP_REQUEST' }, mockConn2);
     expect(mockConn2.send).toHaveBeenCalledWith({
       type: 'COOP_RESPONSE',
@@ -104,6 +113,7 @@ describe('Módulo: coop.js', () => {
     const mockConn = { send: vi.fn() };
     registerCoopPromptHandler(({ approve }) => approve());
 
+    mockConn.peer = 'p2-target'; mockConn.open = true;
     handleHostCoopMessage('p2-target', { type: 'COOP_REQUEST' }, mockConn);
     expect(getCoopState().activePlayer2PeerId).toBe('p2-target');
 
@@ -115,6 +125,7 @@ describe('Módulo: coop.js', () => {
   it('deve despachar eventos de teclado disparados pelo Player 2 autorizado', () => {
     const mockConn = { send: vi.fn() };
     registerCoopPromptHandler(({ approve }) => approve());
+    mockConn.peer = 'p2-gamer'; mockConn.open = true;
     handleHostCoopMessage('p2-gamer', { type: 'COOP_REQUEST' }, mockConn);
 
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
@@ -154,7 +165,7 @@ describe('Módulo: coop.js', () => {
     const mockVideo = document.createElement('video');
     mockCard.appendChild(mockVideo);
 
-    handleViewerCoopMessage({ type: 'COOP_RESPONSE', approved: true }, 'host-id-1', mockCard);
+    handleViewerCoopMessage({ type: 'COOP_RESPONSE', approved: true, slot: 1 }, 'host-id-1', mockCard);
     expect(getCoopState().isPlayer2).toBe(true);
 
     releaseCoopControl();
@@ -186,7 +197,7 @@ describe('Módulo: coop.js', () => {
 
     const mockConn = { send: vi.fn() };
     requestCoopControl('host-123', mockConn);
-    handleViewerCoopMessage({ type: 'COOP_RESPONSE', approved: true }, 'host-123', mockCard);
+    handleViewerCoopMessage({ type: 'COOP_RESPONSE', approved: true, slot: 1 }, 'host-123', mockCard);
 
     // Cria um input de chat e foca nele
     const input = document.createElement('input');
@@ -295,6 +306,7 @@ describe('Módulo: coop.js', () => {
 
     const mockConn = { send: vi.fn() };
     registerCoopPromptHandler(({ approve }) => approve());
+    mockConn.peer = 'p2-pad'; mockConn.open = true;
     handleHostCoopMessage('p2-pad', { type: 'COOP_REQUEST' }, mockConn);
 
     // Host Tauri deve ter plugado o controle virtual no slot 1
@@ -338,22 +350,26 @@ describe('Módulo: coop.js', () => {
       registerCoopPromptHandler(({ approve }) => approve());
 
       // P2 (slot 1)
-      handleHostCoopMessage('guest-1', { type: 'COOP_REQUEST', name: 'Alice' }, conn1);
-      expect(conn1.send).toHaveBeenCalledWith({ type: 'COOP_RESPONSE', approved: true });
+      conn1.peer = 'guest-1'; conn1.open = true;
+    handleHostCoopMessage('guest-1', { type: 'COOP_REQUEST', name: 'Alice' }, conn1);
+      expect(conn1.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_RESPONSE', approved: true, slot: expect.any(Number) }));
       expect(conn1.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_CAPABILITIES', slot: 1 }));
 
       // P3 (slot 2)
-      handleHostCoopMessage('guest-2', { type: 'COOP_REQUEST', name: 'Bob' }, conn2);
-      expect(conn2.send).toHaveBeenCalledWith({ type: 'COOP_RESPONSE', approved: true });
+      conn2.peer = 'guest-2'; conn2.open = true;
+    handleHostCoopMessage('guest-2', { type: 'COOP_REQUEST', name: 'Bob' }, conn2);
+      expect(conn2.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_RESPONSE', approved: true, slot: expect.any(Number) }));
       expect(conn2.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_CAPABILITIES', slot: 2 }));
 
       // P4 (slot 3)
-      handleHostCoopMessage('guest-3', { type: 'COOP_REQUEST', name: 'Charlie' }, conn3);
-      expect(conn3.send).toHaveBeenCalledWith({ type: 'COOP_RESPONSE', approved: true });
+      conn3.peer = 'guest-3'; conn3.open = true;
+    handleHostCoopMessage('guest-3', { type: 'COOP_REQUEST', name: 'Charlie' }, conn3);
+      expect(conn3.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_RESPONSE', approved: true, slot: expect.any(Number) }));
       expect(conn3.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_CAPABILITIES', slot: 3 }));
 
       // 4º convidado tenta entrar -> deve ser recusado pois slot 0 está reservado para o Host local
-      handleHostCoopMessage('guest-4', { type: 'COOP_REQUEST', name: 'Dave' }, conn4);
+      conn4.peer = 'guest-4'; conn4.open = true;
+    handleHostCoopMessage('guest-4', { type: 'COOP_REQUEST', name: 'Dave' }, conn4);
       expect(conn4.send).toHaveBeenCalledWith(expect.objectContaining({
         approved: false,
         reason: expect.stringContaining('ocupados')
@@ -382,19 +398,24 @@ describe('Módulo: coop.js', () => {
       registerCoopPromptHandler(({ approve }) => approve());
 
       // Entram 4 convidados ocupando slots 0, 1, 2, 3
-      handleHostCoopMessage('party-1', { type: 'COOP_REQUEST', name: 'P1-Remote' }, conn1);
-      handleHostCoopMessage('party-2', { type: 'COOP_REQUEST', name: 'P2-Remote' }, conn2);
-      handleHostCoopMessage('party-3', { type: 'COOP_REQUEST', name: 'P3-Remote' }, conn3);
-      handleHostCoopMessage('party-4', { type: 'COOP_REQUEST', name: 'P4-Remote' }, conn4);
+      conn1.peer = 'party-1'; conn1.open = true;
+    handleHostCoopMessage('party-1', { type: 'COOP_REQUEST', name: 'P1-Remote' }, conn1);
+      conn2.peer = 'party-2'; conn2.open = true;
+    handleHostCoopMessage('party-2', { type: 'COOP_REQUEST', name: 'P2-Remote' }, conn2);
+      conn3.peer = 'party-3'; conn3.open = true;
+    handleHostCoopMessage('party-3', { type: 'COOP_REQUEST', name: 'P3-Remote' }, conn3);
+      conn4.peer = 'party-4'; conn4.open = true;
+    handleHostCoopMessage('party-4', { type: 'COOP_REQUEST', name: 'P4-Remote' }, conn4);
 
-      expect(conn1.send).toHaveBeenCalledWith({ type: 'COOP_RESPONSE', approved: true });
+      expect(conn1.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_RESPONSE', approved: true, slot: expect.any(Number) }));
       expect(conn1.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_CAPABILITIES', slot: 0 }));
       expect(conn2.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_CAPABILITIES', slot: 1 }));
       expect(conn3.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_CAPABILITIES', slot: 2 }));
       expect(conn4.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_CAPABILITIES', slot: 3 }));
 
       // 5º convidado
-      handleHostCoopMessage('party-5', { type: 'COOP_REQUEST' }, conn5);
+      conn5.peer = 'party-5'; conn5.open = true;
+    handleHostCoopMessage('party-5', { type: 'COOP_REQUEST' }, conn5);
       expect(conn5.send).toHaveBeenCalledWith(expect.objectContaining({
         approved: false,
         reason: expect.stringContaining('ocupados')
@@ -412,8 +433,10 @@ describe('Módulo: coop.js', () => {
       const connP3 = { send: vi.fn() };
 
       registerCoopPromptHandler(({ approve }) => approve());
-      handleHostCoopMessage('peer-p2', { type: 'COOP_REQUEST' }, connP2);
-      handleHostCoopMessage('peer-p3', { type: 'COOP_REQUEST' }, connP3);
+      connP2.peer = 'peer-p2'; connP2.open = true;
+    handleHostCoopMessage('peer-p2', { type: 'COOP_REQUEST' }, connP2);
+      connP3.peer = 'peer-p3'; connP3.open = true;
+    handleHostCoopMessage('peer-p3', { type: 'COOP_REQUEST' }, connP3);
 
       mockInvoke.mockClear();
 
@@ -453,8 +476,10 @@ describe('Módulo: coop.js', () => {
       const conn2 = { send: vi.fn(), open: true };
 
       registerCoopPromptHandler(({ approve }) => approve());
-      handleHostCoopMessage('peer-1', { type: 'COOP_REQUEST' }, conn1); // slot 1
-      handleHostCoopMessage('peer-2', { type: 'COOP_REQUEST' }, conn2); // slot 2
+      conn1.peer = 'peer-1'; conn1.open = true;
+    handleHostCoopMessage('peer-1', { type: 'COOP_REQUEST' }, conn1); // slot 1
+      conn2.peer = 'peer-2'; conn2.open = true;
+    handleHostCoopMessage('peer-2', { type: 'COOP_REQUEST' }, conn2); // slot 2
 
       expect(getCoopState().activeSlotsCount).toBe(2);
 
@@ -478,8 +503,10 @@ describe('Módulo: coop.js', () => {
       const conn2 = { send: vi.fn(), open: true };
 
       registerCoopPromptHandler(({ approve }) => approve());
-      handleHostCoopMessage('peer-1', { type: 'COOP_REQUEST' }, conn1);
-      handleHostCoopMessage('peer-2', { type: 'COOP_REQUEST' }, conn2);
+      conn1.peer = 'peer-1'; conn1.open = true;
+    handleHostCoopMessage('peer-1', { type: 'COOP_REQUEST' }, conn1);
+      conn2.peer = 'peer-2'; conn2.open = true;
+    handleHostCoopMessage('peer-2', { type: 'COOP_REQUEST' }, conn2);
 
       revokeAllCoopPlayers();
 
@@ -495,7 +522,8 @@ describe('Módulo: coop.js', () => {
       const conn = { send: vi.fn() };
       registerCoopPromptHandler(({ approve }) => approve());
 
-      handleHostCoopMessage('peer-broadcast', { type: 'COOP_REQUEST', name: 'Gamer' }, conn);
+      conn.peer = 'peer-broadcast'; conn.open = true;
+    handleHostCoopMessage('peer-broadcast', { type: 'COOP_REQUEST', name: 'Gamer' }, conn);
 
       expect(broadcastSpy).toHaveBeenCalledWith(expect.objectContaining({
         type: 'COOP_SLOTS_UPDATE',
@@ -508,7 +536,8 @@ describe('Módulo: coop.js', () => {
       const conn = { send: vi.fn() };
       registerCoopPromptHandler(({ approve }) => approve());
 
-      handleHostCoopMessage('peer-leaver', { type: 'COOP_REQUEST' }, conn);
+      conn.peer = 'peer-leaver'; conn.open = true;
+    handleHostCoopMessage('peer-leaver', { type: 'COOP_REQUEST' }, conn);
       expect(getCoopState().activeSlotsCount).toBe(1);
 
       // Peer desconectou do WebSocket / WebRTC
@@ -572,6 +601,177 @@ describe('Módulo: coop.js', () => {
       resetGamepadMapping();
       expect(getGamepadMapping().preset).toBe('xbox');
       expect(getGamepadMapping().map[0]).toBe(0);
+    });
+
+    it('setGamepadMappingPreset deve suportar preset playstation mantendo layout 1:1', () => {
+      setGamepadMappingPreset('playstation');
+      const mapping = getGamepadMapping();
+      expect(mapping.preset).toBe('playstation');
+      expect(mapping.map[0]).toBe(0);
+      expect(mapping.map[1]).toBe(1);
+    });
+  });
+
+  describe('R4: Reconhecimento de Hardware de Gamepad e Rótulos Visuais', () => {
+    it('detectGamepadType deve identificar Sony DualSense, DualShock e PlayStation', () => {
+      expect(detectGamepadType('Sony Interactive Entertainment Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)')).toBe('playstation');
+      expect(detectGamepadType('DualSense Wireless Controller')).toBe('playstation');
+      expect(detectGamepadType('DualShock 4 USB Wireless Adaptor')).toBe('playstation');
+      expect(detectGamepadType('PlayStation 5 Controller')).toBe('playstation');
+    });
+
+    it('detectGamepadType deve identificar Nintendo Switch Pro e Joy-Cons', () => {
+      expect(detectGamepadType('Nintendo Switch Pro Controller (Vendor: 057e Product: 2009)')).toBe('nintendo');
+      expect(detectGamepadType('Joy-Con (L/R)')).toBe('nintendo');
+    });
+
+    it('detectGamepadType deve identificar 8BitDo', () => {
+      expect(detectGamepadType('8BitDo Ultimate Controller (Vendor: 2dc8)')).toBe('8bitdo');
+      expect(detectGamepadType('8BitDo Pro 2')).toBe('8bitdo');
+    });
+
+    it('detectGamepadType deve identificar Xbox e XInput', () => {
+      expect(detectGamepadType('Xbox 360 Controller (XInput STANDARD GAMEPAD)')).toBe('xbox');
+      expect(detectGamepadType('Xbox Wireless Controller (Vendor: 045e)')).toBe('xbox');
+    });
+
+    it('detectGamepadType deve retornar generic para dispositivos desconhecidos ou vazios', () => {
+      expect(detectGamepadType('')).toBe('generic');
+      expect(detectGamepadType(null)).toBe('generic');
+      expect(detectGamepadType('Generic USB Joystick')).toBe('generic');
+    });
+
+    it('getButtonDisplayLabel deve retornar glifos PlayStation canônicos quando preset ou dispositivo for playstation', () => {
+      expect(getButtonDisplayLabel(0, 'playstation')).toBe('✕ (Cross)');
+      expect(getButtonDisplayLabel(1, 'playstation')).toBe('○ (Circle)');
+      expect(getButtonDisplayLabel(2, 'playstation')).toBe('□ (Square)');
+      expect(getButtonDisplayLabel(3, 'playstation')).toBe('△ (Triangle)');
+      expect(getButtonDisplayLabel(4, 'playstation')).toBe('L1');
+      expect(getButtonDisplayLabel(5, 'playstation')).toBe('R1');
+      expect(getButtonDisplayLabel(8, 'playstation')).toBe('Share / Create');
+      expect(getButtonDisplayLabel(9, 'playstation')).toBe('Options');
+
+      // Auto-detecção de hardware playstation mesmo com preset custom
+      expect(getButtonDisplayLabel(0, 'custom', 'playstation')).toBe('✕ (Cross)');
+    });
+
+    it('getButtonDisplayLabel deve retornar layout Nintendo canônico', () => {
+      expect(getButtonDisplayLabel(0, 'nintendo')).toBe('B');
+      expect(getButtonDisplayLabel(1, 'nintendo')).toBe('A');
+      expect(getButtonDisplayLabel(2, 'nintendo')).toBe('Y');
+      expect(getButtonDisplayLabel(3, 'nintendo')).toBe('X');
+      expect(getButtonDisplayLabel(8, 'nintendo')).toBe('-');
+      expect(getButtonDisplayLabel(9, 'nintendo')).toBe('+');
+    });
+
+    it('getButtonDisplayLabel deve retornar layout Xbox padrão', () => {
+      expect(getButtonDisplayLabel(0, 'xbox')).toBe('A');
+      expect(getButtonDisplayLabel(1, 'xbox')).toBe('B');
+      expect(getButtonDisplayLabel(2, 'xbox')).toBe('X');
+      expect(getButtonDisplayLabel(3, 'xbox')).toBe('Y');
+      expect(getButtonDisplayLabel(8, 'xbox')).toBe('Back / View');
+      expect(getButtonDisplayLabel(9, 'xbox')).toBe('Start / Menu');
+    });
+  });
+
+  describe('R2: Suporte e Indicação de Até 4 Controles Simultâneos (Modal e Dock)', () => {
+    let container;
+
+    beforeEach(() => {
+      container = document.createElement('div');
+      container.innerHTML = `
+        <div id="gamepad-tester-modal" style="display: flex;">
+          <select id="gamepad-select"></select>
+          <div id="gamepad-multi-hint"></div>
+          <div id="gamepad-visual"></div>
+          <p id="gamepad-connection-label"></p>
+          <div id="gamepad-sticks-label"></div>
+          <div id="gamepad-triggers-label"></div>
+          <div id="gamepad-buttons-label"></div>
+          <select id="gamepad-mapping-preset">
+            <option value="xbox">Xbox</option>
+            <option value="playstation">PlayStation</option>
+            <option value="nintendo">Nintendo</option>
+          </select>
+          <div id="gamepad-mapping-status"></div>
+        </div>
+        <div id="coop-lobby-dock" style="display: none;">
+          <div id="coop-slots-container"></div>
+          <button id="coop-panic-all-btn" style="display: none;"></button>
+        </div>
+      `;
+      document.body.appendChild(container);
+    });
+
+    afterEach(() => {
+      container.remove();
+    });
+
+    it('setupGamepadTesterModal deve exibir 4 slots (conectados e vagos) e instrução para conectar até 4 controles', () => {
+      const mockGamepads = [
+        {
+          index: 0,
+          id: 'DualSense Wireless Controller (054c:0ce6)',
+          connected: true,
+          axes: [0, 0, 0, 0],
+          buttons: Array(17).fill({ pressed: false, value: 0 })
+        }
+      ];
+      globalThis.navigator.getGamepads = () => mockGamepads;
+
+      const cleanup = setupGamepadTesterModal();
+
+      const select = document.getElementById('gamepad-select');
+      const connectionLabel = document.getElementById('gamepad-connection-label');
+      const multiHint = document.getElementById('gamepad-multi-hint');
+
+      expect(select.options.length).toBe(4);
+      expect(select.options[0].value).toBe('web:0');
+      expect(select.options[0].textContent).toContain('DualSense');
+      expect(select.options[0].textContent).toContain('[PlayStation]');
+
+      expect(select.options[1].value).toBe('vacant:1');
+      expect(select.options[2].value).toBe('vacant:2');
+      expect(select.options[3].value).toBe('vacant:3');
+
+      expect(connectionLabel.textContent).toContain('DualSense Wireless Controller');
+      expect(connectionLabel.textContent).toContain('Conecte até 4 controles');
+      expect(multiHint.textContent).toContain('1 controle(s) conectado(s)');
+      expect(multiHint.textContent).toContain('Conecte até 4');
+
+      if (cleanup) cleanup();
+    });
+
+    it('renderCoopLobbyDock deve renderizar exatamente 4 slots com chips e estados corretos', () => {
+      const slots = [
+        { slot: 0, name: 'Host Player', isHost: true, peerId: 'host-1', deviceType: 'xbox' },
+        { slot: 1, name: 'Amigo 1', isHost: false, peerId: 'guest-1', deviceType: 'playstation' }
+      ];
+
+      renderCoopLobbyDock(null, slots, true);
+
+      const dock = document.getElementById('coop-lobby-dock');
+      const containerEl = document.getElementById('coop-slots-container');
+      const panicBtn = document.getElementById('coop-panic-all-btn');
+
+      expect(dock.style.display).toBe('flex');
+      const chips = containerEl.querySelectorAll('.coop-slot-chip');
+      expect(chips.length).toBe(4);
+
+      // Slot 0 (Host)
+      expect(chips[0].classList.contains('slot-0')).toBe(true);
+      expect(chips[0].textContent).toContain('Host');
+
+      // Slot 1 (Amigo 1)
+      expect(chips[1].classList.contains('slot-1')).toBe(true);
+      expect(chips[1].textContent).toContain('Amigo 1');
+
+      // Slots 2 e 3 (Vagos)
+      expect(chips[2].classList.contains('slot-empty')).toBe(true);
+      expect(chips[3].classList.contains('slot-empty')).toBe(true);
+
+      // Botão de pânico deve estar visível pois há convidados
+      expect(panicBtn.style.display).toBe('inline-block');
     });
   });
 });

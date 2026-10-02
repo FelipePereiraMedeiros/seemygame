@@ -137,7 +137,7 @@ describe('Módulo: app.js', () => {
     `;
 
     globalThis.Peer = MockPeer;
-    app = await import('../js/app.js');
+    app = await import('../js/app.js'); app.initLegacyBindings();
   });
 
   beforeEach(() => {

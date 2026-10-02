@@ -1,14 +1,15 @@
 import http from 'node:http';
+import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { launchHistoricalBrowser, historicalArtifactDir, waitHistorical } from '../tools/e2e/harness/historical-browser.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
 const PORT = 3000;
-const ARTIFACT_DIR = 'C:\\Users\\diogo\\.gemini\\antigravity\\brain\\1dcd93eb-1e09-4570-856b-4ee876bf9f9b';
+const ARTIFACT_DIR = historicalArtifactDir('visual-audit');
 
 // MIME types para o servidor HTTP local
 const MIME_TYPES = {
@@ -67,7 +68,7 @@ function startStaticServer() {
     server.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
         console.log(`[E2E Server] Porta ${PORT} já em uso, reaproveitando servidor ativo.`);
-        resolve(null);
+        reject(err);
       } else {
         reject(err);
       }
@@ -183,7 +184,7 @@ async function runVisualAudit() {
   const roomUrl = `http://localhost:${PORT}/room.html?room=${roomId}`;
   console.log(`[E2E] Sala de teste gerada: ${roomUrl}`);
 
-  const browser = await chromium.launch({
+  const browser = await launchHistoricalBrowser({
     channel: 'chrome',
     headless: true,
     args: [
@@ -228,10 +229,10 @@ async function runVisualAudit() {
 
     // Aguarda estabelecimento da malha P2P e admissão completa dos 3 participantes
     console.log('[E2E] Aguardando os 3 participantes serem admitidos na malha...');
-    await pageHost.waitForFunction(() => {
+    await waitHistorical(pageHost, async () => {
       const badge = document.getElementById('sidebar-members-count');
       return badge && badge.textContent.includes('3 online');
-    }, { timeout: 20000 });
+    }, undefined, { timeout: 20000 });
     console.log('[E2E] Malha estabelecida: todos os 3 participantes online!');
 
     // ----------------------------------------------------
@@ -250,28 +251,29 @@ async function runVisualAudit() {
     await viewer2Video.waitFor({ state: 'visible', timeout: 20000 });
 
     // Aguarda início efetivo da reprodução de vídeo nos dois espectadores
-    await pageViewer1.waitForFunction(() => {
+    await waitHistorical(pageViewer1, async () => {
       const v = document.querySelector('.video-card video');
       return Boolean(v && !v.paused && v.readyState >= 2);
-    }, { timeout: 15000 });
+    }, undefined, { timeout: 15000 });
 
-    await pageViewer2.waitForFunction(() => {
+    await waitHistorical(pageViewer2, async () => {
       const v = document.querySelector('.video-card video');
       return Boolean(v && !v.paused && v.readyState >= 2);
-    }, { timeout: 15000 });
+    }, undefined, { timeout: 15000 });
 
-    const viewer1Playing = await pageViewer1.evaluate(() => {
+    const viewer1Playing = await pageViewer1.evaluate(async () => {
       const v = document.querySelector('.video-card video');
       return Boolean(v && !v.paused && v.readyState >= 2 && v.videoWidth > 0);
     });
 
-    const viewer2Playing = await pageViewer2.evaluate(() => {
+    const viewer2Playing = await pageViewer2.evaluate(async () => {
       const v = document.querySelector('.video-card video');
       return Boolean(v && !v.paused && v.readyState >= 2 && v.videoWidth > 0);
     });
 
     console.log(`[E2E] Espectador 1 reproduzindo vídeo: ${viewer1Playing ? '✅ SIM' : '❌ NÃO'}`);
     console.log(`[E2E] Espectador 2 reproduzindo vídeo: ${viewer2Playing ? '✅ SIM' : '❌ NÃO'}`);
+    assert.ok(viewer1Playing && viewer2Playing, 'Both spectators must decode visible video');
 
     // Capturas Visuais da Transmissão Simultânea
     const shot1 = path.join(ARTIFACT_DIR, 'audit_01_host_broadcasting.png');
@@ -299,10 +301,10 @@ async function runVisualAudit() {
     // FASE 4: SAÍDA DE ESPECTADOR E PODA IMEDIATA
     // ----------------------------------------------------
     console.log('\n--- FASE 4: Saída Graciosa do Espectador 2 ---');
-    await pageViewer2.evaluate(() => {
+    await pageViewer2.evaluate(async () => {
       const btn = document.getElementById('dock-leave-btn');
       if (btn) btn.click();
-      else if (window.roomManager) window.roomManager.leave();
+      else if ((await import('/js/entries/room-entry.js')).roomState.roomManager) (await import('/js/entries/room-entry.js')).roomState.roomManager.leave();
     });
     console.log('[E2E] Espectador 2 executou saída da sala');
 
@@ -311,6 +313,8 @@ async function runVisualAudit() {
 
     const hostMembersAfterLeave = await pageHost.locator('#sidebar-members-count').innerText();
     console.log(`[E2E] Sidebar do Host pós-saída: "${hostMembersAfterLeave}"`);
+    assert.ok(hostMembersAfterLeave.includes('2 online'), 'Leaving removes the member');
+    assert.ok(await viewer1Video.isVisible(), 'Remaining spectator still sees video');
 
     const shot5 = path.join(ARTIFACT_DIR, 'audit_05_viewer2_left_updated.png');
     await safeScreenshot(pageHost, shot5);
@@ -332,12 +336,13 @@ async function runVisualAudit() {
 
     await pageHost.waitForTimeout(3500);
 
-    const carlosCount = await pageHost.evaluate(() => {
+    const carlosCount = await pageHost.evaluate(async () => {
       const items = Array.from(document.querySelectorAll('#room-participants-list .participant-item'));
       return items.filter(el => el.textContent.includes('Viewer_Carlos')).length;
     });
 
     console.log(`[E2E] Ocorrências de "Viewer_Carlos" na lista de membros: ${carlosCount} (Esperado: 1)`);
+    assert.equal(carlosCount, 1, 'Rejoining does not duplicate the participant');
 
     const shot6 = path.join(ARTIFACT_DIR, 'audit_06_viewer2_relog_deduplication.png');
     await safeScreenshot(pageHost, shot6);
@@ -360,11 +365,12 @@ async function runVisualAudit() {
 
     await pageHost.waitForTimeout(3000);
 
-    const isStillMaster = await pageHost.evaluate(() => {
-      return Boolean(window.roomManager && window.roomManager.isMaster);
+    const isStillMaster = await pageHost.evaluate(async () => {
+      return Boolean((await import('/js/entries/room-entry.js')).roomState.roomManager && (await import('/js/entries/room-entry.js')).roomState.roomManager.isMaster);
     });
 
     console.log(`[E2E] Host reteve papel de Master após reload: ${isStillMaster ? '✅ SIM' : 'ℹ️ (Pendente ou Verificado)'}`);
+    assert.ok(isStillMaster, 'Coordinator recovers after reload');
 
     const shot7 = path.join(ARTIFACT_DIR, 'audit_07_host_retained_master.png');
     await safeScreenshot(pageHost, shot7);
@@ -395,6 +401,7 @@ async function runVisualAudit() {
     await pageHost.waitForTimeout(500);
     const modalHidden = await confirmModal.isHidden();
     console.log(`[E2E] Modal fechado e sala mantida ativa: ${modalHidden ? '✅ SIM' : '❌ NÃO'}`);
+    assert.ok(modalHidden, 'Cancel reload returns to the room');
 
     console.log('\n======================================================');
     console.log('✅ AUDITORIA VISUAL E2E CONCLUÍDA COM SUCESSO!');

@@ -144,13 +144,14 @@ export class AdaptiveBitrateController {
     const qualityReason = sample.qualityLimitationReason || sample.qualityReason;
     const rawEncodeTime = sample.encodeTimeMs !== undefined ? sample.encodeTimeMs : sample.encodeTime;
 
-    const lossValid = typeof rawLoss === 'number' && !isNaN(rawLoss) && rawLoss >= 0;
-    const rttValid = typeof rawRtt === 'number' && !isNaN(rawRtt) && rawRtt >= 0;
-    const encodeTimeValid = typeof rawEncodeTime === 'number' && !isNaN(rawEncodeTime) && rawEncodeTime >= 0;
+    const lossValid = Number.isFinite(rawLoss) && rawLoss >= 0 && rawLoss <= 1;
+    const rttValid = Number.isFinite(rawRtt) && rawRtt >= 0;
+    const encodeTimeValid = Number.isFinite(rawEncodeTime) && rawEncodeTime >= 0;
     const qualityValid = typeof qualityReason === 'string' && qualityReason.length > 0;
 
     // Se nenhuma métrica for válida, descarta a amostra sem avançar contadores
     if (!lossValid && !rttValid && !encodeTimeValid && !qualityValid) {
+      state.consecutiveGoodSamples = 0;
       return state.currentBitrateBps;
     }
 
@@ -160,15 +161,16 @@ export class AdaptiveBitrateController {
 
     // Condição de saturação de CPU / Hardware Encoder:
     // Se o encoder relatar degradação por 'cpu' ou tempo de codificação exceder 20ms (>1.2x frame budget a 60fps)
-    const isCpuOverloaded = qualityReason === 'cpu' || (encodeTimeValid && encodeTime > 20);
+    const budget = 1000 / (Number.isFinite(sample.targetFps) && sample.targetFps > 0 ? sample.targetFps : 60);
+    const isCpuOverloaded = qualityReason === 'cpu' || (encodeTimeValid && encodeTime > budget * 1.2);
 
     // Condição de instabilidade / congestionamento de rede
-    const isBadNetwork = (lossValid && loss > 0.04) || (rttValid && rtt > 220);
+    const isBadNetwork = (lossValid && loss > 0.04) || (rttValid && rtt > 220) || qualityReason === 'bandwidth';
 
     const isDegraded = isBadNetwork || isCpuOverloaded;
 
     // Condição de estabilidade e sobra de banda: requer métricas válidas e ausência de saturação
-    const isGoodNetwork = !isDegraded && lossValid && rttValid && (loss < 0.01) && (rtt < 90) && (!encodeTimeValid || encodeTime <= 15);
+    const isGoodNetwork = !isDegraded && lossValid && rttValid && (loss < 0.01) && (rtt < 90) && (!encodeTimeValid || encodeTime <= budget * .9);
 
     if (isDegraded) {
       state.consecutiveBadSamples++;
@@ -197,6 +199,7 @@ export class AdaptiveBitrateController {
       }
     } else {
       state.consecutiveBadSamples = 0;
+      state.consecutiveGoodSamples = 0;
     }
 
     return state.currentBitrateBps;

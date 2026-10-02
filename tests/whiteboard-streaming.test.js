@@ -1,3 +1,4 @@
+import { initLegacyBindings } from '../js/app.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   initWhiteboard,
@@ -271,3 +272,5 @@ describe('Suíte de Testes: Lousa Interativa durante Transmissão (Streaming & R
     });
   });
 });
+
+initLegacyBindings();

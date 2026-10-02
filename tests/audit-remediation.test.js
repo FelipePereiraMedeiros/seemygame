@@ -1,3 +1,4 @@
+import { initLegacyBindings } from '../js/app.js';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { chatManager } from '../js/chat.js';
 import { RoomManager } from '../js/room.js';
@@ -240,3 +241,5 @@ describe('Auditoria Técnica: Testes de Remediação (A01 a A20)', () => {
     });
   });
 });
+
+initLegacyBindings();

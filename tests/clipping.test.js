@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ClipRecorder, ClipRecorderRegistry } from '../js/clipping.js';
+import { bindClipEditor } from '../js/clipping/editor-controller.js';
+import { createSessionContext } from '../js/core/session-context.js';
 
 class MockMediaRecorder {
   constructor(stream, options) {
@@ -153,10 +155,12 @@ describe('Módulo: clipping.js (ClipRecorder)', () => {
     const clusterMarker = [0x1f, 0x43, 0xb6, 0x75];
 
     // Chunk de inicialização: cabeçalho EBML + primeiro cluster
-    const initPayload = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02, ...clusterMarker, 0x99, 0x99]);
+    const header = [0x1a, 0x45, 0xdf, 0xa3, 0x80, 0x18, 0x53, 0x80, 0x67, 0xff];
+    const cluster = [...clusterMarker, 0xff, 0xe7, 0x82, 0x0f, 0xa0, 0xa3, 0x85, 0x81, 0, 0, 0x80, 0];
+    const initPayload = new Uint8Array([...header, ...cluster]);
     // Chunk recente com 10 bytes de resíduos parciais antes do marcador de cluster
     const garbageBytes = [0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
-    const recentPayload = new Uint8Array([...garbageBytes, ...clusterMarker, 0x88, 0x77, 0x66]);
+    const recentPayload = new Uint8Array([...garbageBytes, ...cluster]);
 
     const now = Date.now();
     recorder.initializationChunk = { blob: new Blob([initPayload], { type: 'video/webm' }), timestamp: now - 10000 };
@@ -169,10 +173,9 @@ describe('Módulo: clipping.js (ClipRecorder)', () => {
     expect(clip).toBeTruthy();
     const clipBytes = new Uint8Array(await clip.arrayBuffer());
 
-    // Verifica que o cabeçalho termina e é seguido IMEDIATAMENTE pelo marcador de cluster, sem os 10 bytes residuais
-    expect(clipBytes.slice(0, 6)).toEqual(new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02]));
-    expect(clipBytes.slice(6, 10)).toEqual(new Uint8Array(clusterMarker));
-    expect(clipBytes.slice(10)).toEqual(new Uint8Array([0x88, 0x77, 0x66]));
+    expect(clipBytes.slice(0, header.length)).toEqual(new Uint8Array(header));
+    expect(clipBytes.slice(header.length, header.length + 4)).toEqual(new Uint8Array(clusterMarker));
+    expect(clipBytes.slice(header.length + 7, header.length + 9)).toEqual(new Uint8Array([0, 0]));
   });
 
   it('deve manter todos os chunks quando maxDurationSeconds for 0 (Full / Toda a Sessão)', () => {
@@ -215,3 +218,129 @@ describe('Módulo: clipping.js (ClipRecorder)', () => {
   });
 });
 
+describe('R5: Atalhos "Clip This" no ÁudioMaker / Clipping (bindClipEditor)', () => {
+  let session;
+  let mockRecorder;
+  let showToastSpy;
+  let container;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    container = document.createElement('div');
+    container.innerHTML = `
+      <button id="clip-btn">Clip</button>
+      <select id="clip-buffer-duration-select">
+        <option value="30">30s</option>
+      </select>
+      <div id="clip-post-modal" style="display:none;"></div>
+    `;
+    document.body.appendChild(container);
+
+    mockRecorder = {
+      exportClip: vi.fn().mockResolvedValue(new Blob(['video-clip'], { type: 'video/webm' })),
+      setMaxDurationSeconds: vi.fn((s) => s)
+    };
+    showToastSpy = vi.fn();
+    session = createSessionContext({ role: 'streamer' });
+  });
+
+  afterEach(() => {
+    session.dispose();
+    container.remove();
+    vi.useRealTimers();
+  });
+
+  it('deve disparar exportClip e emitir toast com atalho Alt+C', async () => {
+    bindClipEditor(session, {
+      recorder: mockRecorder,
+      showToast: showToastSpy,
+      getPeerId: () => 'my-peer'
+    });
+
+    const event = new KeyboardEvent('keydown', { key: 'c', altKey: true, bubbles: true });
+    window.dispatchEvent(event);
+
+    expect(showToastSpy).toHaveBeenCalledWith(expect.stringContaining('Gravando'), 'info');
+    expect(mockRecorder.exportClip).toHaveBeenCalled();
+  });
+
+  it('deve disparar exportClip com atalho Ctrl+Shift+C', async () => {
+    bindClipEditor(session, {
+      recorder: mockRecorder,
+      showToast: showToastSpy,
+      getPeerId: () => 'my-peer'
+    });
+
+    const event = new KeyboardEvent('keydown', { key: 'C', ctrlKey: true, shiftKey: true, bubbles: true });
+    window.dispatchEvent(event);
+
+    expect(mockRecorder.exportClip).toHaveBeenCalled();
+  });
+
+  it('deve ignorar atalho simples C quando digitado dentro de input ou textarea', async () => {
+    bindClipEditor(session, {
+      recorder: mockRecorder,
+      showToast: showToastSpy,
+      getPeerId: () => 'my-peer'
+    });
+
+    const input = document.createElement('input');
+    container.appendChild(input);
+
+    const event = new KeyboardEvent('keydown', { key: 'c', bubbles: true });
+    Object.defineProperty(event, 'target', { value: input, configurable: true });
+    window.dispatchEvent(event);
+
+    expect(mockRecorder.exportClip).not.toHaveBeenCalled();
+  });
+
+  it('deve aplicar debounce e ignorar múltiplos disparos em menos de 1500ms', async () => {
+    bindClipEditor(session, {
+      recorder: mockRecorder,
+      showToast: showToastSpy,
+      getPeerId: () => 'my-peer'
+    });
+
+    // Primeiro disparo
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', altKey: true, bubbles: true }));
+    expect(mockRecorder.exportClip).toHaveBeenCalledTimes(1);
+
+    // Segundo disparo imediato (500ms depois)
+    vi.advanceTimersByTime(500);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', altKey: true, bubbles: true }));
+    expect(mockRecorder.exportClip).toHaveBeenCalledTimes(1); // Bloqueado pelo debounce
+
+    // Terceiro disparo após debounce (1600ms depois)
+    vi.advanceTimersByTime(1100);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', altKey: true, bubbles: true }));
+    expect(mockRecorder.exportClip).toHaveBeenCalledTimes(2);
+  });
+
+  it('deve detectar combo no Gamepad (Select/Back + R1) e acionar clip', async () => {
+    const mockGamepad = {
+      connected: true,
+      buttons: Array(17).fill({ pressed: false, value: 0 })
+    };
+    globalThis.navigator.getGamepads = () => [mockGamepad];
+
+    let animCallback = null;
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => {
+      animCallback = cb;
+      return 999;
+    });
+
+    bindClipEditor(session, {
+      recorder: mockRecorder,
+      showToast: showToastSpy,
+      getPeerId: () => 'my-peer'
+    });
+
+    // Pressiona Select (botão 8) e R1 (botão 5)
+    mockGamepad.buttons[8] = { pressed: true, value: 1.0 };
+    mockGamepad.buttons[5] = { pressed: true, value: 1.0 };
+
+    if (animCallback) animCallback();
+
+    expect(mockRecorder.exportClip).toHaveBeenCalled();
+  });
+});
