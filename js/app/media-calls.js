@@ -101,6 +101,7 @@ export function initiateMediaCallToViewer(compatibilityContext, viewerPeerId) {
   const call = compatibilityContext.peer.call(viewerPeerId, compatibilityContext.localStream);
   
   if (call) {
+    call._direction = 'outgoing';
     compatibilityContext.activeMediaCalls.set(viewerPeerId, call);
 
     if (call.peerConnection) {
@@ -207,19 +208,23 @@ export function handleIncomingMediaCall(compatibilityContext, call) {
     }
   }
 
-  // Se já existe uma chamada desse host, verifica se ela ainda está viva/conectando
-  const existingCall = compatibilityContext.activeMediaCalls.get(call.peer) || (compatibilityContext.watchingHosts.get(originHostId)?.call);
-  if (existingCall && existingCall !== call) {
-    const pc = existingCall.peerConnection;
+  call._direction = 'incoming';
+
+  // Se já existe uma chamada de entrada deste host, verifica se ela ainda está viva/conectando
+  const existingCall = compatibilityContext.activeMediaCalls?.get(call.peer) || (originHostId ? compatibilityContext.activeMediaCalls?.get(originHostId) : null);
+  const existingIncomingCall = compatibilityContext.watchingHosts.get(originHostId)?.call ||
+    (existingCall?._direction === 'incoming' ? existingCall : null);
+  if (existingIncomingCall && existingIncomingCall !== call) {
+    const pc = existingIncomingCall.peerConnection;
     const pcState = pc?.connectionState;
     const sigState = pc?.signalingState;
-    const isAlive = existingCall.open || pcState === 'connected' || pcState === 'connecting' || sigState === 'stable' || sigState === 'have-remote-offer';
+    const isAlive = existingIncomingCall.open || pcState === 'connected' || pcState === 'connecting' || sigState === 'stable' || sigState === 'have-remote-offer';
     if (isAlive) {
       console.log(`[MediaCall] Já existe chamada ativa ou em conexão com ${call.peer} (pcState=${pcState}, sig=${sigState}), descartando chamada duplicada.`);
       try { call.close(); } catch (e) {}
       return;
     }
-    try { existingCall.close(); } catch (e) {}
+    try { existingIncomingCall.close(); } catch (e) {}
   }
 
   compatibilityContext.activeMediaCalls.set(call.peer, call);
@@ -228,12 +233,12 @@ export function handleIncomingMediaCall(compatibilityContext, call) {
     compatibilityContext.watchingHosts.get(originHostId).call = call;
   }
 
-  call.answer();
-
   if (call.peerConnection) {
     compatibilityContext.hookPeerConnectionSdp(call.peerConnection, () => compatibilityContext.customBitrateBps);
     compatibilityContext.applyTransceiverOptimizations(call.peerConnection);
   }
+
+  call.answer();
 
   call.on('stream', (remoteStream) => {
     console.log(`Stream remoto recebido de ${call.peer}${isRelayedCall ? ` (Relay originário de ${originHostId})` : ''}`);

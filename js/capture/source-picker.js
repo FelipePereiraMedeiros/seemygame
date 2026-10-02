@@ -9,8 +9,11 @@ export function bindSourcePicker(session, { start, stop, isStreaming, showToast 
   const choose = source => {
     if (session.isDisposed) return;
     if (modal) modal.style.display = 'none';
-    const exclusion = document.getElementById('picker-audio-exclude-select')?.value || '';
-    return start({ ...readCaptureSettings(), sourceId: source.sourceId || source.id, sourceType: source.sourceType, excludeApp: exclusion || null });
+    const exclusion = document.getElementById('picker-audio-exclude-select')?.value ||
+      document.getElementById('audio-exclude-select')?.value ||
+      (() => { try { return localStorage.getItem('seemygame_audio_exclude_app'); } catch (_) { return 'seemygame'; } })() ||
+      'seemygame';
+    return start({ ...readCaptureSettings(), sourceId: source.sourceId || source.id, sourceType: source.sourceType, excludeApp: exclusion });
   };
   const refresh = async () => {
     const current = ++generation;
@@ -28,9 +31,30 @@ export function bindSourcePicker(session, { start, stop, isStreaming, showToast 
     }
     const select = document.getElementById('picker-audio-exclude-select');
     if (select) {
-      const selected = select.value; select.replaceChildren(new Option('Não excluir aplicativo', ''));
-      exclusions.forEach(source => select.add(new Option(source.title || source.name || source.processName || source.id, source.id)));
-      select.value = selected;
+      let savedPref = 'seemygame';
+      try { savedPref = localStorage.getItem('seemygame_audio_exclude_app') || 'seemygame'; } catch (_) {}
+      const currentVal = select.value || savedPref;
+      select.replaceChildren();
+
+      // SeeMyGame (recomendado)
+      select.add(new Option('🎮 SeeMyGame (Ignorar Voz da Sala / Recomendado)', 'seemygame'));
+
+      // Discord
+      const discordCand = exclusions.find(c => c.id === 'discord');
+      select.add(new Option(discordCand?.label || '🎧 Discord (Ignorar Chamada Externa)', 'discord'));
+
+      // Outras janelas
+      exclusions.forEach(c => {
+        if (c.id !== 'seemygame' && c.id !== 'discord') {
+          select.add(new Option(c.label || c.title || c.name || c.process_name || c.id, c.id));
+        }
+      });
+
+      // Nenhum
+      select.add(new Option('🌐 Nenhum (Capturar todos os sons do PC)', 'none'));
+
+      const match = Array.from(select.options).some(o => o.value === currentVal);
+      select.value = match ? currentVal : 'seemygame';
     }
   };
   const toggle = async () => {
@@ -41,6 +65,14 @@ export function bindSourcePicker(session, { start, stop, isStreaming, showToast 
   };
   session.addEventListener(document.getElementById('picker-refresh-btn'), 'click', () => refresh().catch(error => showToast(error.message, 'error')));
   session.addEventListener(document.getElementById('picker-cancel-btn'), 'click', () => { if (modal) modal.style.display = 'none'; });
+  session.addEventListener(document.getElementById('picker-audio-exclude-select'), 'change', event => {
+    const val = event.target.value;
+    try { localStorage.setItem('seemygame_audio_exclude_app', val); } catch (_) {}
+    const audioExclude = document.getElementById('audio-exclude-select');
+    if (audioExclude && audioExclude.value !== val) {
+      audioExclude.value = val;
+    }
+  });
   session.addEventListener(document.getElementById('picker-screen-fallback-btn'), 'click', async () => {
     try { const sources = await getCapturableSources(); const source = sources.find(source => source.sourceType === 'monitor'); if (source) await choose(source); }
     catch (error) { showToast(error.message, 'error'); }

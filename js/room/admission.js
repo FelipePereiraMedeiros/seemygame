@@ -57,6 +57,9 @@ promoteConnection(peerId, conn, initialInfo = {}) {
       this.members.set(peerId, newMember);
       this.emit('memberJoined', newMember);
       this.emit('membersUpdated', this.getMembersList());
+      if (newMember.isStreaming) {
+        this.emit('streamPublished', { peerId: newMember.peerId, details: newMember.streamDetails, member: newMember });
+      }
       this.notifyState();
     } else {
       const existing = this.members.get(peerId);
@@ -67,6 +70,17 @@ promoteConnection(peerId, conn, initialInfo = {}) {
       if (initialInfo.clientSessionId) {
         existing.clientSessionId = initialInfo.clientSessionId;
       }
+      if (typeof initialInfo.isStreaming === 'boolean') {
+        existing.isStreaming = initialInfo.isStreaming;
+      }
+      if (initialInfo.streamDetails) {
+        existing.streamDetails = initialInfo.streamDetails;
+      }
+      this.emit('membersUpdated', this.getMembersList());
+      if (existing.isStreaming) {
+        this.emit('streamPublished', { peerId: existing.peerId, details: existing.streamDetails, member: existing });
+      }
+      this.notifyState();
     }
     return true;
   }

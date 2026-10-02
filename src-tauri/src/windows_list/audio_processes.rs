@@ -20,7 +20,8 @@ pub fn find_process_id_by_name(target: &str) -> Option<u32> {
         return Some(std::process::id());
     }
 
-    if let Ok(pid) = lower.parse::<u32>() {
+    let target_clean = lower.strip_prefix("pid:").unwrap_or(&lower);
+    if let Ok(pid) = target_clean.parse::<u32>() {
         return Some(pid);
     }
 

@@ -47,7 +47,9 @@ import {
   showToast, 
   initTermsModal, 
   addOrUpdateVideoCard, 
-  removeVideoCard 
+  removeVideoCard,
+  createPlaceholderCard,
+  hideCardLoading
 } from '../ui.js';
 import { globalBus } from '../core/event-bus.js';
 import { createSessionContext } from '../core/session-context.js';
@@ -137,6 +139,13 @@ async function setupRoomSession(peerId, session = roomState.session) {
 
   const coordinatorId = getRoomMasterPeerId(roomId, roomKey);
   const isMaster = peerId === coordinatorId;
+  if (typeof sessionStorage !== 'undefined') {
+    if (isMaster) {
+      sessionStorage.setItem('seemygame_room_master_' + roomId, 'true');
+    } else {
+      sessionStorage.removeItem('seemygame_room_master_' + roomId);
+    }
+  }
   const savedName = typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_user_name') : null;
   if (!savedName && roomState.userName === 'Gamer') {
     roomState.userName = isMaster ? 'Host' : `Amigo ${peerId.slice(-4)}`;
@@ -200,6 +209,18 @@ async function setupRoomSession(peerId, session = roomState.session) {
   rm.on('streamPublished', ({ peerId: streamerPeerId, details, member }) => {
     if (streamerPeerId !== rm.myPeerId) {
       showToast(`🎮 ${member?.name || 'Um amigo'} começou a transmitir!`, 'info', 4000);
+      const streamerName = member?.name || `Amigo ${streamerPeerId.slice(-4)}`;
+      if (!document.getElementById(`card-${streamerPeerId}`)) {
+        createPlaceholderCard(streamerPeerId, `Carregando transmissão de ${streamerName}...`, () => {
+          removeVideoCard(streamerPeerId);
+        });
+      }
+      const conn = rm.meshConnections.get(streamerPeerId);
+      if (conn && conn.open) {
+        try {
+          sendSessionMessage(session, conn, { type: 'REQUEST_STREAM' });
+        } catch (_) {}
+      }
       (session?.eventBus || globalBus).emit('room:streamPublished', { peerId: streamerPeerId, details, member });
     }
   });
@@ -243,7 +264,7 @@ async function setupRoomSession(peerId, session = roomState.session) {
     for (const member of rm.members.values()) {
       if (member.peerId === rm.myPeerId || member.peerId === rm.masterPeerId || member.isMaster) continue;
       if (rm.myPeerId.localeCompare(member.peerId) >= 0) continue;
-      if (rm.meshConnections.get(member.peerId)?.open || rm.pendingConnections.get(member.peerId)?.open) continue;
+      if (rm.meshConnections.has(member.peerId) || rm.pendingConnections.has(member.peerId)) continue;
       const conn = roomState.peer.connect(member.peerId, { reliable: true, metadata: { type: 'ROOM_MESH', roomId } });
       if (conn) attachRoomDataConnection(conn, rm, session, { authenticateMember: true });
     }
@@ -264,6 +285,46 @@ async function setupRoomSession(peerId, session = roomState.session) {
     return conn;
   };
   roomState.requestRoomJoin = joinCoordinator;
+
+  let coordinatorReconnectTimer = null;
+  const scheduleCoordinatorReconnect = () => {
+    if (coordinatorReconnectTimer || session?.isDisposed || rm.isMaster || !rm.isInRoom) return;
+    let attempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 15;
+    const tryReconnect = () => {
+      coordinatorReconnectTimer = null;
+      if (session?.isDisposed || rm.isMaster || !rm.isInRoom) return;
+      if (roomState.coordinatorConn && roomState.coordinatorConn.open) return;
+      attempts++;
+      console.log(`[Room] Tentando reconectar ao Coordenador Master (${attempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+      const conn = joinCoordinator(roomState.currentPin || roomPin);
+      if (!conn) return;
+      conn.on('open', () => {
+        console.log('[Room] Reconectado com sucesso ao Coordenador Master!');
+        if (roomState.localStream) {
+          rm.setLocalStreaming(true, { ...rm.localStreamingState });
+        }
+      });
+      const onFail = () => {
+        if (attempts < MAX_RECONNECT_ATTEMPTS && !session?.isDisposed && rm.isInRoom && !rm.isMaster) {
+          const delay = Math.min(1000 + 500 * attempts, 4000);
+          coordinatorReconnectTimer = setTimeout(tryReconnect, delay);
+        }
+      };
+      conn.on('error', onFail);
+      conn.on('close', () => {
+        if (!roomState.coordinatorConn?.open) onFail();
+      });
+    };
+    coordinatorReconnectTimer = setTimeout(tryReconnect, 1000);
+    session?.registerCleanup(() => {
+      if (coordinatorReconnectTimer) {
+        clearTimeout(coordinatorReconnectTimer);
+        coordinatorReconnectTimer = null;
+      }
+    });
+  };
+  roomState.scheduleCoordinatorReconnect = scheduleCoordinatorReconnect;
 
   // Vincula controlador de UI Discord
   if (typeof DiscordUIController !== 'undefined') {
@@ -350,7 +411,9 @@ function attachRoomDataConnection(conn, rm, session, { requestAdmission = false,
         roomKey: rm.roomKey,
         pin,
         name: rm.userName,
-        clientSessionId: rm.clientSessionId
+        clientSessionId: rm.clientSessionId,
+        isStreaming: Boolean(roomState.localStream),
+        streamDetails: roomState.localStream ? { ...rm.localStreamingState } : null
       });
     } else if (authenticateMember) {
       sendSessionMessage(roomState.session, conn, { type: 'ROOM_MEMBER_AUTH', roomId: rm.roomId, roomKey: rm.roomKey });
@@ -358,10 +421,24 @@ function attachRoomDataConnection(conn, rm, session, { requestAdmission = false,
   });
   conn.on('data', (message) => {
     const handled = rm.handleRoomMessage(conn.peer, message, conn);
-    if (!handled && rm.isPeerAuthorized(conn.peer)) session?.dispatcher.dispatch(message, conn, roomState.peer);
+    if (!handled && rm.isPeerAuthorized(conn.peer)) {
+      if (message?.type === 'REQUEST_STREAM') {
+        if (roomState.localStream && conn.open) {
+          sendRoomStream(conn.peer, conn, rm, session);
+        }
+        return;
+      }
+      session?.dispatcher.dispatch(message, conn, roomState.peer);
+    }
   });
   conn.on('close', () => {
-    if (roomState.coordinatorConn === conn) roomState.coordinatorConn = null;
+    const isMasterConn = roomState.coordinatorConn === conn;
+    if (isMasterConn) {
+      roomState.coordinatorConn = null;
+      if (!session?.isDisposed && rm.isInRoom && !rm.isMaster) {
+        roomState.scheduleCoordinatorReconnect?.();
+      }
+    }
     rm.removeMember(conn.peer);
   });
   conn.on('error', (error) => console.warn(`[Room] Conexão com ${conn.peer} falhou:`, error));
@@ -377,9 +454,7 @@ function handleRoomMediaCall(call, rm, session) {
     roomState.messageHandlers?.answerVoiceCall(call);
     return;
   }
-  call.answer();
-  // PeerJS applies the remote offer asynchronously. The transceivers do not
-  // exist immediately after answer(); tune them before it creates the answer.
+  // PeerJS applies the remote offer asynchronously. Intercept createAnswer before answering.
   const pc = call.peerConnection;
   if (pc?.createAnswer) {
     const createAnswer = pc.createAnswer.bind(pc);
@@ -388,10 +463,12 @@ function handleRoomMediaCall(call, rm, session) {
       return createAnswer(...args);
     };
   }
+  call.answer();
   call.on('stream', (stream) => {
     roomState.remoteStreams.set(call.peer, { call, stream });
     startStatsMonitor(call.peer, call.peerConnection, false);
     const member = rm.members.get(call.peer);
+    hideCardLoading(call.peer);
     addOrUpdateVideoCard({ audioScope: roomState.session?.audioScope, peerId: call.peer, stream, label: member?.name || `Amigo ${call.peer.slice(-4)}`, isLocal: false, onClipClick: sourceId => roomState.features?.clipEditor?.exportClip(sourceId) });
     session?.eventBus.emit('stream:received', { hostId: call.peer, stream });
   });
@@ -520,6 +597,10 @@ async function initRoomPeer(customId = null, session = roomState.session) {
   const config = getPeerConfig();
   const { roomId, roomKey } = getRoomInfoFromUrl();
   const coordinatorId = getRoomMasterPeerId(roomId, roomKey);
+  const wasMaster = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('seemygame_room_master_' + roomId) === 'true';
+
+  let masterRetries = 0;
+  const MAX_MASTER_RETRIES = 3;
 
   const createPeer = (id, retryAsGuest) => new Promise((resolve, reject) => {
     const peer = id ? new Peer(id, config) : new Peer(config);
@@ -534,11 +615,25 @@ async function initRoomPeer(customId = null, session = roomState.session) {
       resolve(peer);
     });
     peer.on('error', (err) => {
-      if (err?.type === 'unavailable-id' && retryAsGuest && !settled) {
-        settled = true;
-        try { peer.destroy(); } catch (_) {}
-        createPeer(null, false).then(resolve, reject);
-        return;
+      if (err?.type === 'unavailable-id' && !settled) {
+        if (wasMaster && id === coordinatorId && masterRetries < MAX_MASTER_RETRIES && !session?.isDisposed) {
+          masterRetries++;
+          settled = true;
+          try { peer.destroy(); } catch (_) {}
+          const delay = Math.min(800 * masterRetries, 2500);
+          console.warn(`[Room] ID de Master retido após refresh. Tentando reconectar ${masterRetries}/${MAX_MASTER_RETRIES} em ${delay}ms...`);
+          setTimeout(() => {
+            if (session?.isDisposed) return;
+            createPeer(coordinatorId, retryAsGuest).then(resolve, reject);
+          }, delay);
+          return;
+        }
+        if (retryAsGuest && !settled) {
+          settled = true;
+          try { peer.destroy(); } catch (_) {}
+          createPeer(null, false).then(resolve, reject);
+          return;
+        }
       }
       if (settled) return;
       settled = true;
@@ -692,6 +787,8 @@ async function initRoomApp(options = {}) {
     handlePageUnload: () => runtime.dispose()
   };
   session.addEventListener(window, 'keydown', event => handleReloadKeypress(reloadPorts, event));
+  session.addEventListener(window, 'beforeunload', () => runtime.dispose());
+  session.addEventListener(window, 'pagehide', () => runtime.dispose());
   session.registerCleanup(() => hideReloadConfirmationModal(reloadPorts));
   return runtime;
 }

@@ -12,7 +12,7 @@ export const MAX_ROOM_MEMBERS = 16;
 
 export const MAX_PENDING_ROOM_CONNECTIONS = 16;
 
-export const MAX_ROOM_MESSAGE_BYTES = 64 * 1024;
+export const MAX_ROOM_MESSAGE_BYTES = 256 * 1024;
 
 export const ROOM_HEARTBEAT_INTERVAL_MS = 4000;
 
