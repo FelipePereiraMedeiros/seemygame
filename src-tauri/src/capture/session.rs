@@ -6,6 +6,7 @@ pub(crate) struct ActiveSession {
     pub(crate) state: NativeCaptureState,
     pub(crate) validated_source: ValidatedSource,
     pub(crate) worker: Option<NativeMediaWorker>,
+    pub(crate) replay: Option<crate::replay::NativeReplay>,
     pub(crate) fanout: Option<RtpFanout>,
     pub(crate) local_bridge: Option<NativeWebRtcBridge>,
     pub(crate) local_video_port: Option<u16>,

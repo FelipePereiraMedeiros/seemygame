@@ -2,7 +2,9 @@
 use super::*;
 
 #[cfg(not(test))]
-#[tauri::command]
+// Plugin discovery can initialize COM/D3D and scan the registry. Keep it off
+// the WebView UI thread, including on the first launch with an empty registry.
+#[tauri::command(async)]
 pub fn get_native_capture_capabilities() -> CaptureCapabilities {
     capabilities()
 }
@@ -42,7 +44,21 @@ pub fn get_native_capture_state() -> Result<NativeCaptureState, String> {
 }
 
 #[cfg(not(test))]
-#[tauri::command]
+#[tauri::command(async)]
+pub fn get_native_stream_stats(session_id: String, viewer_id: String) -> Result<Vec<serde_json::Value>, String> {
+    let (webrtc, produced) = {
+        let guard = active_session().lock().map_err(|_| "Estado de captura indisponível")?;
+        let session = guard.as_ref().ok_or("Captura encerrada")?;
+        if session.state.session_id.as_deref() != Some(session_id.as_str()) { return Err("Sessão inválida".into()); }
+        (session.viewer_bridges.get(&viewer_id).ok_or("Espectador desconectado")?.bridge.webrtc.clone(), session.fanout.as_ref().map(|fanout| fanout.counters.snapshot()))
+    };
+    let mut reports = crate::webrtc_bridge::stats::collect(&webrtc)?;
+    if let Some(produced) = produced { reports.push(produced); }
+    Ok(reports)
+}
+
+#[cfg(not(test))]
+#[tauri::command(async)]
 pub fn start_native_capture(
     app: AppHandle,
     source_id: String,
@@ -80,20 +96,6 @@ pub fn start_native_capture(
         }
     };
 
-    {
-        let guard = active_session()
-            .lock()
-            .map_err(|_| "Estado de captura indisponível".to_string())?;
-        if let Some(session) = guard.as_ref() {
-            if matches!(session.state.state.as_str(), "starting" | "live") {
-                if session.state.source_id.as_deref() == Some(source_id.as_str()) {
-                    return Ok(session.state.clone());
-                }
-                return Err("Já existe uma sessão de captura nativa ativa".to_string());
-            }
-        }
-    }
-
     let session_id = format!("native_capture_{}", timestamp_ms());
     let target_width = width.unwrap_or(validated.width);
     let target_height = height.unwrap_or(validated.height);
@@ -120,10 +122,21 @@ pub fn start_native_capture(
         let mut guard = active_session()
             .lock()
             .map_err(|_| "Estado de captura indisponível".to_string())?;
+        // The command runs off the UI thread: check and reserve under one
+        // lock so concurrent starts cannot overwrite each other's session.
+        if let Some(session) = guard.as_ref() {
+            if matches!(session.state.state.as_str(), "starting" | "live") {
+                if session.state.source_id.as_deref() == Some(source_id.as_str()) {
+                    return Ok(session.state.clone());
+                }
+                return Err("Já existe uma sessão de captura nativa ativa".to_string());
+            }
+        }
         *guard = Some(ActiveSession {
             state: starting_state.clone(),
             validated_source: validated.clone(),
             worker: None,
+            replay: None,
             fanout: None,
             local_bridge: None,
             local_video_port: None,
@@ -580,6 +593,7 @@ pub fn stop_native_capture(
     };
     drop(guard);
     if let Some(mut session) = previous {
+        drop(session.replay.take());
         session.viewer_bridges.clear();
         drop(session.local_bridge.take());
         drop(session.fanout.take());
@@ -909,4 +923,57 @@ pub fn close_native_viewer_peer(session_id: String, viewer_id: String) -> Result
     }
     session.pending_viewer_ice_candidates.remove(&viewer_id);
     Ok(())
+}
+
+#[tauri::command(async)]
+pub fn start_native_replay(session_id: String, seconds: u32) -> Result<(), String> {
+    let mut guard = active_session().lock().map_err(|_| "Captura indisponível")?;
+    let session = guard.as_mut().ok_or("Sem captura ativa")?;
+    if session.state.session_id.as_deref() != Some(&session_id) || session.state.state != "live" {
+        return Err("Sessão de captura inválida".into());
+    }
+    if session.state.video_codec.as_deref() != Some("h264") {
+        return Err("Replay sem recodificação disponível apenas para H.264".into());
+    }
+    if let Some(old) = session.replay.take() {
+        if let Some(fanout) = &session.fanout {
+            fanout.remove_video_target(old.video_port);
+            if let Some(port) = old.audio_port { fanout.remove_audio_target(port); }
+        }
+        drop(old);
+    }
+    let video_port = allocate_ephemeral_port()?;
+    let audio_port = session.state.audio_rtp_port.map(|_| allocate_ephemeral_port()).transpose()?;
+    let replay = crate::replay::NativeReplay::start(video_port, audio_port, seconds)?;
+    let fanout = session.fanout.as_ref().ok_or("Fanout indisponível")?;
+    fanout.add_video_target(video_port);
+    if let Some(port) = audio_port { fanout.add_audio_target(port); }
+    session.replay = Some(replay);
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn stop_native_replay(session_id: String) -> Result<(), String> {
+    let mut guard = active_session().lock().map_err(|_| "Captura indisponível")?;
+    let Some(session) = guard.as_mut() else { return Ok(()); };
+    if session.state.session_id.as_deref() != Some(&session_id) { return Err("Sessão de captura inválida".into()); }
+    if let Some(replay) = session.replay.take() {
+        if let Some(fanout) = &session.fanout {
+            fanout.remove_video_target(replay.video_port);
+            if let Some(port) = replay.audio_port { fanout.remove_audio_target(port); }
+        }
+        drop(replay);
+    }
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn export_native_replay(session_id: String) -> Result<tauri::ipc::Response, String> {
+    let snapshot = {
+        let guard = active_session().lock().map_err(|_| "Captura indisponível")?;
+        let session = guard.as_ref().ok_or("Sem captura ativa")?;
+        if session.state.session_id.as_deref() != Some(&session_id) { return Err("Sessão de captura inválida".into()); }
+        session.replay.as_ref().ok_or("Replay desativado")?.snapshot()?
+    }; // Mux outside the capture lock: exporting must not block negotiation/stop.
+    snapshot.export().map(tauri::ipc::Response::new)
 }

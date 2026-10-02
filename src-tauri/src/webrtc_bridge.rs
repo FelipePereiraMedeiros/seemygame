@@ -61,6 +61,7 @@ pub(crate) use pipeline::*;
 
 mod negotiation;
 pub(crate) use negotiation::*;
+pub(crate) mod stats;
 
 #[cfg(test)]
 mod tests {
@@ -92,6 +93,14 @@ mod tests {
         assert_eq!(negotiated_payload_type(offer, "video", "H264"), Some(127));
         assert_eq!(negotiated_payload_type(offer, "video", "AV1"), Some(99));
         assert_eq!(negotiated_payload_type(offer, "video", "H265"), None);
+    }
+
+    #[test]
+    fn rejects_native_codec_missing_from_remote_offer_before_starting_pipeline() {
+        let offer = "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 H264/90000\r\n";
+        let error = NativeWebRtcBridge::new(None, "unsupported", None, 1, None, VideoCodec::Hevc, Some(offer), None).unwrap_err();
+        assert!(error.contains("H265"));
+        assert!(error.contains("H.264"));
     }
 
     #[test]

@@ -21,6 +21,11 @@ impl NativeWebRtcBridge {
         offer_sdp: Option<&str>,
         ice_servers: Option<&[String]>,
     ) -> Result<Self, String> {
+        if let Some(offer) = offer_sdp {
+            if negotiated_payload_type(offer, "video", codec.encoding_name()).is_none() {
+                return Err(format!("Espectador não oferece {}; reinicie em H.264 ou selecione um codec comum antes de transmitir.", codec.encoding_name()));
+            }
+        }
         let session_id = session_id.into();
         #[cfg(test)]
         let _ = (&app, &session_id, &peer_id);

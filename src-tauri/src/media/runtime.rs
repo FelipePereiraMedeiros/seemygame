@@ -68,10 +68,11 @@ impl GStreamerRuntime {
         let h264_available = has("mfh264enc");
         let nvenc_h264_available = self.inspect_element("nvd3d11h264enc");
         let x264_available = self.inspect_element("x264enc");
-        let hevc_available = has("mfh265enc");
+        let hevc_available = has("mfh265enc") && self.inspect_element("h265parse") && self.inspect_element("rtph265pay") && self.inspect_element("rtph265depay");
         let av1_available = self.inspect_element("svtav1enc")
             && self.inspect_element("av1parse")
             && self.inspect_element("rtpav1pay");
+        let av1_available = av1_available && self.inspect_element("rtpav1depay");
         let video_available = has("d3d11screencapturesrc")
             && has("d3d11convert")
             && (h264_available
@@ -133,20 +134,30 @@ impl GStreamerRuntime {
     }
 
     pub(crate) fn inspect_element(&self, element: &str) -> bool {
+        let started = std::time::Instant::now();
+        #[cfg(not(test))]
+        crate::system::write_debug_log(&format!("[Media probe] {element}: in-process lookup starting"));
         self.prepare_process_environment();
         if gstreamer::init().is_ok() && gstreamer::ElementFactory::find(element).is_some() {
+            #[cfg(not(test))]
+            crate::system::write_debug_log(&format!("[Media probe] {element}: available ({} ms)", started.elapsed().as_millis()));
             return true;
         }
+        #[cfg(not(test))]
+        crate::system::write_debug_log(&format!("[Media probe] {element}: external lookup starting"));
         let mut command = Command::new(&self.inspect);
         command
             .arg(element)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         configure_environment(&mut command, &self.root);
-        command
+        let available = command
             .status()
             .map(|status| status.success())
-            .unwrap_or(false)
+            .unwrap_or(false);
+        #[cfg(not(test))]
+        crate::system::write_debug_log(&format!("[Media probe] {element}: external available={available} ({} ms)", started.elapsed().as_millis()));
+        available
     }
 
     pub(crate) fn command(&self) -> Command {

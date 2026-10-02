@@ -4,6 +4,7 @@ use super::*;
 #[cfg(not(test))]
 #[derive(Debug)]
 pub(crate) struct RtpFanout {
+    pub(crate) counters: Arc<media::RtpCounters>,
     pub(crate) running: Arc<AtomicBool>,
     pub(crate) video_targets: Arc<Mutex<HashSet<u16>>>,
     pub(crate) audio_targets: Arc<Mutex<HashSet<u16>>>,
@@ -15,6 +16,7 @@ pub(crate) struct RtpFanout {
 impl RtpFanout {
     pub(crate) fn start(video_src_port: u16, audio_src_port: Option<u16>) -> Result<Self, String> {
         let running = Arc::new(AtomicBool::new(true));
+        let counters = Arc::new(media::RtpCounters::default());
         let video_targets = Arc::new(Mutex::new(HashSet::new()));
         let audio_targets = Arc::new(Mutex::new(HashSet::new()));
 
@@ -26,6 +28,7 @@ impl RtpFanout {
             video_socket,
             Arc::clone(&video_targets),
             Arc::clone(&running),
+            Some(Arc::clone(&counters)),
         )?;
 
         let audio_thread = if let Some(audio_port) = audio_src_port {
@@ -37,12 +40,14 @@ impl RtpFanout {
                 audio_socket,
                 Arc::clone(&audio_targets),
                 Arc::clone(&running),
+                None,
             )?)
         } else {
             None
         };
 
         Ok(Self {
+            counters,
             running,
             video_targets,
             audio_targets,
@@ -157,6 +162,7 @@ pub(crate) fn spawn_fanout_thread(
     socket: UdpSocket,
     targets: Arc<Mutex<HashSet<u16>>>,
     running: Arc<AtomicBool>,
+    counters: Option<Arc<media::RtpCounters>>,
 ) -> Result<JoinHandle<()>, String> {
     #[cfg(windows)]
     set_socket_buffer_size(&socket, 2 * 1024 * 1024);
@@ -178,6 +184,7 @@ pub(crate) fn spawn_fanout_thread(
         while running.load(Ordering::Relaxed) {
             match socket.recv_from(&mut buf) {
                 Ok((len, src_addr)) => {
+                    if let Some(counters) = counters.as_ref() { counters.observe(&buf[..len]); }
                     if !first_packet_logged {
                         first_packet_logged = true;
                         crate::system::write_debug_log(&format!(

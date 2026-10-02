@@ -57,6 +57,8 @@ pub(crate) use environment::*;
 
 mod transport;
 pub(crate) use transport::*;
+mod rtp_stats;
+pub(crate) use rtp_stats::*;
 
 mod platform;
 pub(crate) use platform::*;
@@ -81,6 +83,8 @@ pub fn probe_capabilities() -> MediaCapabilities {
 #[cfg(test)]
 mod tests {
     use super::*;
+    include!("media/cadence_probe.rs");
+    include!("media/capture_stage_probe.rs");
 
     #[test]
     fn review_r04_port_lease_excludes_competitor_until_drop() {
