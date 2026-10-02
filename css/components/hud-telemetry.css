@@ -1,0 +1,90 @@
+/* ==========================================================================
+   SeeMyGame - HUD Telemetry, Latency & ABR Badges Component
+   ========================================================================== */
+
+
+/* HUD de Estatísticas / Latência / FPS / Bitrate */
+.stats-hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--surface-tint-hover);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-main);
+  z-index: 15;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow-panel);
+  pointer-events: auto;
+  user-select: none;
+}
+
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stats-label { 
+  color: var(--text-dim);
+}
+
+.stats-val { 
+  font-weight: 700; 
+  color: var(--accent-text);
+}
+
+.stats-val-green { 
+  color: var(--accent-green);
+}
+
+.stats-val-purple { 
+  color: var(--accent-text);
+}
+
+.stats-hud { width: min(280px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: auto; box-sizing: border-box; background: #101724f0; }
+.stats-heading { font-family: var(--font-main, system-ui); font-size: 12px; font-weight: 700; color: var(--text-main); padding-bottom: 5px; }
+.stats-hud .stats-label { color: var(--text-muted); }
+.stats-hud .stats-val { text-align: right; overflow-wrap: anywhere; }
+.stats-history { width: 100%; height: 48px; background: var(--bg-card-header); margin-top: 5px; border-radius: 4px; }
+.stats-history polyline { fill: none; stroke-width: 1.6; }
+.stats-line-fps { stroke: var(--accent-text); }
+.stats-line-frametime { stroke: var(--accent-text); }
+.stats-legend, .stats-note { color: var(--text-muted); font-size: 9px; line-height: 1.5; margin: 0; }
+.stats-hud summary { cursor: pointer; color: var(--text-main); padding: 6px 0; }
+.stats-hud details .stats-row { margin-bottom: 4px; }
+.stats-export { border: 1px solid var(--text-dim); border-radius: 5px; background: var(--border-color); padding: 7px 10px; color: var(--text-main); cursor: pointer; font: inherit; margin-top: 4px; }
+.stats-export:hover { background: var(--border-hover); }
+.stats-export:disabled { cursor: default; opacity: .5; }
+.stats-source { background: var(--bg-card-header, #24344b); color: var(--text-main, #f0f4fa); border: 1px solid var(--text-dim, #5d7593); border-radius: 4px; padding: 4px; font: inherit; }
+.stats-hud { background: color-mix(in srgb, var(--bg-card, #101724) 94%, transparent); color: var(--text-main, #f0f4fa); }
+.stats-heading, .stats-hud summary { color: var(--text-main, #f0f4fa); }
+.stats-hud .stats-label, .stats-legend, .stats-note { color: var(--text-muted, #acbbcc); }
+.stats-line-fps { stroke: var(--telemetry-fps, #1687c4); }
+.stats-line-frametime { stroke: var(--accent-warning, #ffab70); stroke-dasharray: 3 2; }
+.stats-export { color: var(--text-main, #f0f4fa); background: var(--bg-card-header, #24344b); border-color: var(--text-dim, #5d7593); }
+.stats-export:focus-visible, .stats-source:focus-visible, .stats-hud summary:focus-visible { outline: 2px solid var(--accent-text, #1687c4); outline-offset: 2px; }
+@media (max-width: 480px) { .stats-hud { top: 6px; left: 6px; width: min(245px, calc(100% - 12px)); max-height: calc(100% - 12px); padding: 7px; } }
+
+
+/* ABR Badge */
+.abr-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--accent-green);
+  cursor: pointer;
+}
+.abr-badge.throttled {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: var(--accent-text);
+}

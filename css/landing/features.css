@@ -1,0 +1,66 @@
+/* ==========================================================================
+   SEÇÕES DE RECURSOS E COMPARAÇÃO
+   ========================================================================== */.dune-section {
+  padding: 68px 0;
+  border-top: 1px solid var(--dune-border-subtle);
+}.dune-section.alt-bg {
+  background: var(--dune-bg-alt);
+}.dune-section-header {
+  text-align: center;
+  max-width: 680px;
+  margin: 0 auto 36px;
+}.dune-section-header h2 {
+  font-size: 2.1rem;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 10px;
+  letter-spacing: -0.6px;
+}.dune-section-header p {
+  color: var(--dune-text-muted);
+  font-size: 1.02rem;
+  line-height: 1.55;
+}.dune-feature-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  align-items: center;
+}.dune-feature-grid.reverse {
+  direction: rtl;
+}.dune-feature-grid.reverse > * {
+  direction: ltr;
+}.dune-feature-text h2 {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.6px;
+  line-height: 1.25;
+  margin-bottom: 16px;
+  color: var(--text-main);
+}.dune-feature-text p {
+  font-size: 1rem;
+  color: var(--dune-text-muted);
+  line-height: 1.65;
+  margin-bottom: 20px;
+}.dune-feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}.dune-feature-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.92rem;
+  color: var(--dune-text);
+}.dune-feature-list .icon-wrapper {
+  color: var(--dune-gold);
+  flex-shrink: 0;
+  margin-top: 2px;
+}.dune-feature-card {
+  background: var(--dune-surface);
+  border: 1px solid var(--dune-border);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: var(--dune-shadow-card);
+}

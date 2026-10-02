@@ -1,0 +1,93 @@
+/* ==========================================
+   Soundboard Gamer P2P
+   ========================================== */.soundboard-panel {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}.soundboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}.soundboard-btn {
+  background: var(--surface-tint);
+  border: 1px solid var(--surface-tint-hover);
+  border-radius: 10px;
+  padding: 12px 10px;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}.soundboard-btn:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: var(--accent-purple);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 25%, transparent);
+}.soundboard-btn:active {
+  transform: scale(0.96);
+}.soundboard-icon {
+  font-size: 1.6rem;
+}/* Soundboard Sections & Custom Memes */.soundboard-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}.soundboard-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--surface-tint);
+}.soundboard-custom-section {
+  margin-top: 14px;
+}.soundboard-custom-item {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}.soundboard-custom-btn {
+  flex: 1;
+  position: relative;
+  padding-right: 28px;
+}.soundboard-duration-tag {
+  font-size: 10px;
+  color: var(--accent-cyan);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-top: 2px;
+}.soundboard-delete-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: transparent;
+  border: none;
+  color: var(--surface-tint-hover);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  z-index: 2;
+}.soundboard-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}.soundboard-empty-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--surface-tint);
+  border: 1px dashed var(--surface-tint-hover);
+  border-radius: 8px;
+  padding: 12px;
+  line-height: 1.45;
+  text-align: center;
+}

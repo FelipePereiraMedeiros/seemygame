@@ -1,0 +1,149 @@
+/* ==========================================================================
+   VISUAL PRINCIPAL: DEMONSTRAÇÃO DO FLUXO REAL EM 4 PASSOS
+   ========================================================================== */.dune-mockup-wrapper {
+  max-width: 980px;
+  margin: 0 auto;
+}.dune-mockup-window {
+  background: var(--dune-surface);
+  border: 1px solid var(--dune-border);
+  border-radius: 16px;
+  box-shadow: var(--dune-shadow-card);
+  overflow: hidden;
+  text-align: left;
+}.dune-mockup-titlebar {
+  background: var(--dune-bg-alt);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--dune-border-subtle);
+}.dune-mockup-dots {
+  display: flex;
+  gap: 6px;
+}.dune-mockup-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--dune-border);
+}.dune-mockup-dot.red { background: #E05248; }.dune-mockup-dot.yellow { background: #E5A83B; }.dune-mockup-dot.green { background: #22C55E; }.dune-mockup-roomname {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--dune-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}.dune-mockup-body {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 380px;
+}/* Sidebar simulada */.dune-mockup-sidebar {
+  background: var(--dune-surface-card);
+  border-right: 1px solid var(--dune-border-subtle);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}.dune-mockup-section-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--dune-text-dim);
+  font-weight: 800;
+  margin-bottom: 6px;
+}.dune-mockup-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 0.84rem;
+  font-weight: 600;
+}.dune-mockup-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #2E2722;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}.dune-mockup-avatar.speaking {
+  box-shadow: 0 0 0 2px var(--dune-green);
+}.dune-mockup-user-info {
+  flex: 1;
+  min-width: 0;
+}.dune-mockup-user-name {
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}.dune-mockup-user-tag {
+  font-size: 0.68rem;
+  color: var(--dune-text-dim);
+}.dune-mockup-user-tag.active {
+  color: var(--dune-green);
+  font-weight: 700;
+}/* Palco de vídeo e gameplay */.dune-mockup-stage {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--dune-bg);
+}.dune-mockup-video-card {
+  flex: 1;
+  background: linear-gradient(135deg, #181513 0%, #201A16 100%);
+  border: 1px solid var(--dune-border);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 270px;
+  padding: 40px 16px 20px;
+}/* Linha flexível para selos (sem sobreposição!) */.dune-mockup-badges-row {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  z-index: 3;
+}.dune-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 9px;
+  border-radius: 6px;
+  letter-spacing: 0.3px;
+}.dune-badge-live {
+  background: rgba(220, 38, 38, 0.9);
+  color: #fff;
+}.dune-badge-coop {
+  background: rgba(28, 23, 20, 0.85);
+  border: 1px solid var(--dune-gold);
+  color: var(--dune-gold);
+}.dune-mockup-gameplay-content {
+  text-align: center;
+  max-width: 440px;
+  z-index: 2;
+}.dune-mockup-gameplay-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 10px;
+  color: var(--dune-accent);
+}.dune-mockup-note {
+  font-size: 0.72rem;
+  color: var(--dune-text-dim);
+  text-align: right;
+  margin-top: 4px;
+}

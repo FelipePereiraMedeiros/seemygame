@@ -1,0 +1,86 @@
+/* ==========================================
+   Reações Flutuantes & Dock de Emojis
+   ========================================== */.reactions-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 50;
+}.floating-reaction {
+  position: absolute;
+  bottom: 60px;
+  font-size: 2.2rem;
+  user-select: none;
+  pointer-events: none;
+  animation: floatUpFade 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.8));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}.reaction-sender {
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--accent-text);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 2px;
+  white-space: nowrap;
+}.reaction-gg-badge {
+  background: linear-gradient(135deg, #10b981, var(--accent));
+  color: var(--text-on-accent);
+  font-weight: 900;
+  font-size: 1.1rem;
+  padding: 4px 10px;
+  border-radius: 8px;
+  letter-spacing: 1px;
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.6);
+}@keyframes floatUpFade {
+  0% {
+    transform: translateY(0) translateX(0) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    transform: translateY(-40px) translateX(calc(var(--drift) * 0.3)) scale(1.25);
+    opacity: 1;
+  }
+  75% {
+    transform: translateY(-220px) translateX(calc(var(--drift) * 0.8)) scale(1.05);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(-340px) translateX(var(--drift)) scale(0.85);
+    opacity: 0;
+  }
+}.reactions-dock {
+  position: absolute;
+  bottom: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  background: color-mix(in srgb, var(--bg-card) 85%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--surface-tint-hover);
+  border-radius: 30px;
+  padding: 6px 12px;
+  box-shadow: var(--shadow-panel);
+  z-index: 60;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}.reactions-dock.dock-hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(28px);
+  pointer-events: none;
+}.reaction-dock-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.35rem;
+  padding: 4px 8px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  color: var(--text-main);
+}.reaction-dock-btn:hover {
+  transform: scale(1.35) translateY(-4px);
+}.reaction-dock-btn:active {
+  transform: scale(0.95);
+}

@@ -1,0 +1,106 @@
+.controller-lab {
+  --lab-ink: var(--text-main);
+  --lab-muted: var(--text-muted);
+  position: fixed;
+  inset: 0;
+  z-index: 10030;
+  overflow: auto;
+  background: var(--bg-dark);
+  color: var(--lab-ink);
+  padding: clamp(18px, 3vw, 48px);
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+.controller-lab[hidden], .controller-lab [hidden], .controller-lab-invitation[hidden] { display: none !important; }
+.controller-lab-shell { max-width: 1460px; margin: 0 auto; }
+.controller-lab-heading { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
+.controller-lab-eyebrow { color: var(--accent-text); font-size: 12px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 12px; }
+.controller-lab-heading h2 { font-size: clamp(26px, 3.4vw, 48px); font-weight: 750; line-height: 1.1; letter-spacing: -.035em; margin: 0; }
+.controller-lab-heading h2 span { color: var(--lab-muted); display: block; font-weight: 400; font-size: .62em; letter-spacing: -.02em; margin-top: 8px; }
+.controller-lab-intro { max-width: 650px; color: var(--lab-muted); font-size: 14px; line-height: 1.6; margin-top: 14px; }
+.controller-lab button { border-radius: 9px; font: inherit; font-weight: 650; cursor: pointer; transition: background .15s ease; }
+.controller-lab button:focus-visible, .controller-lab select:focus-visible, .controller-lab-invitation button:focus-visible { outline: 3px solid var(--accent-text); outline-offset: 3px; }
+.controller-lab-close { background: var(--bg-hover); color: var(--text-main); border: 1px solid var(--border-hover); padding: 11px 16px; white-space: nowrap; }
+.controller-lab-close span { margin-left: 18px; }
+.controller-lab-close:hover { background: var(--border-color); }
+.controller-lab-toolbar { margin: 26px 0 16px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.controller-lab-count { color: var(--text-main); font-size: 13px; }
+.controller-lab-invite { padding: 8px 14px; color: var(--text-main); background: var(--border-color); border: 1px solid var(--text-dim); font-size: 12px !important; }
+.controller-lab-invite:hover { background: var(--border-hover); }
+.controller-lab-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.controller-lab-player {
+  --player-accent: var(--accent-text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-top: 3px solid var(--player-accent);
+  border-radius: 13px;
+  padding: 20px 18px 18px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.controller-lab-player[data-lab-slot="1"] { --player-accent: var(--accent-text); }
+.controller-lab-player[data-lab-slot="2"] { --player-accent: var(--accent-text); }
+.controller-lab-player[data-lab-slot="3"] { --player-accent: var(--accent-green); }
+.controller-lab-player-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.controller-lab-number { color: var(--player-accent); font-weight: 300; letter-spacing: -.065em; font-size: 38px; line-height: 1; }
+.controller-lab-status { font-size: 11px; color: var(--lab-muted); }
+.controller-lab-player[data-ready="true"] .controller-lab-status { color: var(--accent-green); }
+.controller-lab-player[data-connected="true"] .controller-lab-status::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; background: var(--player-accent); border-radius: 50%; }
+.controller-lab-name { font-size: 18px; line-height: 1.4; margin-top: 19px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.controller-lab-role { font-size: 12px; margin-top: 3px; color: var(--lab-muted); }
+.controller-lab-model { width: 100%; height: clamp(160px, 14vw, 215px); position: relative; }
+.controller-lab-model canvas { display: block; width: 100%; height: 100%; }
+.controller-lab-player[data-connected="false"] .controller-lab-model canvas { opacity: .55; }
+.controller-lab-fallback { position: absolute; inset: 30% 5%; text-align: center; font-size: 13px; line-height: 1.7; color: var(--lab-muted); }
+.controller-lab-device-name { height: 38px; font-size: 11px; line-height: 1.55; color: var(--lab-muted); overflow: hidden; overflow-wrap: anywhere; margin-bottom: 8px; }
+.controller-lab-selector { margin-bottom: 12px; }
+.controller-lab-selector label { display: grid; gap: 5px; font-size: 11px; color: var(--lab-muted); }
+.controller-lab-selector select { width: 100%; min-width: 0; border: 1px solid var(--border-hover); border-radius: 6px; padding: 7px; font-size: 11px; color: var(--text-main); background: var(--bg-dark); }
+.controller-lab-inputs { border-top: 1px solid var(--border-color); padding-top: 14px; margin-top: auto; }
+.controller-lab-sticks { display: flex; justify-content: space-around; text-align: center; gap: 8px; }
+.controller-lab-sticks span { font-size: 10px; color: var(--lab-muted); }
+.controller-lab-stick { width: 58px; height: 58px; border: 1px solid var(--border-hover); border-radius: 50%; margin: 6px auto; position: relative; display: grid; place-items: center; background: linear-gradient(transparent 49%, var(--border-color) 50%, transparent 51%), linear-gradient(90deg, transparent 49%, var(--border-color) 50%, transparent 51%); }
+.controller-lab-stick i { display: block; width: 13px; height: 13px; border-radius: 50%; background: var(--player-accent); }
+.controller-lab-sticks output { display: block; font: 10px Consolas, monospace; color: var(--text-main); }
+.controller-lab-triggers { display: grid; gap: 9px; margin: 17px 0; }
+.controller-lab-triggers label { display: flex; align-items: center; gap: 8px; font: 11px Consolas, monospace; color: var(--text-main); }
+.controller-lab-triggers output { width: 34px; text-align: right; }
+.controller-lab-triggers meter { flex: 1; min-width: 0; height: 8px; appearance: none; background: var(--bg-input); border-radius: 4px; }
+.controller-lab-triggers meter::-webkit-meter-bar { background: var(--bg-input); border: 0; border-radius: 4px; }
+.controller-lab-triggers meter::-webkit-meter-optimum-value { background: var(--player-accent); }
+.controller-lab-triggers meter::-moz-meter-bar { background: var(--player-accent); }
+.controller-lab-buttons { display: flex; flex-wrap: wrap; gap: 5px; min-height: 60px; align-content: flex-start; }
+.controller-lab-buttons span { display: grid; place-items: center; font: 10px Consolas, monospace; color: var(--text-muted); border: 1px solid var(--border-hover); border-radius: 5px; min-width: 24px; height: 24px; padding: 0 4px; }
+.controller-lab-buttons span[data-pressed="true"] { background: var(--player-accent); color: var(--bg-dark); border-color: var(--player-accent); }
+.controller-lab-checks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 17px; font-size: 10px; color: var(--lab-muted); }
+.controller-lab-checks [data-passed="true"] { color: var(--accent-green); }
+.controller-lab-player-hint { color: var(--lab-muted); font-size: 11px; line-height: 1.6; min-height: 36px; margin-top: 8px; }
+.controller-lab-access { border-top: 1px solid var(--border-color); margin-top: 12px; padding-top: 10px; }
+.controller-lab-access-status { color: var(--lab-muted); font-size: 10px; margin-bottom: 7px; }
+.controller-lab-access-toggle { width: 100%; min-height: 32px; padding: 6px 8px; background: #193c37; border: 1px solid #387866; color: #b9f5df; font-size: 11px !important; }
+.controller-lab-access-toggle:hover:not(:disabled) { background: #245247; box-shadow: var(--shadow-panel); transform: none; }
+.controller-lab-access-toggle[data-action="revoke"] { background: #38232d; border-color: #754152; color: #ffd0d9; }
+.controller-lab-access-toggle[data-action="revoke"]:hover:not(:disabled) { background: #50303d; }
+.controller-lab-access-toggle:disabled { cursor: default; opacity: .65; }
+.controller-lab-ready { margin-top: 10px; padding: 10px 8px; background: var(--player-accent); border: 1px solid var(--player-accent); color: var(--bg-dark); font-size: 12px !important; }
+.controller-lab-card-action { min-height: 50px; }
+.controller-lab-card-action button { width: 100%; justify-content: center; }
+.controller-lab-ready:disabled { cursor: default; background: var(--bg-hover); border-color: var(--border-hover); color: var(--text-muted); }
+.controller-lab .controller-lab-ready:hover:not(:disabled) { background: var(--player-accent); box-shadow: var(--shadow-panel); transform: none; filter: brightness(1.08); }
+.controller-lab .controller-lab-close:hover:not(:disabled), .controller-lab .controller-lab-invite:hover:not(:disabled) { box-shadow: var(--shadow-panel); transform: none; }
+.controller-lab-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 20px; margin: 20px 0 0; font-size: 11px; color: var(--lab-muted); line-height: 1.6; }
+.controller-lab-safe { color: #b8d5cd; }
+.controller-lab-invitation { position: fixed; z-index: 10031; right: 24px; bottom: 24px; max-width: min(560px, calc(100vw - 32px)); padding: 18px; display: flex; gap: 15px; align-items: center; background: var(--bg-hover); border: 1px solid var(--accent-text); color: var(--text-main); box-shadow: var(--shadow-panel); border-radius: 12px; font-family: "Segoe UI", system-ui, sans-serif; }
+.controller-lab-invitation strong { font-size: 14px; }
+.controller-lab-invitation p { color: var(--text-muted); font-size: 12px; line-height: 1.5; margin-top: 4px; }
+.controller-lab-invitation button { flex-shrink: 0; background: var(--accent-text); color: var(--bg-dark); border: 0; border-radius: 7px; padding: 10px 12px; font-size: 12px; font-weight: 650; cursor: pointer; }
+.controller-lab-invitation [data-dismiss] { background: transparent; color: var(--text-main); padding: 8px; }
+@media (max-width: 1050px) { .controller-lab-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .controller-lab-model { height: 235px; } }
+@media (max-width: 560px) {
+  .controller-lab-grid { grid-template-columns: 1fr; }
+  .controller-lab-heading { flex-direction: column; gap: 18px; }
+  .controller-lab-toolbar { align-items: flex-start; }
+  .controller-lab-model { height: 270px; }
+  .controller-lab-invitation { flex-wrap: wrap; right: 16px; bottom: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .controller-lab button { transition: none; } }

@@ -1,0 +1,136 @@
+/* ==========================================
+   LOBBY PRÉ-ENTRADA (GREEN ROOM ESTILO GOOGLE MEET)
+   ========================================== */.green-room-modal-content {
+  max-width: 520px;
+  background: var(--bg-card);
+  border: 1px solid var(--surface-tint-hover);
+  border-radius: 18px;
+  padding: 28px;
+  box-shadow: var(--shadow-panel);
+  text-align: center;
+}.green-room-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 20px;
+  margin-bottom: 12px;
+  letter-spacing: 0.5px;
+}.green-room-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 6px;
+}.green-room-subtitle {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}.green-room-audio-preview {
+  background: var(--bg-card-header);
+  border: 1px solid var(--surface-tint);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+}.green-room-mic-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}.green-room-mic-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}.vu-meter-bar-container {
+  height: 8px;
+  background: var(--bg-input);
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}.vu-meter-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #10b981, var(--accent), var(--accent));
+  border-radius: 6px;
+  transition: width 0.08s ease-out;
+}.green-room-toggle-mic-btn {
+  background: var(--surface-tint);
+  border: 1px solid var(--surface-tint-hover);
+  color: var(--text-main);
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}.green-room-toggle-mic-btn:hover {
+  background: var(--surface-tint-hover);
+}.green-room-toggle-mic-btn.is-muted {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: var(--status-danger-text);
+}.green-room-toggle-mic-btn.is-muted:hover {
+  background: rgba(239, 68, 68, 0.28);
+}.green-room-device-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}.green-room-test-btn {
+  background: var(--surface-tint);
+  border: 1px solid var(--surface-tint-hover);
+  color: var(--text-main);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}.green-room-test-btn:hover {
+  background: var(--surface-tint-hover);
+  color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}.green-room-device-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}.green-room-join-btn {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: none;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 13px 28px;
+  border-radius: 12px;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: var(--shadow-panel);
+  transition: all 0.2s ease;
+}.green-room-join-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-panel);
+}

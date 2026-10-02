@@ -1,0 +1,39 @@
+<div id="desktop-picker-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="picker-title">
+    <div class="modal-content" style="max-width: 580px; max-height: 85vh; display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 id="picker-title" style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px;">
+          🎮 <span>Escolha o Jogo ou Janela</span>
+        </h3>
+        <button id="picker-refresh-btn" class="btn-secondary" style="padding: 4px 10px; font-size: 12px;" title="Atualizar lista de janelas">
+          🔄 Atualizar
+        </button>
+      </div>
+      <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 16px 0;">
+        Janelas detectadas pelo Rust no seu computador. Escolha o jogo para transmitir com alta prioridade de GPU:
+      </p>
+      <p id="picker-native-status" style="font-size: 12px; margin: -8px 0 12px 0;"></p>
+
+      <div id="desktop-windows-list" style="overflow-y: auto; max-height: 340px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; padding-right: 4px;"></div>
+
+      <div id="picker-audio-exclusion-bar" style="margin-bottom: 14px; padding: 10px 12px; background: var(--surface-tint); border: 1px solid var(--border-color); border-radius: 8px;">
+        <label for="picker-audio-exclude-select" style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">
+          <span>🛡️ <strong>Anti-Eco de Áudio:</strong></span>
+          <span style="font-size: 10.5px; color: var(--accent-cyan);">Sem eco da sala</span>
+        </label>
+        <select id="picker-audio-exclude-select" class="custom-id-field" style="font-size: 12px; padding: 6px 10px;">
+          <option value="seemygame" selected>🎮 SeeMyGame (Ignorar Voz da Sala / Recomendado)</option>
+          <option value="discord">🎧 Discord (Ignorar Chamada Externa)</option>
+          <option value="none">🌐 Nenhum (Capturar todos os sons)</option>
+        </select>
+      </div>
+
+      <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 14px;">
+        <button id="picker-screen-fallback-btn" class="btn-secondary" style="font-size: 12.5px;">
+          🖥️ Compartilhar Tela Inteira
+        </button>
+        <button id="picker-cancel-btn" class="btn-secondary" style="font-size: 12.5px;">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>

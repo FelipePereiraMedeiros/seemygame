@@ -1,0 +1,42 @@
+/* ==========================================================================
+   BOTÕES COM CONTRASTE WCAG AA (>= 4.5:1)
+   ========================================================================== */.dune-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 26px;
+  font-weight: 700;
+  font-size: 0.92rem;
+  padding: 11px 22px;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  transition: var(--dune-transition);
+  white-space: nowrap;
+}/* Contraste verificado: #12100F sobre #E06C38 tem proporção de 5.8:1 (Aprovado AA) */.dune-btn-primary {
+  background: var(--dune-accent);
+  color: var(--dune-text-on-accent);
+  box-shadow: 0 4px 14px var(--dune-accent-glow);
+}.dune-btn-primary:hover {
+  background: var(--dune-accent-hover);
+  transform: translateY(-1px);
+}.dune-btn-secondary {
+  background: var(--dune-surface-card);
+  color: var(--dune-text);
+  border: 1px solid var(--dune-border);
+}.dune-btn-secondary:hover {
+  background: var(--dune-surface-hover);
+  border-color: var(--dune-border-hover);
+  transform: translateY(-1px);
+}.dune-btn-gold {
+  background: var(--dune-gold);
+  color: var(--dune-text-on-accent);
+}.dune-btn-gold:hover {
+  background: #F8D8A7;
+  transform: translateY(-1px);
+}.dune-btn-lg {
+  padding: 14px 28px;
+  font-size: 1rem;
+  border-radius: 30px;
+}

@@ -1,0 +1,77 @@
+<div id="gamepad-tester-modal" class="modal-overlay" style="display: none; z-index: 10001;" role="dialog" aria-modal="true" aria-labelledby="gamepad-tester-title">
+    <div class="modal-content" style="max-width: 520px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h3 id="gamepad-tester-title" style="margin: 0; display: flex; align-items: center; gap: 8px;">
+          <span>🎮</span> Teste & Calibração de Gamepad
+        </h3>
+        <button id="close-gamepad-tester-btn" class="drawer-close-btn" title="Fechar" aria-label="Fechar modal">✕</button>
+      </div>
+
+      <div id="gamepad-driver-status-box" style="margin-bottom: 16px; padding: 10px 14px; border-radius: 8px; font-size: 12.5px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981;">
+        <span id="gamepad-driver-status-text">🟢 Driver ViGEmBus: Ativo e pronto</span>
+      </div>
+      <p class="gamepad-driver-note">O ViGEmBus cria controles virtuais para o co-op; a vibração é testada diretamente no controle físico.</p>
+
+      <div style="margin-bottom: 16px;">
+        <label for="gamepad-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Controle Físico Detectado:</label>
+        <select id="gamepad-select" class="custom-id-field">
+          <option value="">Nenhum controle detectado (pressione qualquer botão)</option>
+        </select>
+        <div id="gamepad-multi-hint" style="font-size: 11px; color: var(--accent-cyan, var(--accent)); margin-top: 5px;">🎮 Suporta até 4 controles simultâneos (Slots 0 a 3). Pressione um botão em outro controle para conectá-lo.</div>
+      </div>
+
+      <div class="gamepad-visual-stage" id="gamepad-visual-stage">
+        <div id="gamepad-visual" class="gamepad-visual" role="img" aria-label="Visualização 3D do controle; nenhum botão pressionado">
+          <canvas id="gamepad-3d-canvas" class="gamepad-3d-canvas" width="420" height="250"></canvas>
+          <div class="gamepad-3d-hint">
+            <span>🖱️ Mova o mouse para inclinar em 3D</span>
+          </div>
+        </div>
+        <p id="gamepad-connection-label" class="gamepad-connection-label">Conecte um controle e pressione qualquer botão para começar</p>
+      </div>
+
+      <div class="gamepad-hud-display" style="background: rgba(0,0,0,0.3); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+          <div><strong>Analógicos (Deadzone Radial):</strong></div>
+          <div id="gamepad-sticks-label" style="color: var(--accent-green); font-family: monospace;">L: (0, 0) | R: (0, 0)</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+          <div><strong>Gatilhos (LT / RT):</strong></div>
+          <div id="gamepad-triggers-label" style="color: var(--accent-purple); font-family: monospace;">LT: 0% | RT: 0%</div>
+        </div>
+        <div style="font-size: 13px;">
+          <div><strong>Botões Pressionados:</strong></div>
+          <div id="gamepad-buttons-label" style="color: var(--text-main); font-family: monospace; min-height: 20px; margin-top: 4px;">Nenhum</div>
+        </div>
+      </div>
+
+      <!-- Remapeamento e Presets de Botões (Xbox / Nintendo Switch / Custom) -->
+      <div style="background: var(--surface-tint); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <label for="gamepad-mapping-preset" style="font-size: 12.5px; font-weight: 600; color: var(--text-color);">Layout de Botões:</label>
+          <select id="gamepad-mapping-preset" class="custom-id-field" style="width: auto; padding: 4px 8px; font-size: 12px;">
+            <option value="xbox">Padrão Xbox / PC</option>
+            <option value="playstation">PlayStation (DualSense / DualShock - ✕ ○ □ △)</option>
+            <option value="nintendo">Nintendo Switch (Inverte A ↔ B e X ↔ Y)</option>
+            <option value="custom">Personalizado</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <button type="button" id="swap-ab-btn" class="btn-secondary" style="flex: 1; font-size: 11.5px; padding: 6px 8px;">🔄 Inverter A ↔ B</button>
+          <button type="button" id="swap-xy-btn" class="btn-secondary" style="flex: 1; font-size: 11.5px; padding: 6px 8px;">🔄 Inverter X ↔ Y</button>
+          <button type="button" id="reset-mapping-btn" class="btn-secondary" style="font-size: 11.5px; padding: 6px 8px;">Restaurar</button>
+        </div>
+        <div id="gamepad-mapping-status" style="font-size: 11px; color: var(--text-muted); margin-top: 6px; text-align: right;">Layout ativo: Padrão Xbox</div>
+      </div>
+
+      <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+        <button id="test-rumble-btn" class="btn-secondary" style="font-size: 12.5px;">
+          📳 Testar Vibração
+        </button>
+        <button id="done-gamepad-tester-btn" style="background: var(--accent-purple); font-size: 12.5px;">
+          Concluído
+        </button>
+      </div>
+      <p id="gamepad-rumble-status" class="gamepad-rumble-status" role="status" aria-live="polite"></p>
+    </div>
+  </div>
