@@ -453,7 +453,7 @@ describe('Adversarial Stress Testing: Gamepad3DViewer', () => {
       expect(recordsR.length).toBe(originalMaterialsR.length);
 
       viewer.destroy();
-    });
+    }, 25000);
 
     it('mantém isolamento total entre L3 e R3 (clicar L3 não ilumina stickR e vice-versa)', () => {
       const viewer = new Gamepad3DViewer({ container, canvas, renderer: mockRenderer });

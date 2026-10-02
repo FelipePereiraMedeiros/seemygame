@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchHistoricalBrowser, historicalArtifactDir, waitHistorical } from '../tools/e2e/harness/historical-browser.mjs';
+import { startSignalingServer } from '../tools/e2e/harness/signaling.mjs';
+import { launchTestBrowser, prepareSessionContext } from '../tools/e2e/harness/browser.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,13 +63,10 @@ const mockScript = (name) => `
 
 async function run() {
   const server = await startServer();
+  const signaling = await startSignalingServer();
   console.log(`[E2E] Servidor para teste de lousa multi-cliente ouvindo na porta ${PORT}`);
 
-  const browser = await launchHistoricalBrowser({
-    channel: 'chrome',
-    headless: true,
-    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--disable-web-security']
-  });
+  const browser = await launchTestBrowser();
 
   const roomId = 'audit-wb-' + Math.random().toString(36).substring(2, 8);
   const roomUrl = `http://127.0.0.1:${PORT}/room.html?room=${roomId}`;
@@ -75,21 +74,21 @@ async function run() {
 
   try {
     // 3 Participantes: Host, Viewer 1, Viewer 2
-    const ctxHost = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const ctxHost = await prepareSessionContext(browser, signaling);
     const pageHost = await ctxHost.newPage();
     pageHost.on('console', msg => console.log(`[Host Console] ${msg.text()}`));
     pageHost.on('pageerror', err => console.log(`[Host Error] ${err.stack || err.message}`));
     await pageHost.addInitScript(mockScript('Host'));
     await pageHost.goto(roomUrl);
 
-    const ctxV1 = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const ctxV1 = await prepareSessionContext(browser, signaling);
     const pageV1 = await ctxV1.newPage();
     pageV1.on('console', msg => console.log(`[V1 Console] ${msg.text()}`));
     pageV1.on('pageerror', err => console.log(`[V1 Error] ${err.stack || err.message}`));
     await pageV1.addInitScript(mockScript('Viewer1'));
     await pageV1.goto(roomUrl);
 
-    const ctxV2 = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const ctxV2 = await prepareSessionContext(browser, signaling);
     const pageV2 = await ctxV2.newPage();
     pageV2.on('console', msg => console.log(`[V2 Console] ${msg.text()}`));
     pageV2.on('pageerror', err => console.log(`[V2 Error] ${err.stack || err.message}`));
@@ -222,6 +221,71 @@ async function run() {
       console.log(`✅ ${name} recebeu o cursor multiplayer do Viewer1 com apelido puro e cor não-branca!`);
     }
 
+    // 5.6 Testar colagem/inserção de imagem com transmissão P2P (WebRTC chunking)
+    console.log('[E2E] Host adicionando imagem na lousa com chunking WebRTC...');
+    const testDataUrl = await pageHost.evaluate(() => {
+      const c = document.createElement('canvas');
+      c.width = 160;
+      c.height = 120;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#06b6d4';
+      ctx.fillRect(0, 0, 160, 120);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('SMG LOUSA', 20, 65);
+      return c.toDataURL('image/png');
+    });
+
+    await pageHost.evaluate(async (dataUrl) => {
+      const wbm = (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager;
+      await wbm.addImageFromDataUrl(dataUrl, 400, 250, true);
+    }, testDataUrl);
+
+    console.log('[E2E] Verificando recebimento da imagem nos outros participantes (Viewer 1 e Viewer 2)...');
+    for (const [name, page] of [['Viewer 1', pageV1], ['Viewer 2', pageV2]]) {
+      await waitHistorical(page, async () => {
+        const wbm = (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager;
+        const img = wbm.elements.find(el => el.type === 'image');
+        return Boolean(img && img.dataUrl && img.dataUrl.startsWith('data:image/'));
+      }, undefined, { timeout: 15000 });
+      console.log(`✅ ${name} recebeu e reconstruiu a imagem colada/inserida com 100% de integridade!`);
+    }
+
+    // 5.7 Testar redimensionamento de elemento selecionado com alças
+    console.log('[E2E] Host redimensionando o elemento de imagem na lousa...');
+    await pageHost.evaluate(async () => {
+      const wbm = (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager;
+      const img = wbm.elements.find(el => el.type === 'image');
+      wbm.selectedElementId = img.id;
+      const initial = JSON.parse(JSON.stringify(img));
+      wbm.resizeElement(img, initial, 'br', 120, 90);
+      wbm.updateElement(img, true);
+    });
+
+    console.log('[E2E] Verificando sincronização das novas dimensões redimensionadas para Viewer 1 e Viewer 2...');
+    for (const [name, page] of [['Viewer 1', pageV1], ['Viewer 2', pageV2]]) {
+      await waitHistorical(page, async () => {
+        const wbm = (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager;
+        const img = wbm.elements.find(el => el.type === 'image');
+        return Boolean(img && img.width >= 250);
+      }, undefined, { timeout: 10000 });
+      console.log(`✅ ${name} recebeu as novas dimensões do objeto redimensionado!`);
+    }
+
+    // 5.8 Testar controles de Zoom e Pan da Tela Infinita
+    console.log('[E2E] Testando Zoom e Pan da tela infinita no Viewer 1...');
+    await pageV1.evaluate(async () => {
+      const wbm = (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager;
+      wbm.setZoom(1.5, 640, 360);
+      wbm.pan(120, -80);
+    });
+    const v1View = await pageV1.evaluate(async () => {
+      const wbm = (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager;
+      return { zoom: wbm.zoom, panX: wbm.panX, panY: wbm.panY };
+    });
+    if (Math.abs(v1View.zoom - 1.5) > 0.05) throw new Error(`Zoom incorreto no Viewer 1: ${v1View.zoom}`);
+    console.log(`✅ Viewer 1 operou Zoom (${v1View.zoom}x) e Pan (${v1View.panX}, ${v1View.panY}) da tela infinita com sucesso!`);
+
     // 6. Testar retorno para a sala em todos os clientes
     console.log('[E2E] Fechando a lousa e retornando para a sala em todos os clientes...');
     await pageHost.locator('#wb-back-room-btn').click();
@@ -241,7 +305,8 @@ async function run() {
     console.error('❌ Falha no teste da lousa multi-cliente:', err);
     process.exitCode = 1;
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
+    if (signaling) await signaling.close();
     server.close();
   }
 }

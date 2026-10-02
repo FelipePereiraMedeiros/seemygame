@@ -1,7 +1,7 @@
 import {EventEmitter} from 'node:events';
 import {describe,it,expect,vi,beforeEach} from 'vitest';
 const mocks=vi.hoisted(()=>({spawn:vi.fn()}));
-vi.mock('node:child_process',()=>({spawn:mocks.spawn}));
+vi.mock('node:child_process',()=>({default:{spawn:mocks.spawn},spawn:mocks.spawn}));
 import {startReverseTunnel} from '../tools/e2e/harness/ssh-reverse.mjs';
 
 function fakeChild() {
