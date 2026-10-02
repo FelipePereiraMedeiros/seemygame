@@ -9,17 +9,17 @@
   z-index: 9999;
   padding: 20px;
 }.modal-content {
-  background: #141520;
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 14px;
   max-width: 580px;
   width: 100%;
   padding: 26px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.7);
+  box-shadow: var(--shadow-panel);
 }.modal-content h3 {
   font-size: 1.3rem;
   margin-bottom: 14px;
-  color: #fff;
+  color: var(--text-main);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -37,7 +37,7 @@
 }.terms-box p { 
   margin-bottom: 10px; 
 }.terms-box strong { 
-  color: #fff; 
+  color: var(--text-main);
 }.checkbox-group {
   display: flex;
   flex-direction: column;

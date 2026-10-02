@@ -14,9 +14,9 @@
   align-items: center;
   margin-left: 6px;
 }.ping-mode-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: var(--surface-tint);
+  border: 1px solid var(--surface-tint-hover);
+  color: var(--text-main);
   font-size: 11.5px;
   padding: 4px 8px;
   border-radius: 6px;
@@ -24,8 +24,8 @@
   transition: all 0.2s;
 }.ping-mode-btn.active {
   background: var(--accent-cyan);
-  color: #000;
+  color: var(--text-on-secondary);
   font-weight: 700;
   border-color: var(--accent-cyan);
-  box-shadow: 0 0 10px rgba(6, 182, 212, 0.4);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 40%, transparent);
 }

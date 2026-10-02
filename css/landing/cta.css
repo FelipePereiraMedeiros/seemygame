@@ -12,7 +12,7 @@
   font-weight: 900;
   letter-spacing: -0.6px;
   margin-bottom: 12px;
-  color: #fff;
+  color: var(--text-main);
 }.dune-cta-banner p {
   font-size: 1.05rem;
   color: var(--dune-text-muted);

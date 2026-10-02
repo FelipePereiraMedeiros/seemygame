@@ -12,7 +12,7 @@
 }.dune-section-header h2 {
   font-size: 2.1rem;
   font-weight: 800;
-  color: #fff;
+  color: var(--text-main);
   margin-bottom: 10px;
   letter-spacing: -0.6px;
 }.dune-section-header p {
@@ -34,7 +34,7 @@
   letter-spacing: -0.6px;
   line-height: 1.25;
   margin-bottom: 16px;
-  color: #fff;
+  color: var(--text-main);
 }.dune-feature-text p {
   font-size: 1rem;
   color: var(--dune-text-muted);

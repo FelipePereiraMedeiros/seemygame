@@ -3,3 +3,9 @@
 @import './modals/green-room.css';
 @import './modals/sharing.css';
 @import './modals/gamepad-tester.css';
+@import './modals/controller-lab.css';
+.replay-settings { margin-top: 10px; padding: 10px; border: 1px solid var(--border-color, var(--border-color)); border-radius: 8px; font-size: 12px; }
+.replay-settings summary { cursor: pointer; font-weight: 600; }
+.replay-settings label { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.replay-settings select { max-width: 100%; background: var(--bg-secondary, var(--bg-card-header)); color: inherit; border: 1px solid var(--border-color, var(--border-color)); border-radius: 5px; padding: 5px; }
+.replay-settings small { display: block; color: var(--text-muted); line-height: 1.5; }

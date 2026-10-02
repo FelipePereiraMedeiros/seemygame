@@ -2,15 +2,15 @@
    MODAL DE COMPARTILHAMENTO COM QR CODE
    ========================================== */.share-room-modal-content {
   max-width: 480px;
-  background: #181920;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-card);
+  border: 1px solid var(--surface-tint-hover);
   border-radius: 18px;
   padding: 24px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-panel);
   text-align: center;
 }.qr-code-wrapper {
-  background: #111217;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-input);
+  border: 1px solid var(--surface-tint-hover);
   border-radius: 16px;
   padding: 16px;
   display: inline-flex;
@@ -26,10 +26,10 @@
   gap: 10px;
   margin-top: 14px;
 }.share-action-btn {
-  background: #252733;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-hover);
+  border: 1px solid var(--surface-tint-hover);
   border-radius: 10px;
-  color: #fff;
+  color: var(--text-main);
   padding: 11px 14px;
   font-size: 13px;
   font-weight: 600;
@@ -40,14 +40,15 @@
   justify-content: center;
   gap: 8px;
 }.share-action-btn:hover {
-  background: #313444;
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--border-color);
+  border-color: var(--surface-tint-hover);
   transform: translateY(-1px);
 }.share-action-btn.primary {
   background: var(--accent-purple);
   border-color: transparent;
+  color: var(--text-on-accent);
 }.share-action-btn.primary:hover {
-  background: #7c3aed;
+  background: var(--accent-hover);
 }.share-action-btn.whatsapp {
   background: #25d366;
   color: #0b2b16;

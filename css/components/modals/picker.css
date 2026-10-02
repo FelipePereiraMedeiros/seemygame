@@ -4,9 +4,9 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  color: #60a5fa;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent-text);
   font-size: 11px;
   padding: 4px 10px;
   border-radius: 9999px;
@@ -15,8 +15,8 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--surface-tint);
+  border: 1px solid var(--surface-tint-hover);
   color: var(--text-muted);
   font-size: 11px;
   padding: 4px 10px;
@@ -25,29 +25,29 @@
   transition: all 0.2s ease;
   user-select: none;
 }.desktop-pin-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.25);
+  background: var(--surface-tint-hover);
+  color: var(--text-main);
+  border-color: var(--surface-tint-hover);
 }.desktop-pin-btn.pinned {
-  background: rgba(139, 92, 246, 0.2);
-  border-color: rgba(139, 92, 246, 0.5);
-  color: #c084fc;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent-text);
 }.desktop-pin-btn.pinned:hover {
-  background: rgba(139, 92, 246, 0.3);
-  border-color: rgba(139, 92, 246, 0.7);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
 }.window-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-tint);
+  border: 1px solid var(--surface-tint);
   border-radius: 8px;
   transition: all 0.2s ease;
   cursor: pointer;
 }.window-item:hover {
-  background: rgba(59, 130, 246, 0.12);
-  border-color: rgba(59, 130, 246, 0.4);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
   transform: translateY(-1px);
 }.window-info {
   display: flex;
@@ -58,7 +58,7 @@
 }.window-title {
   font-weight: 600;
   font-size: 13.5px;
-  color: var(--text-color);
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -68,8 +68,8 @@
   color: var(--text-muted);
   font-family: monospace;
 }.window-action-btn {
-  background: var(--accent-blue);
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-main);
   border: none;
   padding: 6px 14px;
   border-radius: 6px;
@@ -77,6 +77,7 @@
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  color: var(--text-on-accent);
 }.window-action-btn:hover {
-  background: #2563eb;
+  background: var(--accent);
 }

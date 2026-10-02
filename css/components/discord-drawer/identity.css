@@ -1,33 +1,33 @@
 /* ==========================================
    Controles de ID Fixo & Proteção por Senha (PIN)
    ========================================== */.pin-input-field {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-tint);
   border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 5px 10px;
-  color: #fff;
+  color: var(--text-main);
   font-size: 12px;
   width: 130px;
   outline: none;
   transition: all 0.2s ease;
 }.pin-input-field:focus {
   border-color: var(--accent-purple);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-tint);
   box-shadow: 0 0 8px var(--accent-purple-glow);
 }.custom-id-field {
   width: 100%;
-  background: var(--bg-input, #0e0f17);
+  background: var(--bg-input, var(--bg-input));
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 10px 14px;
-  color: #fff;
+  color: var(--text-main);
   font-size: 14px;
   outline: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
   box-sizing: border-box;
 }.custom-id-field:focus {
   border-color: var(--accent-blue);
-  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 25%, transparent);
 }#edit-id-btn {
   display: inline-flex;
   align-items: center;

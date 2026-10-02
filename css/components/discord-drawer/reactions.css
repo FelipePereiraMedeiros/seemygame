@@ -20,14 +20,14 @@
 }.reaction-sender {
   font-size: 10px;
   background: rgba(0, 0, 0, 0.7);
-  color: #c4b5fd;
+  color: var(--accent-text);
   padding: 2px 6px;
   border-radius: 4px;
   margin-top: 2px;
   white-space: nowrap;
 }.reaction-gg-badge {
-  background: linear-gradient(135deg, #10b981, #06b6d4);
-  color: #fff;
+  background: linear-gradient(135deg, #10b981, var(--accent));
+  color: var(--text-on-accent);
   font-weight: 900;
   font-size: 1.1rem;
   padding: 4px 10px;
@@ -58,12 +58,12 @@
   transform: translateX(-50%);
   display: flex;
   gap: 6px;
-  background: rgba(14, 15, 23, 0.85);
+  background: color-mix(in srgb, var(--bg-card) 85%, transparent);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--surface-tint-hover);
   border-radius: 30px;
   padding: 6px 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-panel);
   z-index: 60;
   transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }.reactions-dock.dock-hidden {
@@ -78,6 +78,7 @@
   border-radius: 50%;
   cursor: pointer;
   transition: transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  color: var(--text-main);
 }.reaction-dock-btn:hover {
   transform: scale(1.35) translateY(-4px);
 }.reaction-dock-btn:active {

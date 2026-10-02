@@ -20,7 +20,7 @@
   flex-direction: column;
   flex-shrink: 0;
   overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(8px);
 }.room-sidebar-header {
   padding: 12px 14px;
@@ -35,7 +35,7 @@
   justify-content: space-between;
   font-size: 13.5px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-main);
 }.room-sidebar-status {
   font-size: 11.5px;
   color: var(--text-muted);
@@ -65,7 +65,7 @@
   transition: all 0.15s ease;
   user-select: none;
 }.participant-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-tint);
 }.participant-avatar-wrapper {
   position: relative;
   width: 34px;
@@ -75,13 +75,13 @@
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-on-accent);
   transition: box-shadow 0.15s ease;
 }.participant-avatar.speaking {
   box-shadow: 0 0 0 2.5px var(--accent-green), 0 0 12px var(--accent-green-glow);
@@ -119,9 +119,9 @@
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.8; transform: scale(0.96); }
 }.badge-host-tag {
-  background: rgba(139, 92, 246, 0.2);
-  border: 1px solid rgba(139, 92, 246, 0.4);
-  color: #c4b5fd;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent-text);
   font-size: 9.5px;
   font-weight: 700;
   padding: 1px 5px;
@@ -158,8 +158,8 @@
   font-size: 14px;
   transition: all 0.15s ease;
 }.quick-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--surface-tint);
+  color: var(--text-main);
 }.quick-icon-btn.active-muted {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.15);

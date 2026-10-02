@@ -1,5 +1,5 @@
 /* Painel de Tuning em Tempo Real (FPS Priority Engine) */.tuning-bar {
-  background: #141520;
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 10px;
   padding: 6px 14px;

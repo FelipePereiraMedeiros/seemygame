@@ -39,7 +39,7 @@
   justify-content: center;
   padding: 40px 20px;
   text-align: center;
-  background: rgba(18, 19, 28, 0.6);
+  background: color-mix(in srgb, var(--bg-card) 60%, transparent);
   border: 2px dashed var(--border-color);
   border-radius: 16px;
   color: var(--text-muted);
@@ -55,7 +55,7 @@
 
 .empty-state h3 {
   font-size: 1.2rem;
-  color: #fff;
+  color: var(--text-main);
   margin-bottom: 6px;
 }
 
@@ -72,7 +72,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-panel);
   transition: border-color 0.2s ease, transform 0.2s ease;
   position: relative;
   margin: 0 auto;
@@ -179,7 +179,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  background: #0e0f17;
+  background: var(--bg-input);
   padding: 3px 6px;
   border-radius: 4px;
   border: 1px solid var(--border-color);
@@ -189,7 +189,7 @@
 .vu-track {
   width: 28px;
   height: 6px;
-  background: #1f202e;
+  background: var(--bg-hover);
   border-radius: 2px;
   overflow: hidden;
   position: relative;
@@ -198,7 +198,7 @@
 .vu-bar {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, #10b981, #06b6d4, #ef4444);
+  background: linear-gradient(90deg, #10b981, var(--accent), #ef4444);
   transition: width 0.08s ease;
 }
 
@@ -218,12 +218,12 @@
 }
 
 .card-btn {
-  background: #25283b;
-  border: 1px solid #363952;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-hover);
   padding: 5px 10px;
   font-size: 11px;
   border-radius: 6px;
-  color: #e2e8f0;
+  color: var(--text-main);
   cursor: pointer;
   transition: all 0.15s ease;
   position: relative;
@@ -232,28 +232,28 @@
 }
 
 .card-btn:hover { 
-  background: #363a56; 
-  color: #fff; 
+  background: var(--border-color);
+  color: var(--text-main);
 }
 
 .card-btn-active {
   background: var(--accent-purple);
   border-color: var(--accent-purple);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .card-btn-clip {
-  background: linear-gradient(135deg, rgba(236, 72, 153, 0.2), rgba(139, 92, 246, 0.2));
-  border: 1px solid rgba(236, 72, 153, 0.45);
-  color: #f472b6;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 20%, transparent), color-mix(in srgb, var(--accent) 20%, transparent));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
 .card-btn-clip:hover:not(:disabled) {
-  background: linear-gradient(135deg, #ec4899, #8b5cf6);
+  background: var(--accent);
   border-color: transparent;
-  color: #fff;
-  box-shadow: 0 0 12px rgba(236, 72, 153, 0.45);
+  color: var(--text-on-accent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .card-btn-clip:disabled {
@@ -344,11 +344,12 @@ video {
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
-  color: #fff;
+  color: var(--text-main);
   background: rgba(239, 68, 68, 0.25);
   border: 1px solid rgba(239, 68, 68, 0.5);
   padding: 3px 8px;
   border-radius: 4px;
+  color: #ffffff;
 }
 
 .overlay-live-dot {
@@ -356,7 +357,7 @@ video {
   height: 6px;
   border-radius: 50%;
   background: #ef4444;
-  box-shadow: 0 0 6px #ef4444;
+  box-shadow: var(--shadow-panel);
   animation: pulse 1.5s infinite;
 }
 
@@ -365,10 +366,10 @@ video {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(20, 22, 34, 0.75);
+  background: color-mix(in srgb, var(--bg-card) 75%, transparent);
   padding: 3px 8px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--surface-tint-hover);
 }
 
 .volume-slider {
@@ -376,7 +377,7 @@ video {
   appearance: none;
   width: 64px;
   height: 4px;
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--surface-tint-hover);
   border-radius: 2px;
   outline: none;
   cursor: pointer;
@@ -395,7 +396,7 @@ video {
   border-radius: 50%;
   background: #fff;
   cursor: pointer;
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-panel);
 }
 
 .volume-slider::-moz-range-thumb {
@@ -405,14 +406,14 @@ video {
   background: #fff;
   cursor: pointer;
   border: none;
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-panel);
 }
 
 /* Botões do Overlay */
 .overlay-btn {
-  background: rgba(25, 27, 40, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: color-mix(in srgb, var(--bg-card) 85%, transparent);
+  border: 1px solid var(--surface-tint-hover);
+  color: var(--text-main);
   padding: 6px 10px;
   font-size: 11.5px;
   font-weight: 600;
@@ -426,19 +427,19 @@ video {
 }
 
 .overlay-btn:hover {
-  background: rgba(45, 49, 72, 0.95);
-  border-color: rgba(255, 255, 255, 0.35);
+  background: color-mix(in srgb, var(--bg-card) 95%, transparent);
+  border-color: var(--surface-tint-hover);
   transform: translateY(-1px);
 }
 
 .overlay-btn-highlight {
-  background: linear-gradient(135deg, var(--accent-purple), #6366f1);
-  border-color: rgba(139, 92, 246, 0.6);
+  background: linear-gradient(135deg, var(--accent-purple), var(--accent));
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
   box-shadow: 0 0 12px var(--accent-purple-glow);
 }
 
 .overlay-btn-highlight:hover {
-  background: linear-gradient(135deg, var(--accent-purple-hover), #4f46e5);
+  background: linear-gradient(135deg, var(--accent-purple-hover), var(--accent));
   box-shadow: 0 0 16px var(--accent-purple-glow);
 }
 
@@ -472,7 +473,7 @@ video {
 .stream-status-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(10, 11, 18, 0.85);
+  background: color-mix(in srgb, var(--bg-card) 85%, transparent);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -486,7 +487,7 @@ video {
 .spinner {
   width: 36px;
   height: 36px;
-  border: 3px solid rgba(139, 92, 246, 0.2);
+  border: 3px solid color-mix(in srgb, var(--accent) 20%, transparent);
   border-top-color: var(--accent-purple);
   border-radius: 50%;
   animation: spin 1s linear infinite;
@@ -500,7 +501,7 @@ video {
 .stream-paused-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(10, 11, 18, 0.9);
+  background: color-mix(in srgb, var(--bg-card) 90%, transparent);
   backdrop-filter: blur(6px);
   display: flex;
   flex-direction: column;
@@ -521,14 +522,14 @@ video {
 /* Estilos de Controle Co-op (Player 2) */
 .card-btn-coop {
   background: #1e1b4b;
-  border: 1px solid #4338ca;
-  color: #c7d2fe;
+  border: 1px solid var(--accent-hover);
+  color: var(--accent-text);
 }
 .card-btn-coop:hover:not(:disabled) {
   background: #312e81;
-  border-color: #6366f1;
-  color: #fff;
-  box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+  border-color: var(--accent);
+  color: var(--text-main);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .card-btn-p2-active {
@@ -542,9 +543,9 @@ video {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  color: #60a5fa;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent-text);
   padding: 3px 8px;
   border-radius: 6px;
   font-size: 11px;
@@ -570,7 +571,7 @@ video {
   gap: 6px;
   background: rgba(245, 158, 11, 0.15);
   border: 1px solid rgba(245, 158, 11, 0.4);
-  color: #fbbf24;
+  color: var(--accent-text);
   padding: 3px 8px;
   border-radius: 6px;
   font-size: 11px;
@@ -581,9 +582,9 @@ video {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(168, 85, 247, 0.15);
-  border: 1px solid rgba(168, 85, 247, 0.4);
-  color: #c084fc;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent-text);
   padding: 3px 8px;
   border-radius: 6px;
   font-size: 11px;
@@ -595,7 +596,7 @@ video {
   align-items: center;
   gap: 8px;
   background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--surface-tint-hover);
   backdrop-filter: blur(10px);
   padding: 6px 12px;
   border-radius: 10px;
@@ -626,9 +627,9 @@ video {
 }
 
 .coop-slot-chip.slot-0 {
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  color: #93c5fd;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent-text);
 }
 
 .coop-slot-chip.slot-1 {
@@ -640,18 +641,18 @@ video {
 .coop-slot-chip.slot-2 {
   background: rgba(245, 158, 11, 0.15);
   border: 1px solid rgba(245, 158, 11, 0.4);
-  color: #fde68a;
+  color: var(--accent-text);
 }
 
 .coop-slot-chip.slot-3 {
-  background: rgba(168, 85, 247, 0.15);
-  border: 1px solid rgba(168, 85, 247, 0.4);
-  color: #e9d5ff;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent-text);
 }
 
 .coop-slot-chip.slot-empty {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px dashed rgba(255, 255, 255, 0.2);
+  background: var(--surface-tint);
+  border: 1px dashed var(--surface-tint-hover);
   color: var(--text-muted);
 }
 
@@ -672,13 +673,13 @@ video {
 .card-btn-panic {
   background: #991b1b !important;
   border-color: #ef4444 !important;
-  color: #fff !important;
+  color: var(--text-main) !important;
   font-weight: 700;
   animation: pulse 1.5s infinite;
 }
 .card-btn-panic:hover:not(:disabled) {
   background: #dc2626 !important;
-  box-shadow: 0 0 14px rgba(239, 68, 68, 0.6) !important;
+  box-shadow: var(--shadow-panel) !important;
 }
 
 .coop-viewer-hud {
@@ -697,7 +698,7 @@ video {
   align-items: center;
   gap: 10px;
   z-index: 20;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-panel);
 }
 .coop-viewer-hud button {
   background: #065f46;
@@ -767,28 +768,30 @@ video {
   justify-content: space-between;
   align-items: center;
   font-size: 10px;
-  color: #c4b5fd;
+  color: var(--accent-text);
   z-index: 10;
+  color: #ffab7e;
 }
 
 .facecam-close-btn {
   background: none;
   border: none;
-  color: #fff;
+  color: var(--text-main);
   cursor: pointer;
   font-size: 11px;
+  color: #ffffff;
 }
 
 #toggle-facecam-btn.active {
   background: rgba(239, 68, 68, 0.2) !important;
   border-color: rgba(239, 68, 68, 0.6) !important;
-  color: #fca5a5 !important;
+  color: var(--status-danger-text) !important;
   box-shadow: 0 0 10px rgba(239, 68, 68, 0.3) !important;
 }
 #toggle-facecam-btn.active:hover {
   background: rgba(239, 68, 68, 0.35) !important;
   border-color: #ef4444 !important;
-  color: #fff !important;
+  color: var(--text-main) !important;
 }
 
 
@@ -796,20 +799,20 @@ video {
    Botão de Clipping Instantâneo
    ========================================== */
 .btn-clip {
-  background: linear-gradient(135deg, #ec4899, #8b5cf6);
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border: none;
   font-weight: 700;
-  box-shadow: 0 0 14px rgba(236, 72, 153, 0.35);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 35%, transparent);
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
 .btn-clip:hover {
-  background: linear-gradient(135deg, #db2777, #7c3aed);
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
   transform: translateY(-1px);
-  box-shadow: 0 0 20px rgba(236, 72, 153, 0.55);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--accent) 55.00000000000001%, transparent);
 }
 
 .btn-clip.clipping-busy {

@@ -4,12 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SeeMyGame - Sua partida. Seus amigos. Na mesma sala.</title>
+  <meta name="theme-color" content="#101216">
+  <link rel="icon" type="image/png" href="css/assets/portal-logo-ring.png">
+  <script src="js/theme.js"></script>
   <meta name="description" content="Compartilhe o jogo, converse por voz e convide seus amigos por um link. Salas de jogos P2P de baixa latência, suporte a até 60 FPS e Co-op Player 2 direto pelo navegador.">
   
   <!-- Estilos Modulares -->
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/landing.css">
   <link rel="stylesheet" href="css/landing-premium.css">
+  <link rel="stylesheet" href="css/theme.css">
   <link rel="preload" as="image" href="css/assets/co-op-adventure.webp">
 
   <!-- Roteamento inteligente de convites e redirecionamento Desktop -->
@@ -88,7 +92,7 @@
   <header class="dune-nav">
     <div class="dune-container dune-nav-inner">
       <a href="index.html" class="dune-brand">
-        <div class="dune-brand-icon"><img src="css/assets/portal-logo-ring.png" width="44" height="44" alt="SeeMyGame Portal" aria-hidden="true"></div>
+        <div class="dune-brand-icon"><img src="css/assets/portal-logo-ring.png" width="34" height="34" alt="" aria-hidden="true"></div>
         <div>See<span>MyGame</span></div>
       </a>
 
@@ -99,6 +103,11 @@
       </ul>
 
       <div class="dune-nav-actions">
+      <button type="button" class="theme-toggle" data-theme-toggle aria-label="Ativar tema claro" aria-pressed="false" title="Ativar tema claro">
+        <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+        <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20.5 14A9 9 0 0 1 10 3.5 9 9 0 1 0 20.5 14Z"/></svg>
+        <span class="theme-toggle-label">Tema claro</span>
+      </button>
         <a href="lobby.html" class="dune-btn dune-btn-secondary" style="padding: 8px 16px;">
           Entrar em uma sala
         </a>
@@ -278,7 +287,7 @@
       <div class="dune-footer-grid">
         <div class="dune-footer-brand">
           <a href="index.html" class="dune-brand">
-            <div class="dune-brand-icon"><img src="css/assets/portal-logo-ring.png" width="44" height="44" alt="SeeMyGame Portal" aria-hidden="true"></div>
+            <div class="dune-brand-icon"><img src="css/assets/portal-logo-ring.png" width="34" height="34" alt="" aria-hidden="true"></div>
             <div>See<span>MyGame</span></div>
           </a>
           <p>

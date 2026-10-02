@@ -4,10 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SeeMyGame - Entrar em uma Sala</title>
+  <meta name="theme-color" content="#101216">
+  <link rel="icon" type="image/png" href="css/assets/portal-logo-ring.png">
+  <script src="js/theme.js"></script>
   
   <!-- Estilos Modulares -->
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/landing.css">
+  <link rel="stylesheet" href="css/theme.css">
 
   <!-- Roteamento inteligente de convites -->
   <script>
@@ -67,11 +71,16 @@
 
   <header class="lobby-header">
     <a href="index.html" class="dune-brand" title="Voltar para a página inicial">
-      <div class="dune-brand-icon" style="background: transparent; box-shadow: none; border-radius: 50%;"><img src="css/assets/portal-logo-ring.png" width="36" height="36" alt="SeeMyGame Portal" style="display: block; width: 100%; height: 100%; border-radius: 50%;"></div>
+      <div class="dune-brand-icon"><img src="css/assets/portal-logo-ring.png" width="34" height="34" alt="" aria-hidden="true"></div>
       <div>See<span>MyGame</span></div>
     </a>
 
     <div class="actions-container">
+      <button type="button" class="theme-toggle" data-theme-toggle aria-label="Ativar tema claro" aria-pressed="false" title="Ativar tema claro">
+        <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+        <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20.5 14A9 9 0 0 1 10 3.5 9 9 0 1 0 20.5 14Z"/></svg>
+        <span class="theme-toggle-label">Tema claro</span>
+      </button>
       <button id="desktop-pin-btn" class="nav-switch-btn desktop-pin-btn" style="display: none;" title="Fixar/Desafixar janela no topo (Always-on-Top)">
         <span id="desktop-pin-icon">📌</span> <span id="desktop-pin-text">Fixado</span>
       </button>
@@ -87,7 +96,7 @@
   <main class="lobby-center-container">
     <div class="lobby-card">
       <div style="margin-bottom: 20px;">
-        <h2 style="font-size: 1.45rem; font-weight: 800; color: #fff; margin-bottom: 6px;">
+        <h2 style="font-size: 1.45rem; font-weight: 800; color: var(--text-main); margin-bottom: 6px;">
           Entrar em uma sala
         </h2>
         <p style="color: var(--dune-text-muted); font-size: 0.9rem; line-height: 1.5; margin: 0;">

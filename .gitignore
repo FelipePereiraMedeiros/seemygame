@@ -10,3 +10,4 @@ output/
 *.log
 __pycache__/
 *.pyc
+.agents/

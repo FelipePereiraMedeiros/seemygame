@@ -46,7 +46,7 @@
   border-radius: 10px;
   padding: 12px 14px;
   font-size: 0.95rem;
-  color: #fff;
+  color: var(--text-main);
   outline: none;
   transition: var(--dune-transition);
 }.lobby-input:focus-visible {

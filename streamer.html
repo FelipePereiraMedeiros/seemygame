@@ -4,16 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SeeMyGame • Estúdio do Streamer (Alta Fluidez)</title>
+  <meta name="theme-color" content="#101216">
+  <link rel="icon" type="image/png" href="css/assets/portal-logo-ring.png">
+  <script src="js/theme.js"></script>
 
   <!-- Estilos Modulares -->
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/player.css">
+  <link rel="stylesheet" href="css/theme.css">
 
   <!-- PeerJS CDN com Subresource Integrity (SRI) -->
   <script 
     src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"
     integrity="sha384-PMNj1TmCgXfW24/rfIyxYSAWwj2mffkMfguUWv08iNFcy0kTC0JN7E/tE+pJ7+fa"
     crossorigin="anonymous">
+  </script>
+  <script type="importmap">
+    { "imports": { "three": "./js/vendor/three.module.js", "three/addons/": "./js/vendor/" } }
   </script>
 </head>
 <body>
@@ -56,7 +63,7 @@
       <p style="color: var(--text-muted); font-size: 13.5px; line-height: 1.5; margin-bottom: 16px;">
         O espectador <strong id="coop-requester-id" style="color: var(--accent-green);">Amigo</strong> quer entrar na sua sessão como <strong>Player 2</strong> para jogar junto.
       </p>
-      <div style="background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 12px; font-size: 12px; margin-bottom: 20px; color: #c4b5fd;">
+      <div style="background: color-mix(in srgb, var(--accent) 10%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 8px; padding: 12px; font-size: 12px; margin-bottom: 20px; color: var(--accent-text);">
         🛡️ <strong>Segurança:</strong> Você pode revogar o controle a qualquer momento pressionando <strong>Escape</strong> ou no botão de pânico na tela.
       </div>
       <div class="modal-actions">
@@ -86,7 +93,7 @@
         <!-- Itens preenchidos dinamicamente -->
       </div>
 
-      <div id="picker-audio-exclusion-bar" style="margin-bottom: 14px; padding: 10px 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 8px;">
+      <div id="picker-audio-exclusion-bar" style="margin-bottom: 14px; padding: 10px 12px; background: var(--surface-tint); border: 1px solid var(--border-color); border-radius: 8px;">
         <label for="picker-audio-exclude-select" style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">
           <span>🛡️ <strong>Anti-Eco de Áudio:</strong></span>
           <span style="font-size: 10.5px; color: var(--accent-cyan);">Sem eco da sala</span>
@@ -128,7 +135,7 @@
           maxlength="30"
           spellcheck="false"
           autocomplete="off">
-        <div id="custom-id-error" style="color: #f87171; font-size: 12px; margin-top: 6px; display: none;"></div>
+        <div id="custom-id-error" style="color: var(--status-danger-text); font-size: 12px; margin-top: 6px; display: none;"></div>
       </div>
 
       <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
@@ -296,14 +303,14 @@
       <div class="wb-style-section">
         <label>Cor do Traço:</label>
         <div class="wb-color-palette" id="wb-stroke-palette">
-          <button class="wb-color-dot active" data-color="#ffffff" style="background:#ffffff;"></button>
-          <button class="wb-color-dot" data-color="#ef4444" style="background:#ef4444;"></button>
-          <button class="wb-color-dot" data-color="#10b981" style="background:#10b981;"></button>
-          <button class="wb-color-dot" data-color="#06b6d4" style="background:#06b6d4;"></button>
-          <button class="wb-color-dot" data-color="#a855f7" style="background:#a855f7;"></button>
-          <button class="wb-color-dot" data-color="#f59e0b" style="background:#f59e0b;"></button>
-          <button class="wb-color-dot" data-color="#ec4899" style="background:#ec4899;"></button>
-          <button class="wb-color-dot" data-color="#1e1e2e" style="background:#1e1e2e; border: 1px solid #555;"></button>
+          <button class="wb-color-dot active" data-color="#ffffff" style="background: #ffffff;"></button>
+          <button class="wb-color-dot" data-color="#ef4444" style="background: #ef4444;"></button>
+          <button class="wb-color-dot" data-color="#10b981" style="background: #10b981;"></button>
+          <button class="wb-color-dot" data-color="#06b6d4" style="background: var(--accent);"></button>
+          <button class="wb-color-dot" data-color="#a855f7" style="background: #a855f7;"></button>
+          <button class="wb-color-dot" data-color="#f59e0b" style="background: #f59e0b;"></button>
+          <button class="wb-color-dot" data-color="#ec4899" style="background: #ec4899;"></button>
+          <button class="wb-color-dot" data-color="#1e1e2e" style="background: #1e1e2e; border: 1px solid #555;"></button>
         </div>
       </div>
 
@@ -351,7 +358,7 @@
   <header>
     <div class="brand">
       <a href="index.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 10px;">
-        <div class="brand-icon">🎙️</div>
+        <div class="brand-icon"><img src="css/assets/portal-logo-ring.png" width="34" height="34" alt="" aria-hidden="true"></div>
         <div>See<span>MyGame</span></div>
       </a>
       <span class="role-badge">Estúdio do Streamer</span>
@@ -361,6 +368,11 @@
     </div>
 
     <div class="actions-container">
+      <button type="button" class="theme-toggle" data-theme-toggle aria-label="Ativar tema claro" aria-pressed="false" title="Ativar tema claro">
+        <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+        <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20.5 14A9 9 0 0 1 10 3.5 9 9 0 1 0 20.5 14Z"/></svg>
+        <span class="theme-toggle-label">Tema claro</span>
+      </button>
       <div class="stream-actions">
         <span 
           id="copy-badge" 
@@ -383,23 +395,26 @@
           class="btn-secondary" 
           title="Copiar link direto para amigos assistirem" 
           aria-label="Copiar link de convite" 
-          style="display:none;">
+          style="display: none;">
           <span>🔗</span> Copiar Link
         </button>
         <button id="stream-btn" disabled aria-label="Iniciar transmissão da sua tela">
           <span>🚀</span> Transmitir Jogo
         </button>
-        <button id="clip-btn" class="btn-clip" title="Salvar os últimos 30 segundos da transmissão em vídeo" aria-label="Clipar últimos 30 segundos" style="display:none;">
+        <button id="clip-btn" class="btn-clip" title="Salvar os últimos 30 segundos da transmissão em vídeo" aria-label="Clipar últimos 30 segundos" style="display: none;">
           <span>🎬</span> Clipa Isso!
         </button>
         <span id="viewer-count" class="id-badge" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: var(--accent-green);" title="Quantidade de espectadores conectados">
           <span>👥</span> <strong>0</strong> espectadores
         </span>
         <button id="toggle-chat-btn" class="discord-toggle-btn" title="Bate-papo da transmissão" aria-label="Abrir bate-papo">
-          <span>💬</span> Chat <span id="chat-unread-badge" class="counter-badge" style="display:none;">0</span>
+          <span>💬</span> Chat <span id="chat-unread-badge" class="counter-badge" style="display: none;">0</span>
+        </button>
+        <button id="open-controller-lab-btn" class="discord-toggle-btn" title="Testar controles com até três amigos" aria-label="Abrir sala de controles">
+          <span>🎮</span> Controles
         </button>
         <button id="toggle-voice-btn" class="discord-toggle-btn" title="Canal de Voz" aria-label="Abrir canal de voz">
-          <span>🔊</span> Voz <span id="voice-badge" class="counter-badge voice-active-badge" style="display:none;">0</span>
+          <span>🔊</span> Voz <span id="voice-badge" class="counter-badge voice-active-badge" style="display: none;">0</span>
         </button>
         <button id="toggle-emojis-btn" class="discord-toggle-btn" title="Emojis e Reações" aria-label="Abrir emojis e reações">
           <span>😀</span> Emojis
@@ -412,7 +427,7 @@
         </button>
       </div>
 
-      <a href="room.html" class="nav-switch-btn" style="background: var(--accent-purple);" title="Entrar no novo modo Sala (Estilo Discord)">
+      <a href="room.html" class="nav-switch-btn nav-primary" title="Entrar no novo modo Sala (Estilo Discord)">
         <span>🎧</span> Modo Sala Discord
       </a>
       <a href="viewer.html" class="nav-switch-btn" title="Ir para modo espectador">
@@ -426,10 +441,13 @@
     <div class="tuning-group">
       <span>⚡ <strong>Engine:</strong></span>
       <select id="quality-preset" aria-label="Preset de qualidade e taxa de quadros">
+            <option value="hd120">720p / 120 FPS (experimental)</option>
+            <option value="fhd120">1080p / 120 FPS (experimental)</option>
         <option value="ultra">⚡ Modo Competitivo (720p - Fluidez Máxima)</option>
         <option value="balanced" selected>🎮 Modo Dinâmico (1080p - Equilibrado & Fluido)</option>
         <option value="high">💎 Alta Fidelidade (1080p - Alta Nitidez)</option>
       </select>
+      <label for="video-codec-select">Codec</label><select id="video-codec-select"><option value="auto">Automático</option><option value="h264">H.264</option><option value="vp8">VP8</option><option value="vp9">VP9</option><option value="av1">AV1</option><option value="hevc">HEVC</option></select><span id="video-codec-note"></span>
       <div class="fps-lock-badge" title="Instrui o codificador WebRTC a manter taxa de quadros contínua">
         <span>🎯</span> Alta Fluidez
       </div>
@@ -505,7 +523,7 @@
     <div>
       🚀 <strong>Modo Alta Fluidez Ativo:</strong> O codificador WebRTC prioriza taxa de quadros contínua (Maintain-Framerate). <em>Dica de áudio no Windows:</em> para transmitir o som do jogo, selecione a aba <strong>"Tela inteira"</strong> (ou Guia) e marque a opção <strong>"Compartilhar áudio do sistema"</strong>.
     </div>
-    <button class="card-btn" id="close-banner-btn" aria-label="Fechar aviso de dica de áudio" style="background:transparent; border:none; color:#c4b5fd;">✕</button>
+    <button class="card-btn" id="close-banner-btn" aria-label="Fechar aviso de dica de áudio" style="background: transparent; border: none; color: var(--accent-text);">✕</button>
   </div>
 
   <main id="video-grid" class="video-grid">
@@ -542,11 +560,11 @@
   <nav id="discord-left-rail" class="discord-left-rail" aria-label="Menu rápido estilo Discord">
     <button id="rail-btn-chat" class="discord-rail-btn active" title="Chat (#geral)" aria-label="Abrir chat">
       <span>💬</span>
-      <span id="rail-chat-badge" class="rail-badge" style="display:none;">0</span>
+      <span id="rail-chat-badge" class="rail-badge" style="display: none;">0</span>
     </button>
     <button id="rail-btn-voice" class="discord-rail-btn" title="Canal de Voz" aria-label="Abrir canal de voz">
       <span>🔊</span>
-      <span id="rail-voice-badge" class="rail-badge rail-voice-badge" style="display:none;">0</span>
+      <span id="rail-voice-badge" class="rail-badge rail-voice-badge" style="display: none;">0</span>
     </button>
     <button id="rail-btn-emojis" class="discord-rail-btn" title="Emojis & Reações" aria-label="Abrir emojis e reações">
       <span>😀</span>

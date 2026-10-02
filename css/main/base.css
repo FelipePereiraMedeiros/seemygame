@@ -1,22 +1,4 @@
-:root {
-  --bg-dark: #090a0f;
-  --bg-card: #12131c;
-  --bg-card-header: #181926;
-  --bg-input: #0e0f17;
-  --border-color: #242638;
-  --border-hover: #3b3e5b;
-  --accent-purple: #8b5cf6;
-  --accent-purple-hover: #7c3aed;
-  --accent-purple-glow: rgba(139, 92, 246, 0.25);
-  --accent-green: #10b981;
-  --accent-green-glow: rgba(16, 185, 129, 0.2);
-  --accent-cyan: #06b6d4;
-  --accent-blue: #38bdf8;
-  --accent-red: #ef4444;
-  --text-main: #f3f4f6;
-  --text-muted: #9ca3af;
-  --text-dim: #6b7280;
-}* { 
+* {
   box-sizing: border-box; 
   margin: 0; 
   padding: 0; 
@@ -24,8 +6,8 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background-color: var(--bg-dark);
   background-image: 
-    radial-gradient(circle at 15% 15%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
-    radial-gradient(circle at 85% 85%, rgba(6, 182, 212, 0.06) 0%, transparent 40%);
+    radial-gradient(circle at 15% 15%, color-mix(in srgb, var(--accent) 8%, transparent) 0%, transparent 40%),
+    radial-gradient(circle at 85% 85%, color-mix(in srgb, var(--accent) 6%, transparent) 0%, transparent 40%);
   color: var(--text-main);
   padding: 8px 16px;
   min-height: 100vh;
@@ -50,7 +32,7 @@
   padding: 8px 18px;
   border-radius: 10px;
   border: 1px solid var(--border-color);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-panel);
   margin-bottom: 8px;
   backdrop-filter: blur(10px);
   flex-shrink: 0;
@@ -61,9 +43,9 @@
   font-weight: 800;
   font-size: 1.35rem;
   letter-spacing: -0.5px;
-  color: #fff;
+  color: var(--text-main);
 }.brand-icon {
-  background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+  background: var(--accent);
   width: 34px;
   height: 34px;
   border-radius: 8px;
@@ -72,7 +54,7 @@
   justify-content: center;
   box-shadow: 0 0 16px var(--accent-purple-glow);
 }.brand span { 
-  color: var(--accent-purple); 
+  color: var(--accent-purple);
 }.actions-container {
   display: flex;
   flex-wrap: wrap;
@@ -86,7 +68,7 @@
 }input[type="text"], select {
   background: var(--bg-input);
   border: 1px solid var(--border-color);
-  color: #fff;
+  color: var(--text-main);
   padding: 9px 14px;
   border-radius: 8px;
   font-size: 13px;
@@ -97,11 +79,11 @@
 }select { 
   cursor: pointer; 
 }input[type="text"]:focus, select:focus { 
-  border-color: var(--accent-purple); 
+  border-color: var(--accent-purple);
   box-shadow: 0 0 0 2px var(--accent-purple-glow);
 }button {
   background: var(--accent-purple);
-  color: white;
+  color: var(--text-on-accent);
   border: none;
   padding: 9px 16px;
   border-radius: 8px;
@@ -113,28 +95,30 @@
   gap: 6px;
   transition: all 0.15s ease;
 }button:hover:not(:disabled) { 
-  background: var(--accent-purple-hover); 
+  background: var(--accent-purple-hover);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px var(--accent-purple-glow);
 }button:active:not(:disabled) { 
   transform: translateY(0); 
 }button:disabled { 
-  background: #1f202e; 
+  background: var(--bg-hover);
   cursor: not-allowed; 
-  color: var(--text-dim); 
-  border: 1px solid #282a3c;
+  color: var(--text-dim);
+  border: 1px solid var(--border-color);
 }.btn-secondary {
-  background: #1e202f;
+  background: var(--bg-hover);
   border: 1px solid var(--border-color);
   color: var(--text-main);
 }.btn-secondary:hover:not(:disabled) {
-  background: #2a2d42;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  background: var(--bg-hover);
+  box-shadow: var(--shadow-panel);
 }.btn-stop {
   background: #dc2626 !important;
+  color: #ffffff;
 }.btn-stop:hover:not(:disabled) {
   background: #b91c1c !important;
-  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4) !important;
+  box-shadow: var(--shadow-panel) !important;
+  color: #ffffff;
 }.id-badge {
   display: inline-flex;
   align-items: center;
@@ -142,7 +126,7 @@
   font-size: 12px;
   padding: 8px 14px;
   border-radius: 8px;
-  background: #15221e;
+  background: var(--status-success-bg);
   border: 1px solid rgba(16, 185, 129, 0.3);
   color: var(--accent-green);
   font-weight: 600;
@@ -150,7 +134,7 @@
   transition: all 0.15s ease;
   user-select: none;
 }.id-badge:hover { 
-  background: #1b2f29; 
-  border-color: var(--accent-green); 
+  background: var(--status-success-bg);
+  border-color: var(--accent-green);
   box-shadow: 0 0 12px var(--accent-green-glow);
 }

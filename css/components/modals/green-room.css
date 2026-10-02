@@ -2,19 +2,19 @@
    LOBBY PRÉ-ENTRADA (GREEN ROOM ESTILO GOOGLE MEET)
    ========================================== */.green-room-modal-content {
   max-width: 520px;
-  background: #181920;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-card);
+  border: 1px solid var(--surface-tint-hover);
   border-radius: 18px;
   padding: 28px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-panel);
   text-align: center;
 }.green-room-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(139, 92, 246, 0.15);
-  border: 1px solid rgba(139, 92, 246, 0.35);
-  color: #c4b5fd;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent-text);
   font-size: 12px;
   font-weight: 700;
   padding: 4px 12px;
@@ -24,15 +24,15 @@
 }.green-room-title {
   font-size: 22px;
   font-weight: 800;
-  color: #fff;
+  color: var(--text-main);
   margin-bottom: 6px;
 }.green-room-subtitle {
   font-size: 13.5px;
   color: var(--text-muted);
   margin-bottom: 24px;
 }.green-room-audio-preview {
-  background: #20222b;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-card-header);
+  border: 1px solid var(--surface-tint);
   border-radius: 14px;
   padding: 16px 18px;
   margin-bottom: 20px;
@@ -47,26 +47,26 @@
 }.green-room-mic-label {
   font-size: 13px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-main);
   display: flex;
   align-items: center;
   gap: 8px;
 }.vu-meter-bar-container {
   height: 8px;
-  background: #111217;
+  background: var(--bg-input);
   border-radius: 6px;
   overflow: hidden;
   position: relative;
 }.vu-meter-bar-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, #10b981, #06b6d4, #8b5cf6);
+  background: linear-gradient(90deg, #10b981, var(--accent), var(--accent));
   border-radius: 6px;
   transition: width 0.08s ease-out;
 }.green-room-toggle-mic-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: var(--surface-tint);
+  border: 1px solid var(--surface-tint-hover);
+  color: var(--text-main);
   padding: 6px 14px;
   border-radius: 8px;
   font-size: 12.5px;
@@ -77,11 +77,11 @@
   align-items: center;
   gap: 6px;
 }.green-room-toggle-mic-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--surface-tint-hover);
 }.green-room-toggle-mic-btn.is-muted {
   background: rgba(239, 68, 68, 0.18);
   border-color: rgba(239, 68, 68, 0.45);
-  color: #f87171;
+  color: var(--status-danger-text);
 }.green-room-toggle-mic-btn.is-muted:hover {
   background: rgba(239, 68, 68, 0.28);
 }.green-room-device-label {
@@ -90,12 +90,12 @@
   gap: 6px;
   font-size: 12px;
   font-weight: 600;
-  color: #cbd5e1;
+  color: var(--text-main);
   margin-bottom: 4px;
 }.green-room-test-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #e2e8f0;
+  background: var(--surface-tint);
+  border: 1px solid var(--surface-tint-hover);
+  color: var(--text-main);
   font-size: 11.5px;
   font-weight: 600;
   padding: 4px 10px;
@@ -106,16 +106,16 @@
   align-items: center;
   gap: 4px;
 }.green-room-test-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #38bdf8;
-  border-color: rgba(56, 189, 248, 0.4);
+  background: var(--surface-tint-hover);
+  color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }.green-room-device-hint {
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 4px;
 }.green-room-join-btn {
-  background: linear-gradient(135deg, #10b981, #06b6d4);
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border: none;
   font-size: 15px;
   font-weight: 700;
@@ -127,9 +127,10 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3);
+  box-shadow: var(--shadow-panel);
   transition: all 0.2s ease;
 }.green-room-join-btn:hover {
+  background: var(--accent-hover);
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(16, 185, 129, 0.45);
+  box-shadow: var(--shadow-panel);
 }

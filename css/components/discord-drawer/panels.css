@@ -6,9 +6,9 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: var(--text-color);
+  background: var(--surface-tint);
+  border: 1px solid var(--surface-tint-hover);
+  color: var(--text-main);
   padding: 6px 12px;
   border-radius: 8px;
   font-size: 13px;
@@ -17,22 +17,23 @@
   transition: all 0.2s ease;
   position: relative;
 }.discord-toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-tint-hover);
   border-color: var(--accent-blue);
   transform: translateY(-1px);
 }.discord-toggle-btn.active {
-  background: rgba(59, 130, 246, 0.2);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
   border-color: var(--accent-blue);
-  color: #60a5fa;
+  color: var(--accent-text);
 }.counter-badge {
   background: #ef4444;
-  color: #fff;
+  color: var(--text-main);
   font-size: 10px;
   font-weight: 700;
   padding: 1px 5px;
   border-radius: 9999px;
   min-width: 16px;
   text-align: center;
+  color: #ffffff;
 }.voice-active-badge {
   background: #10b981;
 }
