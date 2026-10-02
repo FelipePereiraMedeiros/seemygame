@@ -11,11 +11,11 @@
   margin: -2px 0 15px;
   padding: 7px 14px 9px;
   overflow: hidden;
-  border: 1px solid rgba(139, 92, 246, 0.18);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   border-radius: 13px;
   background:
-    radial-gradient(ellipse at 50% 62%, rgba(139, 92, 246, 0.13), transparent 58%),
-    linear-gradient(145deg, rgba(24, 25, 38, 0.94), rgba(10, 12, 19, 0.96));
+    radial-gradient(ellipse at 50% 62%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 58%),
+    linear-gradient(145deg, color-mix(in srgb, var(--bg-card) 94%, transparent), color-mix(in srgb, var(--bg-card) 96%, transparent));
 }.gamepad-visual {
   position: relative;
   z-index: 1;
@@ -40,16 +40,16 @@
   right: 10px;
   pointer-events: none;
   font-size: 10.5px;
-  color: rgba(196, 181, 253, 0.65);
-  background: rgba(15, 17, 26, 0.65);
+  color: color-mix(in srgb, var(--accent) 65%, transparent);
+  background: color-mix(in srgb, var(--bg-card) 65%, transparent);
   padding: 3px 8px;
   border-radius: 20px;
-  border: 1px solid rgba(139, 92, 246, 0.2);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
   backdrop-filter: blur(4px);
   transition: opacity 0.3s ease, color 0.3s ease;
 }.gamepad-visual:hover .gamepad-3d-hint {
   opacity: 0.95;
-  color: #c4b5fd;
+  color: var(--accent-text);
 }.gamepad-controller {
   display: block;
   width: 100%;
@@ -63,80 +63,80 @@
   transform: translateY(3px);
 }.gamepad-shell {
   fill: url(#gamepad-shell-fill);
-  stroke: #555b73;
+  stroke: var(--text-dim);
   stroke-width: 2;
 }.gamepad-shell-highlight {
   fill: none;
-  stroke: rgba(255,255,255,.18);
+  stroke: var(--surface-tint-hover);
   stroke-linecap: round;
   stroke-width: 2;
 }.gamepad-trigger rect,
 .gamepad-trigger path,
 .gamepad-shoulder rect {
   fill: url(#gamepad-button-fill);
-  stroke: #68708a;
+  stroke: var(--text-dim);
   stroke-width: 1.4;
   transition: fill .12s ease, filter .12s ease, transform .12s ease;
 }.gamepad-trigger text,
 .gamepad-shoulder text,
 .gamepad-system-button text {
-  fill: #adb4ca;
+  fill: var(--text-muted);
   font: 700 7px/1 system-ui, sans-serif;
   letter-spacing: .35px;
   text-anchor: middle;
 }.gamepad-dpad path {
   fill: url(#gamepad-button-fill);
-  stroke: #717991;
+  stroke: var(--text-dim);
   stroke-width: 1.2;
   transition: fill .1s ease, filter .1s ease;
 }.gamepad-dpad-center {
-  fill: #171a25;
+  fill: var(--bg-card);
   pointer-events: none;
 }.gamepad-system-button rect {
-  fill: #383d51;
-  stroke: #70768c;
+  fill: var(--border-color);
+  stroke: var(--text-dim);
   stroke-width: 1;
   transition: fill .12s ease, filter .12s ease;
 }.gamepad-guide-button {
-  fill: #41465d;
-  stroke: #858ba2;
+  fill: var(--border-hover);
+  stroke: var(--text-dim);
   stroke-width: 1;
   transition: fill .12s ease, filter .12s ease;
 }.gamepad-stick-ring {
-  fill: #181b27;
-  stroke: #667089;
+  fill: var(--bg-card);
+  stroke: var(--text-dim);
   stroke-width: 2;
 }.gamepad-stick-cap {
   fill: url(#gamepad-button-fill);
-  stroke: #858ca3;
+  stroke: var(--text-dim);
   stroke-width: 1.4;
 }.gamepad-stick [data-gamepad-stick-cap] > path {
   fill: none;
-  stroke: rgba(255,255,255,.18);
+  stroke: var(--surface-tint-hover);
   stroke-width: 1.5;
 }.gamepad-face-button circle {
   fill: url(#gamepad-button-fill);
-  stroke: #848ba3;
+  stroke: var(--text-dim);
   stroke-width: 1.5;
   transition: fill .1s ease, filter .1s ease, transform .1s ease;
 }.gamepad-face-button text {
-  fill: #f4f5fb;
+  fill: var(--text-main);
   font: 800 9px/1 system-ui, sans-serif;
   text-anchor: middle;
   transition: fill .1s ease;
 }.gamepad-controller [data-gamepad-button].is-pressed:not(.gamepad-stick) circle,
 .gamepad-controller [data-gamepad-button].is-pressed:not(.gamepad-stick) path,
 .gamepad-controller [data-gamepad-button].is-pressed:not(.gamepad-stick) rect {
-  fill: #8b5cf6;
-  filter: drop-shadow(0 0 7px rgba(139, 92, 246, .9));
+  fill: var(--accent);
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 90%, transparent));
 }.gamepad-controller .gamepad-face-button.is-pressed text {
-  fill: #fff;
+  fill: var(--text-on-accent);
 }.gamepad-controller .gamepad-stick.is-pressed .gamepad-stick-ring {
-  stroke: #a78bfa;
-  filter: drop-shadow(0 0 6px rgba(139, 92, 246, .72));
+  stroke: var(--accent-text);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 72%, transparent));
 }.gamepad-controller .gamepad-stick.is-pressed .gamepad-stick-cap {
-  fill: #8b5cf6;
-  filter: drop-shadow(0 0 7px rgba(139, 92, 246, .9));
+  fill: var(--accent);
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 90%, transparent));
 }.gamepad-driver-note {
   margin: -9px 0 14px;
   color: var(--text-muted);
@@ -157,11 +157,11 @@
 }.gamepad-rumble-status {
   min-height: 18px;
   margin-top: 9px;
-  color: #c4b5fd;
+  color: var(--accent-text);
   font-size: 11.5px;
   line-height: 1.4;
 }.gamepad-visual.is-connected + .gamepad-connection-label {
-  color: #c4b5fd;
+  color: var(--accent-text);
 }.gamepad-visual-stage ~ .gamepad-hud-display [data-live-value] {
   transition: color .12s ease;
 }@keyframes gamepad-float {

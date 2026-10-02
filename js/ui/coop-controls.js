@@ -68,6 +68,88 @@ export function updateCoopUI(compatibilityContext, state) {
   }
 }
 
+/**
+ * Renderiza o dock de slots de jogadores Co-op (4 slots)
+ * @param {Object} compatibilityContext
+ * @param {Array} slots
+ * @param {boolean} isHost
+ * @param {Object} options
+ */
 export function renderCoopLobbyDock(compatibilityContext, slots = [], isHost = false, options = {}) {
-  // Safe stub/renderer para slots coop no lobby
+  if (typeof document === 'undefined') return;
+  const dock = document.getElementById('coop-lobby-dock');
+  const container = document.getElementById('coop-slots-container');
+  const panicBtn = document.getElementById('coop-panic-all-btn');
+
+  if (!container) return;
+
+  const slotsList = Array.isArray(slots) && slots.length > 0
+    ? slots
+    : (compatibilityContext?.getCoopSlots ? compatibilityContext.getCoopSlots() : []);
+
+  if (dock) {
+    dock.style.display = 'flex';
+  }
+
+  container.replaceChildren();
+
+  let hasGuestConnected = false;
+
+  // Renderiza exatamente 4 slots (0 a 3)
+  for (let i = 0; i < 4; i++) {
+    const slotInfo = slotsList.find(s => s.slot === i) || null;
+    const chip = document.createElement('div');
+    chip.className = `coop-slot-chip slot-${i}`;
+    chip.dataset.slotIndex = String(i);
+
+    if (slotInfo && slotInfo.peerId && slotInfo.peerId !== 'vago') {
+      const isGuest = slotInfo.peerId !== 'host-local' && !slotInfo.isHost;
+      if (isGuest) hasGuestConnected = true;
+
+      const title = document.createElement('span');
+      title.className = 'slot-name';
+      title.textContent = `P${i + 1}: ${slotInfo.name || slotInfo.peerId.slice(0, 6)}`;
+      chip.appendChild(title);
+
+      const statusBadge = document.createElement('span');
+      statusBadge.className = 'slot-status is-connected';
+      statusBadge.textContent = isGuest ? '🟢 Conectado' : '👑 Host';
+      chip.appendChild(statusBadge);
+
+      if (isHost && isGuest) {
+        const ejectBtn = document.createElement('button');
+        ejectBtn.className = 'btn-eject';
+        ejectBtn.title = `Ejetar Player ${i + 1}`;
+        ejectBtn.textContent = '✕';
+        ejectBtn.onclick = (e) => {
+          e.stopPropagation();
+          if (options.onEject) {
+            options.onEject(i);
+          } else if (compatibilityContext?.revokeCoopPlayer) {
+            compatibilityContext.revokeCoopPlayer(slotInfo.peerId);
+          }
+        };
+        chip.appendChild(ejectBtn);
+      }
+    } else {
+      chip.classList.add('slot-empty');
+      const emptyLabel = document.createElement('span');
+      emptyLabel.className = 'slot-empty-label';
+      emptyLabel.textContent = `Slot ${i + 1}: Vago`;
+      chip.appendChild(emptyLabel);
+    }
+
+    container.appendChild(chip);
+  }
+
+  if (panicBtn) {
+    panicBtn.style.display = (isHost && hasGuestConnected) ? 'inline-block' : 'none';
+    panicBtn.onclick = () => {
+      if (options.onPanicAll) {
+        options.onPanicAll();
+      } else if (compatibilityContext?.revokeAllCoopPlayers) {
+        compatibilityContext.revokeAllCoopPlayers();
+      }
+    };
+  }
 }

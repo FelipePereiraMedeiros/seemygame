@@ -18,7 +18,7 @@ import { isTauriEnvironment as isTauriEnvironmentImpl, triggerGamepadRumble as t
 import { reconcileCoopSlots as reconcileCoopSlotsImpl, setMaxCoopPlayers as setMaxCoopPlayersImpl, getMaxCoopPlayers as getMaxCoopPlayersImpl, setPartyModeEnabled as setPartyModeEnabledImpl, isPartyModeEnabled as isPartyModeEnabledImpl, registerCoopBroadcastHandler as registerCoopBroadcastHandlerImpl, broadcastSlotsUpdate as broadcastSlotsUpdateImpl, getCoopSlots as getCoopSlotsImpl, getNextAvailableSlot as getNextAvailableSlotImpl, registerCoopPromptHandler as registerCoopPromptHandlerImpl, registerCoopStateChangeHandler as registerCoopStateChangeHandlerImpl, notifyStateChange as notifyStateChangeImpl, setCoopEnabled as setCoopEnabledImpl, getCoopState as getCoopStateImpl } from './slots.js';
 import { handleHostCoopMessage as handleHostCoopMessageImpl, revokeCoopPlayer as revokeCoopPlayerImpl, revokeAllCoopPlayers as revokeAllCoopPlayersImpl, revokePlayer2 as revokePlayer2Impl } from './host.js';
 import { requestCoopControl as requestCoopControlImpl, handleViewerCoopMessage as handleViewerCoopMessageImpl, releaseCoopControl as releaseCoopControlImpl } from './viewer.js';
-import { handleKeyDown as handleKeyDownImpl, handleKeyUp as handleKeyUpImpl, focusControlWrapper as focusControlWrapperImpl, handleControlVisibilityChange as handleControlVisibilityChangeImpl, handleMouseMove as handleMouseMoveImpl, handleMouseDown as handleMouseDownImpl, handleMouseUp as handleMouseUpImpl, loadGamepadMappingFromStorage as loadGamepadMappingFromStorageImpl, saveGamepadMappingToStorage as saveGamepadMappingToStorageImpl, getGamepadMapping as getGamepadMappingImpl, setGamepadMappingPreset as setGamepadMappingPresetImpl, swapGamepadButtons as swapGamepadButtonsImpl, resetGamepadMapping as resetGamepadMappingImpl, applyButtonMapping as applyButtonMappingImpl, pollGamepads as pollGamepadsImpl, attachPlayer2InputListeners as attachPlayer2InputListenersImpl, detachPlayer2InputListeners as detachPlayer2InputListenersImpl } from './input.js';
+import { handleKeyDown as handleKeyDownImpl, handleKeyUp as handleKeyUpImpl, focusControlWrapper as focusControlWrapperImpl, handleControlVisibilityChange as handleControlVisibilityChangeImpl, handleMouseMove as handleMouseMoveImpl, handleMouseDown as handleMouseDownImpl, handleMouseUp as handleMouseUpImpl, loadGamepadMappingFromStorage as loadGamepadMappingFromStorageImpl, saveGamepadMappingToStorage as saveGamepadMappingToStorageImpl, getGamepadMapping as getGamepadMappingImpl, setGamepadMappingPreset as setGamepadMappingPresetImpl, swapGamepadButtons as swapGamepadButtonsImpl, resetGamepadMapping as resetGamepadMappingImpl, applyButtonMapping as applyButtonMappingImpl, pollGamepads as pollGamepadsImpl, attachPlayer2InputListeners as attachPlayer2InputListenersImpl, detachPlayer2InputListeners as detachPlayer2InputListenersImpl, detectGamepadType as detectGamepadTypeImpl, getButtonDisplayLabel as getButtonDisplayLabelImpl } from './input.js';
 import { normalizeTargetRect as normalizeTargetRectImpl, applyRadialDeadzone as applyRadialDeadzoneImpl } from './mapping.js';
 import { setupGamepadTesterModal as setupGamepadTesterModalImpl } from './tester-controller.js';
 const compatibilityPorts = Object.defineProperties({}, {
@@ -112,7 +112,9 @@ const compatibilityPorts = Object.defineProperties({}, {
 "pollGamepads": { get: () => pollGamepads },
 "attachPlayer2InputListeners": { get: () => attachPlayer2InputListeners },
 "detachPlayer2InputListeners": { get: () => detachPlayer2InputListeners },
-"setupGamepadTesterModal": { get: () => setupGamepadTesterModal }
+"setupGamepadTesterModal": { get: () => setupGamepadTesterModal },
+"detectGamepadType": { get: () => detectGamepadType },
+"getButtonDisplayLabel": { get: () => getButtonDisplayLabel }
 });
 
 
@@ -343,3 +345,6 @@ export function setupGamepadTesterModal(...args) {
   if (!testerCleanup) testerCleanup = setupGamepadTesterModalImpl(compatibilityPorts, ...args);
   return testerCleanup;
 }
+
+export function detectGamepadType(...args) { return detectGamepadTypeImpl(...args); }
+export function getButtonDisplayLabel(...args) { return getButtonDisplayLabelImpl(...args); }

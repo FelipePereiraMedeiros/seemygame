@@ -1,5 +1,79 @@
 import { sendCoopMessage } from './message-transport.js';
 /** host: commands receive explicit compatibility ports; no page initialization. */
+export async function grantCoopPlayer(compatibilityContext, senderPeerId, conn, name, requestedSlot) {
+  if (!conn || conn.peer !== senderPeerId || conn.open === false) return false;
+  if (!compatibilityContext.isCoopEnabled) {
+    sendCoopMessage(compatibilityContext, conn, { type: 'COOP_RESPONSE', approved: false, reason: 'O streamer desativou o modo Co-op.' });
+    return false;
+  }
+
+  for (const [slot, player] of compatibilityContext.coopSlots.entries()) {
+    if (player.peerId === senderPeerId) {
+      sendCoopMessage(compatibilityContext, conn, { type: 'COOP_RESPONSE', approved: true, slot });
+      return true;
+    }
+  }
+
+  const finalSlot = Number(requestedSlot);
+  if (!Number.isInteger(finalSlot) || compatibilityContext.getNextAvailableSlot(finalSlot) !== finalSlot) {
+    const reason = 'Esse slot de Co-op não está mais disponível.';
+    sendCoopMessage(compatibilityContext, conn, { type: 'COOP_RESPONSE', approved: false, reason });
+    return false;
+  }
+
+  const slotGeneration = ++compatibilityContext.nextCoopSlotGeneration;
+  compatibilityContext.coopSlots.set(finalSlot, {
+    slot: finalSlot, peerId: senderPeerId, conn,
+    name: String(name || `Player ${finalSlot + 1}`).slice(0, 40),
+    deviceType: 'gamepad', connectedAt: Date.now(), generation: slotGeneration
+  });
+
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('seemygame_coop_token')) {
+    compatibilityContext.initCompanionAgentConnection();
+  }
+
+  const isStillValid = () => {
+    if (!compatibilityContext.isCoopEnabled) return false;
+    const current = compatibilityContext.coopSlots.get(finalSlot);
+    return current && current.peerId === senderPeerId && current.generation === slotGeneration;
+  };
+  const sendApproval = nativeGamepadReady => {
+    if (!isStillValid()) return false;
+    sendCoopMessage(compatibilityContext, conn, { type: 'COOP_RESPONSE', approved: true, slot: finalSlot });
+    sendCoopMessage(compatibilityContext, conn, {
+      type: 'COOP_CAPABILITIES', slot: finalSlot, keyboard: finalSlot === 1,
+      mouse: Boolean(finalSlot === 1 && compatibilityContext.isCompanionConnected && compatibilityContext.companionCapabilities.mouse),
+      gamepad: Boolean(nativeGamepadReady || (compatibilityContext.isCompanionConnected && compatibilityContext.companionCapabilities.gamepad)),
+      browserKeyboardFallback: finalSlot === 1,
+      mouseCoordinateSpace: compatibilityContext.companionCapabilities.mouseCoordinateSpace,
+      targetRect: compatibilityContext.coopInputTargetRect
+    });
+    compatibilityContext.showToast(`🎮 Amigo (${senderPeerId.slice(0, 6)}) agora é o Player ${finalSlot + 1}!`, 'success');
+    compatibilityContext.broadcastSlotsUpdate(); compatibilityContext.notifyStateChange();
+    return true;
+  };
+
+  if (compatibilityContext.isTauriEnvironment()) {
+    try {
+      await compatibilityContext.plugVirtualGamepad(finalSlot);
+    } catch (error) {
+      if (!isStillValid()) return false;
+      compatibilityContext.coopSlots.delete(finalSlot);
+      sendCoopMessage(compatibilityContext, conn, { type: 'COOP_RESPONSE', approved: false,
+        reason: error?.message || 'Gamepad virtual indisponível neste desktop.' });
+      compatibilityContext.showToast('Gamepad virtual indisponível: instale/ative o ViGEmBus.', 'error');
+      compatibilityContext.broadcastSlotsUpdate(); compatibilityContext.notifyStateChange();
+      return false;
+    }
+    if (!isStillValid()) {
+      compatibilityContext.unplugVirtualGamepad(finalSlot).catch(() => {});
+      return false;
+    }
+    return sendApproval(true);
+  }
+  return sendApproval(false);
+}
+
 export function handleHostCoopMessage(compatibilityContext, senderPeerId, data, conn) {
   if (!data || typeof data !== 'object') return;
 
@@ -33,79 +107,7 @@ export function handleHostCoopMessage(compatibilityContext, senderPeerId, data, 
       compatibilityContext.onPromptCallback({
         peerId: senderPeerId,
         requestedSlot: targetSlot,
-        approve: (approvedSlot = targetSlot) => {
-          const finalSlot = approvedSlot !== undefined ? Number(approvedSlot) : targetSlot;
-          const slotGeneration = ++compatibilityContext.nextCoopSlotGeneration;
-          compatibilityContext.coopSlots.set(finalSlot, {
-            slot: finalSlot,
-            peerId: senderPeerId,
-            conn,
-            name: data.name || `Player ${finalSlot + 1}`,
-            deviceType: 'gamepad',
-            connectedAt: Date.now(),
-            generation: slotGeneration
-          });
-
-          if (typeof localStorage !== 'undefined' && localStorage.getItem('seemygame_coop_token')) {
-            compatibilityContext.initCompanionAgentConnection();
-          }
-
-          const isStillValid = () => {
-            if (!compatibilityContext.isCoopEnabled) return false;
-            const current = compatibilityContext.coopSlots.get(finalSlot);
-            return current && current.peerId === senderPeerId && current.generation === slotGeneration;
-          };
-
-          const sendApproval = (nativeGamepadReady) => {
-            if (!isStillValid()) return;
-            sendCoopMessage(compatibilityContext, conn, {
-              type: 'COOP_RESPONSE',
-              approved: true
-            });
-
-            sendCoopMessage(compatibilityContext, conn, {
-              type: 'COOP_CAPABILITIES',
-              slot: finalSlot,
-              keyboard: finalSlot === 1,
-              mouse: Boolean(finalSlot === 1 && compatibilityContext.isCompanionConnected && compatibilityContext.companionCapabilities.mouse),
-              gamepad: Boolean(nativeGamepadReady || (compatibilityContext.isCompanionConnected && compatibilityContext.companionCapabilities.gamepad)),
-              browserKeyboardFallback: finalSlot === 1,
-              mouseCoordinateSpace: compatibilityContext.companionCapabilities.mouseCoordinateSpace,
-              targetRect: compatibilityContext.coopInputTargetRect
-            });
-
-            compatibilityContext.showToast(`🎮 Amigo (${senderPeerId.slice(0, 6)}) agora é o Player ${finalSlot + 1}!`, 'success');
-            compatibilityContext.broadcastSlotsUpdate();
-            compatibilityContext.notifyStateChange();
-          };
-
-          // A presença do global Tauri não prova que ViGEmBus está instalado.
-          // A aprovação só é anunciada após o comando nativo resolver.
-          if (compatibilityContext.isTauriEnvironment()) {
-            compatibilityContext.plugVirtualGamepad(finalSlot)
-              .then(() => {
-                if (!isStillValid()) {
-                  compatibilityContext.unplugVirtualGamepad(finalSlot).catch(() => {});
-                  return;
-                }
-                sendApproval(true);
-              })
-              .catch((error) => {
-                if (!isStillValid()) return;
-                compatibilityContext.coopSlots.delete(finalSlot);
-                sendCoopMessage(compatibilityContext, conn, {
-                  type: 'COOP_RESPONSE',
-                  approved: false,
-                  reason: error?.message || 'Gamepad virtual indisponível neste desktop.'
-                });
-                compatibilityContext.showToast('Gamepad virtual indisponível: instale/ative o ViGEmBus.', 'error');
-                compatibilityContext.broadcastSlotsUpdate();
-                compatibilityContext.notifyStateChange();
-              });
-          } else {
-            sendApproval(false);
-          }
-        },
+        approve: (approvedSlot = targetSlot) => grantCoopPlayer(compatibilityContext, senderPeerId, conn, data.name, approvedSlot),
         deny: (reason = 'Solicitação recusada pelo streamer.') => {
           sendCoopMessage(compatibilityContext, conn, { type: 'COOP_RESPONSE', approved: false, reason });
           compatibilityContext.showToast(`Pedido de Co-op de (${senderPeerId.slice(0, 6)}) recusado.`, 'info');
@@ -159,7 +161,8 @@ export function handleHostCoopMessage(compatibilityContext, senderPeerId, data, 
       } else if (data.type === 'INPUT_GAMEPAD') {
         compatibilityContext.dispatchHostGamepadInput(data);
       } else if (data.type === 'INPUT_RESET') {
-        compatibilityContext.dispatchHostInputReset();
+        if (data.preserveGamepads === true) compatibilityContext.dispatchHostInputReset({ unplugVirtualGamepads: false, slot });
+        else compatibilityContext.dispatchHostInputReset();
       }
     }
   }

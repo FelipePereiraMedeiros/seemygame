@@ -658,7 +658,9 @@ describe('Adversarial Stress Testing: Gamepad3DViewer', () => {
         addWindowSpy.mockRestore();
         removeWindowSpy.mockRestore();
       }
-    });
+    // Creates/disposes 100 full procedural models: a lifetime test, not a 5-second performance gate.
+    // Keep all cleanup assertions and allow slower machines to complete the stress workload.
+    }, 20_000);
 
     it('interações de mouse no container após destroy() não provocam erros', () => {
       const viewer = new Gamepad3DViewer({ container, canvas, renderer: mockRenderer, enableMouseTracking: true });

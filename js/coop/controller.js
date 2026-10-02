@@ -12,17 +12,23 @@ import {
 } from ".././desktop.js";
 import { isTauriEnvironment as isTauriEnvironmentImpl, triggerGamepadRumble as triggerGamepadRumbleImpl, setCoopInputTarget as setCoopInputTargetImpl, initCompanionAgentConnection as initCompanionAgentConnectionImpl, isCompanionAgentRunning as isCompanionAgentRunningImpl, sendCompanionReset as sendCompanionResetImpl, closeCompanionAgentConnection as closeCompanionAgentConnectionImpl, dispatchHostKeyboardInput as dispatchHostKeyboardInputImpl, dispatchHostMouseInput as dispatchHostMouseInputImpl, dispatchHostGamepadInput as dispatchHostGamepadInputImpl, dispatchHostInputReset as dispatchHostInputResetImpl } from './transport.js';
 import { reconcileCoopSlots as reconcileCoopSlotsImpl, setMaxCoopPlayers as setMaxCoopPlayersImpl, getMaxCoopPlayers as getMaxCoopPlayersImpl, setPartyModeEnabled as setPartyModeEnabledImpl, isPartyModeEnabled as isPartyModeEnabledImpl, registerCoopBroadcastHandler as registerCoopBroadcastHandlerImpl, broadcastSlotsUpdate as broadcastSlotsUpdateImpl, getCoopSlots as getCoopSlotsImpl, getNextAvailableSlot as getNextAvailableSlotImpl, registerCoopPromptHandler as registerCoopPromptHandlerImpl, registerCoopStateChangeHandler as registerCoopStateChangeHandlerImpl, notifyStateChange as notifyStateChangeImpl, setCoopEnabled as setCoopEnabledImpl, getCoopState as getCoopStateImpl } from './slots.js';
-import { handleHostCoopMessage as handleHostCoopMessageImpl, revokeCoopPlayer as revokeCoopPlayerImpl, revokeAllCoopPlayers as revokeAllCoopPlayersImpl, revokePlayer2 as revokePlayer2Impl } from './host.js';
+import { handleHostCoopMessage as handleHostCoopMessageImpl, grantCoopPlayer as grantCoopPlayerImpl, revokeCoopPlayer as revokeCoopPlayerImpl, revokeAllCoopPlayers as revokeAllCoopPlayersImpl, revokePlayer2 as revokePlayer2Impl } from './host.js';
 import { requestCoopControl as requestCoopControlImpl, handleViewerCoopMessage as handleViewerCoopMessageImpl, releaseCoopControl as releaseCoopControlImpl } from './viewer.js';
-import { handleKeyDown as handleKeyDownImpl, handleKeyUp as handleKeyUpImpl, focusControlWrapper as focusControlWrapperImpl, handleControlVisibilityChange as handleControlVisibilityChangeImpl, handleMouseMove as handleMouseMoveImpl, handleMouseDown as handleMouseDownImpl, handleMouseUp as handleMouseUpImpl, loadGamepadMappingFromStorage as loadGamepadMappingFromStorageImpl, saveGamepadMappingToStorage as saveGamepadMappingToStorageImpl, getGamepadMapping as getGamepadMappingImpl, setGamepadMappingPreset as setGamepadMappingPresetImpl, swapGamepadButtons as swapGamepadButtonsImpl, resetGamepadMapping as resetGamepadMappingImpl, applyButtonMapping as applyButtonMappingImpl, pollGamepads as pollGamepadsImpl, attachPlayer2InputListeners as attachPlayer2InputListenersImpl, detachPlayer2InputListeners as detachPlayer2InputListenersImpl } from './input.js';
+import { handleKeyDown as handleKeyDownImpl, handleKeyUp as handleKeyUpImpl, focusControlWrapper as focusControlWrapperImpl, handleControlVisibilityChange as handleControlVisibilityChangeImpl, handleMouseMove as handleMouseMoveImpl, handleMouseDown as handleMouseDownImpl, handleMouseUp as handleMouseUpImpl, loadGamepadMappingFromStorage as loadGamepadMappingFromStorageImpl, saveGamepadMappingToStorage as saveGamepadMappingToStorageImpl, getGamepadMapping as getGamepadMappingImpl, setGamepadMappingPreset as setGamepadMappingPresetImpl, swapGamepadButtons as swapGamepadButtonsImpl, resetGamepadMapping as resetGamepadMappingImpl, applyButtonMapping as applyButtonMappingImpl, pollGamepads as pollGamepadsImpl, attachPlayer2InputListeners as attachPlayer2InputListenersImpl, detachPlayer2InputListeners as detachPlayer2InputListenersImpl, detectGamepadType as detectGamepadTypeImpl, getButtonDisplayLabel as getButtonDisplayLabelImpl } from './input.js';
 import { normalizeTargetRect as normalizeTargetRectImpl, applyRadialDeadzone as applyRadialDeadzoneImpl } from './mapping.js';
 import { setupGamepadTesterModal as setupGamepadTesterModalImpl } from './tester-controller.js';
 
 /** Creates a runtime whose state and resource lifetime belong to one session. */
 export function createCoopController(options = {}) {
+let inputTestMode = false;
+
+function sendControllerMessage(connection, message) {
+  if (inputTestMode && message.type?.startsWith('INPUT_')) return false;
+  return options.sendMessage ? options.sendMessage(connection, message) : connection.send(message);
+}
 
 const compatibilityPorts = Object.defineProperties({}, {
-"sendMessage": { get: () => options.sendMessage },
+"sendMessage": { get: () => sendControllerMessage },
 "showToast": { get: () => showToast },
 "isNativeGamepadAvailable": { get: () => isNativeGamepadAvailable },
 "plugVirtualGamepad": { get: () => plugVirtualGamepad },
@@ -113,7 +119,9 @@ const compatibilityPorts = Object.defineProperties({}, {
 "pollGamepads": { get: () => pollGamepads },
 "attachPlayer2InputListeners": { get: () => attachPlayer2InputListeners },
 "detachPlayer2InputListeners": { get: () => detachPlayer2InputListeners },
-"setupGamepadTesterModal": { get: () => setupGamepadTesterModal }
+"setupGamepadTesterModal": { get: () => setupGamepadTesterModal },
+"detectGamepadType": { get: () => detectGamepadType },
+"getButtonDisplayLabel": { get: () => getButtonDisplayLabel }
 });
 
 let isCoopEnabled = true;
@@ -211,9 +219,26 @@ function setCoopEnabled(...args) { return setCoopEnabledImpl(compatibilityPorts,
 
 function getCoopState(...args) { return getCoopStateImpl(compatibilityPorts, ...args); }
 
-function handleHostCoopMessage(...args) { return handleHostCoopMessageImpl(compatibilityPorts, ...args); }
+function handleHostCoopMessage(...args) {
+  if (inputTestMode && args[1]?.type?.startsWith('INPUT_')) return;
+  return handleHostCoopMessageImpl(compatibilityPorts, ...args);
+}
+
+function setInputTestMode(enabled) {
+  const next = Boolean(enabled);
+  if (next === inputTestMode) return;
+  if (next) {
+    // Release held inputs before pausing, retaining slots and virtual devices.
+    if (isPlayer2 && activeDataConn) sendControllerMessage(activeDataConn, { type: 'INPUT_RESET', slot: myAssignedSlot ?? 1, preserveGamepads: true });
+    dispatchHostInputReset({ unplugVirtualGamepads: false });
+  }
+  inputTestMode = next;
+  lastGamepadState = null;
+}
 
 function revokeCoopPlayer(...args) { return revokeCoopPlayerImpl(compatibilityPorts, ...args); }
+
+function grantCoopPlayer(...args) { return grantCoopPlayerImpl(compatibilityPorts, ...args); }
 
 function revokeAllCoopPlayers(...args) { return revokeAllCoopPlayersImpl(compatibilityPorts, ...args); }
 
@@ -291,7 +316,11 @@ function setupGamepadTesterModal(...args) {
   if (!testerCleanup) testerCleanup = setupGamepadTesterModalImpl(compatibilityPorts, ...args);
   return testerCleanup;
 }
+function detectGamepadType(...args) { return detectGamepadTypeImpl(...args); }
+function getButtonDisplayLabel(...args) { return getButtonDisplayLabelImpl(...args); }
 return {
+get isInputTestMode() { return inputTestMode; },
+setInputTestMode,
 get coopSlots() { return coopSlots; },
 get pressedBrowserKeys() { return pressedBrowserKeys; },
 get slotPressedKeys() { return slotPressedKeys; },
@@ -315,6 +344,7 @@ setCoopEnabled,
 getCoopState,
 handleHostCoopMessage,
 revokeCoopPlayer,
+grantCoopPlayer,
 revokeAllCoopPlayers,
 revokePlayer2,
 requestCoopControl,
@@ -328,6 +358,8 @@ swapGamepadButtons,
 resetGamepadMapping,
 applyButtonMapping,
 setupGamepadTesterModal,
+detectGamepadType,
+getButtonDisplayLabel,
 dispose() { testerCleanup?.(); testerCleanup = null; revokeAllCoopPlayers(); releaseCoopControl(activeHostPeerId, activeDataConn); closeCompanionAgentConnection(); detachPlayer2InputListeners(); onPromptCallback = null; onStateChangeCallback = null; broadcastSlotsCallback = null; }
 };
 }

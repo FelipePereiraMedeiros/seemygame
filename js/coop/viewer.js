@@ -17,7 +17,7 @@ export function requestCoopControl(compatibilityContext, hostPeerId, dataConn, p
   sendCoopMessage(compatibilityContext, dataConn, payload);
 }
 
-export function handleViewerCoopMessage(compatibilityContext, data, hostPeerId, videoCard) {
+export function handleViewerCoopMessage(compatibilityContext, data, hostPeerId, videoCard, sourceConn = null) {
   if (!data || typeof data !== 'object') return;
 
   if (data.type === 'COOP_RESPONSE') {
@@ -25,6 +25,7 @@ export function handleViewerCoopMessage(compatibilityContext, data, hostPeerId, 
       compatibilityContext.myAssignedSlot = Number(data.slot !== undefined ? data.slot : 1);
       compatibilityContext.isPlayer2 = true;
       compatibilityContext.activeHostPeerId = hostPeerId;
+      if (sourceConn?.peer === hostPeerId) compatibilityContext.activeDataConn = sourceConn;
       compatibilityContext.showToast(`🎉 Você agora é o Player ${compatibilityContext.myAssignedSlot + 1}! Use controle ou teclado.`, 'success', 5000);
       compatibilityContext.attachPlayer2InputListeners(videoCard);
       compatibilityContext.notifyStateChange();

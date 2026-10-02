@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { createGamepadModel } from './gamepad-model-builder.js';
+import { createGamepadModel, GAMEPAD_MODEL_REVISION } from './gamepad-model-builder.js';
 
 import { withGamepad3DViewerModel } from './gamepad-3d-viewer/model.js';
 import { withGamepad3DViewerPointer } from './gamepad-3d-viewer/pointer.js';
@@ -12,8 +12,10 @@ constructor(options = {}) {
     this.container = options.container || null;
     this.canvas = options.canvas || null;
     this.renderer = options.renderer || null;
-    this.modelUrl = options.modelUrl || 'css/assets/gamepad.glb';
+    this.modelUrl = options.modelUrl === null ? null : (options.modelUrl || `css/assets/gamepad.glb?v=${GAMEPAD_MODEL_REVISION}`);
+    this.modelSource = null;
     this.enableMouseTracking = options.enableMouseTracking !== false;
+    this.fitToContainer = options.fitToContainer === true;
 
     this.scene = null;
     this.camera = null;
@@ -129,7 +131,7 @@ init() {
       const dims = this._getEffectiveDimensions();
       const aspect = dims.width / (dims.height || 1);
       this.camera = new THREE.PerspectiveCamera(34, aspect, 0.1, 100);
-      this.camera.position.set(0, 2.35, 3.35);
+      this.camera.position.set(0, 4.4, 3.35);
       this.camera.lookAt(0, -0.05, 0.08);
 
       // Configuração de Iluminação Estúdio Gamer (Key Light + Rim/Neon Accents)

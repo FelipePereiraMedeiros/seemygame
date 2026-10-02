@@ -5,26 +5,25 @@ import { createGamepadModel } from ".././gamepad-model-builder.js";
 export const withGamepad3DViewerRenderer = Base => class extends Base {
 _setupLighting() {
     // Luz ambiente para visibilidade geral
-    const ambientLight = new THREE.AmbientLight(0x404866, 1.8);
+    const ambientLight = new THREE.AmbientLight(0xe1e7f1, 1.1);
     this.scene.add(ambientLight);
 
     // Key Light branca direcional frontal
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
     keyLight.position.set(2.5, 4.2, 3.6);
     this.scene.add(keyLight);
 
-    // Rim Light Roxa Neon (Gamer Accent esquerda)
-    const rimPurple = new THREE.DirectionalLight(0xc084fc, 3.8);
-    rimPurple.position.set(-4.5, 2.0, -2.5);
-    this.scene.add(rimPurple);
+    // Contorno frio suave, preservando o branco da carcaça.
+    const rimLight = new THREE.DirectionalLight(0xbbc8ef, .7);
+    rimLight.position.set(-4.5, 2.0, -2.5);
+    this.scene.add(rimLight);
 
-    // Fill Light Azul Ciano (Gamer Accent direita)
-    const fillCyan = new THREE.DirectionalLight(0x22d3ee, 3.5);
-    fillCyan.position.set(4.5, 1.8, -2.0);
-    this.scene.add(fillCyan);
+    const sideFill = new THREE.DirectionalLight(0xe4efff, .8);
+    sideFill.position.set(4.5, 1.8, -2.0);
+    this.scene.add(sideFill);
 
     // Luz de preenchimento frontal suave para destacar chanfros e detalhes
-    const frontFill = new THREE.PointLight(0xa5b4fc, 1.8, 12);
+    const frontFill = new THREE.PointLight(0xe2e9f8, .8, 12);
     frontFill.position.set(0, -0.4, 3.0);
     this.scene.add(frontFill);
   }
@@ -142,6 +141,28 @@ _getEffectiveDimensions() {
     return { width, height, isVisible };
   }
 
+_fitCameraToModel() {
+    if (!this.fitToContainer || !this.controllerGroup || !this.camera) return;
+    this.camera.zoom = 1;
+    this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld(true);
+    this.controllerGroup.updateMatrixWorld(true);
+    let extent = 0;
+    // Project each part's bounds: one world-space box overestimates tilted models.
+    this.controllerGroup.traverse(part => {
+      if (!part.geometry || !part.visible) return;
+      part.geometry.computeBoundingBox();
+      const box = part.geometry.boundingBox;
+      if (!box || box.isEmpty()) return;
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+        const point = new THREE.Vector3(x, y, z).applyMatrix4(part.matrixWorld).project(this.camera);
+        extent = Math.max(extent, Math.abs(point.x), Math.abs(point.y));
+      }
+    });
+    if (Number.isFinite(extent) && extent > 0) this.camera.zoom = Math.min(1, .86 / extent);
+    this.camera.updateProjectionMatrix();
+  }
+
 _onResize(force = false) {
     if (!this.canvas || !this.renderer || !this.camera) return;
 
@@ -158,6 +179,7 @@ _onResize(force = false) {
       }
       this.camera.aspect = width / (height || 1);
       this.camera.updateProjectionMatrix();
+      this._fitCameraToModel();
       this.requestRender();
     }
   }

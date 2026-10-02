@@ -17,6 +17,7 @@
         <select id="gamepad-select" class="custom-id-field">
           <option value="">Nenhum controle detectado (pressione qualquer botão)</option>
         </select>
+        <div id="gamepad-multi-hint" style="font-size: 11px; color: var(--accent-cyan, var(--accent)); margin-top: 5px;">🎮 Suporta até 4 controles simultâneos (Slots 0 a 3). Pressione um botão em outro controle para conectá-lo.</div>
       </div>
 
       <div class="gamepad-visual-stage" id="gamepad-visual-stage">
@@ -40,16 +41,17 @@
         </div>
         <div style="font-size: 13px;">
           <div><strong>Botões Pressionados:</strong></div>
-          <div id="gamepad-buttons-label" style="color: #fff; font-family: monospace; min-height: 20px; margin-top: 4px;">Nenhum</div>
+          <div id="gamepad-buttons-label" style="color: var(--text-main); font-family: monospace; min-height: 20px; margin-top: 4px;">Nenhum</div>
         </div>
       </div>
 
       <!-- Remapeamento e Presets de Botões (Xbox / Nintendo Switch / Custom) -->
-      <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+      <div style="background: var(--surface-tint); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <label for="gamepad-mapping-preset" style="font-size: 12.5px; font-weight: 600; color: var(--text-color);">Layout de Botões:</label>
           <select id="gamepad-mapping-preset" class="custom-id-field" style="width: auto; padding: 4px 8px; font-size: 12px;">
             <option value="xbox">Padrão Xbox / PC</option>
+            <option value="playstation">PlayStation (DualSense / DualShock - ✕ ○ □ △)</option>
             <option value="nintendo">Nintendo Switch (Inverte A ↔ B e X ↔ Y)</option>
             <option value="custom">Personalizado</option>
           </select>

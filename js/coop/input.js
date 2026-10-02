@@ -74,7 +74,7 @@ export function handleMouseMove(compatibilityContext, e) {
 }
 
 export function handleMouseDown(compatibilityContext, e) {
-  if (!compatibilityContext.isPlayer2 || !compatibilityContext.activeDataConn || compatibilityContext.activeHostCapabilities.mouse === false) return;
+  if (!compatibilityContext.isPlayer2 || !compatibilityContext.activeDataConn || !compatibilityContext.activeHostCapabilities.mouse === false) return;
   sendCoopMessage(compatibilityContext, compatibilityContext.activeDataConn, {
     type: 'INPUT_MOUSE',
     slot: compatibilityContext.myAssignedSlot !== null ? compatibilityContext.myAssignedSlot : 1,
@@ -84,7 +84,7 @@ export function handleMouseDown(compatibilityContext, e) {
 }
 
 export function handleMouseUp(compatibilityContext, e) {
-  if (!compatibilityContext.isPlayer2 || !compatibilityContext.activeDataConn || compatibilityContext.activeHostCapabilities.mouse === false) return;
+  if (!compatibilityContext.isPlayer2 || !compatibilityContext.activeDataConn || !compatibilityContext.activeHostCapabilities.mouse === false) return;
   sendCoopMessage(compatibilityContext, compatibilityContext.activeDataConn, {
     type: 'INPUT_MOUSE',
     slot: compatibilityContext.myAssignedSlot !== null ? compatibilityContext.myAssignedSlot : 1,
@@ -125,7 +125,10 @@ export function getGamepadMapping(compatibilityContext) {
 }
 
 export function setGamepadMappingPreset(compatibilityContext, preset) {
-  if (preset === 'nintendo') {
+  if (preset === 'playstation') {
+    compatibilityContext.currentGamepadMapping = [...compatibilityContext.DEFAULT_BUTTON_MAP];
+    compatibilityContext.currentMappingPreset = 'playstation';
+  } else if (preset === 'nintendo') {
     compatibilityContext.currentGamepadMapping = [...compatibilityContext.NINTENDO_BUTTON_MAP];
     compatibilityContext.currentMappingPreset = 'nintendo';
   } else if (preset === 'xbox') {
@@ -163,12 +166,92 @@ export function applyButtonMapping(compatibilityContext, rawButtons) {
   return result;
 }
 
-export function pollGamepads(compatibilityContext) {
+/**
+ * Detecta o tipo de hardware do gamepad através da identificação do dispositivo
+ * @param {string} gamepadId
+ * @returns {'playstation'|'nintendo'|'8bitdo'|'xbox'|'generic'}
+ */
+export function detectGamepadType(gamepadId) {
+  if (!gamepadId || typeof gamepadId !== 'string') return 'generic';
+  const id = gamepadId.toLowerCase();
+  // Fabricante explícito tem precedência sobre nomes de modos de compatibilidade.
+  if (id.includes('2dc8') || id.includes('8bitdo')) return '8bitdo';
+  if (id.includes('054c')) return 'playstation';
+  if (id.includes('057e')) return 'nintendo';
+  if (id.includes('045e')) return 'xbox';
+  if (
+    id.includes('dualsense') ||
+    id.includes('dualshock') ||
+    id.includes('playstation') ||
+    id.includes('sony')
+  ) {
+    return 'playstation';
+  }
+  if (
+    id.includes('switch') ||
+    id.includes('joy-con') ||
+    id.includes('nintendo')
+  ) {
+    return 'nintendo';
+  }
+  if (id.includes('xbox') || id.includes('xinput')) {
+    return 'xbox';
+  }
+  return 'generic';
+}
+
+export const PLAYSTATION_BUTTON_NAMES = [
+  '✕ (Cross)', '○ (Circle)', '□ (Square)', '△ (Triangle)',
+  'L1', 'R1', 'L2', 'R2',
+  'Share / Create', 'Options',
+  'L3', 'R3',
+  'D-Pad Cima', 'D-Pad Baixo', 'D-Pad Esquerda', 'D-Pad Direita',
+  'PS Button'
+];
+
+export const NINTENDO_BUTTON_NAMES = [
+  'B', 'A', 'Y', 'X',
+  'L', 'R', 'ZL', 'ZR',
+  '-', '+',
+  'L3', 'R3',
+  'D-Pad Cima', 'D-Pad Baixo', 'D-Pad Esquerda', 'D-Pad Direita',
+  'Home'
+];
+
+export const XBOX_BUTTON_NAMES = [
+  'A', 'B', 'X', 'Y',
+  'LB', 'RB', 'LT', 'RT',
+  'Back / View', 'Start / Menu',
+  'L3', 'R3',
+  'D-Pad Cima', 'D-Pad Baixo', 'D-Pad Esquerda', 'D-Pad Direita',
+  'Xbox / Guide'
+];
+
+/**
+ * Retorna o rótulo visual canônico do botão de acordo com a plataforma/layout ativo
+ * @param {number} buttonIndex
+ * @param {'auto'|'xbox'|'nintendo'|'playstation'|'custom'} preset
+ * @param {'playstation'|'nintendo'|'8bitdo'|'xbox'|'generic'} deviceType
+ * @returns {string}
+ */
+export function getButtonDisplayLabel(buttonIndex, preset = 'xbox', deviceType = null) {
+  const idx = Number(buttonIndex);
+  if (!Number.isInteger(idx) || idx < 0 || idx > 16) return `B${buttonIndex}`;
+  if (preset === 'playstation' || (preset !== 'nintendo' && preset !== 'xbox' && deviceType === 'playstation')) {
+    return PLAYSTATION_BUTTON_NAMES[idx] || `B${idx}`;
+  }
+  if (preset === 'nintendo' || (preset !== 'playstation' && preset !== 'xbox' && deviceType === 'nintendo')) {
+    return NINTENDO_BUTTON_NAMES[idx] || `B${idx}`;
+  }
+  return XBOX_BUTTON_NAMES[idx] || `B${idx}`;
+}
+
+export function pollGamepads(compatibilityContext, targetIndex = 0) {
   if (!compatibilityContext.isPlayer2 || !compatibilityContext.activeDataConn || compatibilityContext.activeHostCapabilities.gamepad === false) return;
 
   try {
     const gamepads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
-    const gp = gamepads[0]; // Captura o primeiro controle conectado
+    const gp = gamepads[targetIndex] || gamepads[0]; // Captura o controle alvo ou o primeiro conectado
 
     if (gp && gp.connected) {
       const rawButtons = gp.buttons.map(b => (typeof b === 'object' ? Boolean(b.pressed) : b === 1.0));

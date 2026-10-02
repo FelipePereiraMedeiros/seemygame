@@ -131,17 +131,9 @@ updateInputs(gamepadData = {}) {
         this.parts.stickL.rotation.x = init.rot.x + ly * MAX_STICK_ANGLE;
         this.parts.stickL.rotation.z = init.rot.z - lx * MAX_STICK_ANGLE;
         this.parts.stickL.position.y = init.pos.y - (l3Pressed ? 0.04 : 0);
-        this._setPartEmissive(this.parts.stickL, l3Pressed, 0x06b6d4);
+        this._setPartEmissive(this.parts.stickL, l3Pressed, 0x06b6d4, 0.45);
 
-        if (this.stickLCapParts && this.stickLCapParts.length > 0) {
-          const capDeltaY = l3Pressed ? 0.04 : 0;
-          for (const part of this.stickLCapParts) {
-            const capInit = this.initialTransforms.get(part);
-            if (capInit) {
-              part.position.y = capInit.pos.y - capDeltaY;
-            }
-          }
-        }
+        // The entire stick moves at its pivot; children retain their local assembly.
       }
     }
 
@@ -157,17 +149,8 @@ updateInputs(gamepadData = {}) {
         this.parts.stickR.rotation.x = init.rot.x + ry * MAX_STICK_ANGLE;
         this.parts.stickR.rotation.z = init.rot.z - rx * MAX_STICK_ANGLE;
         this.parts.stickR.position.y = init.pos.y - (r3Pressed ? 0.04 : 0);
-        this._setPartEmissive(this.parts.stickR, r3Pressed, 0x06b6d4);
+        this._setPartEmissive(this.parts.stickR, r3Pressed, 0x06b6d4, 0.45);
 
-        if (this.stickRCapParts && this.stickRCapParts.length > 0) {
-          const capDeltaY = r3Pressed ? 0.04 : 0;
-          for (const part of this.stickRCapParts) {
-            const capInit = this.initialTransforms.get(part);
-            if (capInit) {
-              part.position.y = capInit.pos.y - capDeltaY;
-            }
-          }
-        }
       }
     }
 
@@ -206,10 +189,10 @@ updateInputs(gamepadData = {}) {
     updateDepress(this.parts.bumperRB, getBtn(5).pressed, 0x06b6d4);
 
     // 5. Botões de Ação ABXY (depressão física + modulação de brilho)
-    updateDepress(this.parts.buttonA, getBtn(0).pressed);
-    updateDepress(this.parts.buttonB, getBtn(1).pressed);
-    updateDepress(this.parts.buttonX, getBtn(2).pressed);
-    updateDepress(this.parts.buttonY, getBtn(3).pressed);
+    updateDepress(this.parts.buttonA, getBtn(0).pressed, 0x06b6d4);
+    updateDepress(this.parts.buttonB, getBtn(1).pressed, 0x06b6d4);
+    updateDepress(this.parts.buttonX, getBtn(2).pressed, 0x06b6d4);
+    updateDepress(this.parts.buttonY, getBtn(3).pressed, 0x06b6d4);
 
     // 6. Botões do Sistema (Back, Start, Guide)
     updateDepress(this.parts.buttonBack, getBtn(8).pressed, 0x38bdf8);

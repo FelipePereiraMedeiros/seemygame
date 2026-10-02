@@ -40,18 +40,27 @@ export function setupGamepadTesterModal(compatibilityContext) {
   let viewer3D = null;
   const canvas3D = modal.querySelector('#gamepad-3d-canvas');
   if (canvas3D) {
-    import(".././gamepad-3d-viewer.js")
+    import('../gamepad-3d-viewer.js')
       .then(({ Gamepad3DViewer }) => {
         if (disposed) return;
         viewer3D = new Gamepad3DViewer({
           container: document.getElementById('gamepad-visual-stage'),
           canvas: canvas3D,
-          modelUrl: 'css/assets/gamepad.glb',
+            fitToContainer: true,
           enableMouseTracking: true
         });
-        viewer3D.init().catch(error => console.warn('[Gamepad 3D]', error));
+        if (!viewer3D.init()) {
+          viewer3D.destroy();
+          viewer3D = null;
+          console.warn('[Gamepad 3D] WebGL indisponível; usando indicadores de botões.');
+          return;
+        }
+        // O usuário pode abrir o modal antes de o import terminar.
+        if (modal.style.display === 'flex') viewer3D.start();
       })
       .catch((err) => {
+        viewer3D?.destroy();
+        viewer3D = null;
         console.warn('[Gamepad 3D] Falha ao carregar visualizador:', err);
       });
   }
@@ -60,6 +69,7 @@ export function setupGamepadTesterModal(compatibilityContext) {
     if (presetSelect) presetSelect.value = compatibilityContext.currentMappingPreset;
     if (mappingStatus) {
       const label = compatibilityContext.currentMappingPreset === 'xbox' ? 'Padrão Xbox / PC'
+        : compatibilityContext.currentMappingPreset === 'playstation' ? 'PlayStation (DualSense / DualShock - ✕ ○ □ △)'
         : compatibilityContext.currentMappingPreset === 'nintendo' ? 'Nintendo Switch (A↔B, X↔Y)'
         : 'Personalizado';
       mappingStatus.textContent = `Layout ativo: ${label}`;
@@ -69,6 +79,10 @@ export function setupGamepadTesterModal(compatibilityContext) {
   presetSelect?.addEventListener('change', (e) => {
     compatibilityContext.setGamepadMappingPreset(e.target.value);
     updateMappingUI();
+  }, { signal: bindingAbort.signal });
+
+  select?.addEventListener('change', () => {
+    updateHud();
   }, { signal: bindingAbort.signal });
 
   swapAbBtn?.addEventListener('click', () => {
@@ -170,9 +184,23 @@ export function setupGamepadTesterModal(compatibilityContext) {
           connectedPads.forEach((gamepad) => {
             const option = document.createElement('option');
             option.value = `web:${gamepad.index}`;
-            option.textContent = `#${gamepad.index}: ${gamepad.id || 'Controle sem identificação'}`;
+            const devType = compatibilityContext.detectGamepadType ? compatibilityContext.detectGamepadType(gamepad.id) : 'generic';
+            const devTag = devType === 'playstation' ? ' [PlayStation]'
+              : devType === 'nintendo' ? ' [Nintendo]'
+              : devType === '8bitdo' ? ' [8BitDo]'
+              : devType === 'xbox' ? ' [Xbox]' : '';
+            option.textContent = `#${gamepad.index}: ${gamepad.id || 'Controle sem identificação'}${devTag}`;
             select.appendChild(option);
           });
+          const connectedIndices = new Set(connectedPads.map((p) => p.index));
+          for (let slot = 0; slot < 4; slot++) {
+            if (!connectedIndices.has(slot)) {
+              const option = document.createElement('option');
+              option.value = `vacant:${slot}`;
+              option.textContent = `Slot #${slot}: Disponível (pressione um botão para conectar)`;
+              select.appendChild(option);
+            }
+          }
         } else if (nativeXInputPads.length > 0) {
           nativeXInputPads.forEach((gamepad) => {
             const option = document.createElement('option');
@@ -180,20 +208,41 @@ export function setupGamepadTesterModal(compatibilityContext) {
             option.textContent = gamepad.id;
             select.appendChild(option);
           });
+          const nativeIndices = new Set(nativeXInputPads.map((p) => p.index));
+          for (let slot = 0; slot < 4; slot++) {
+            if (!nativeIndices.has(slot)) {
+              const option = document.createElement('option');
+              option.value = `vacant:${slot}`;
+              option.textContent = `Slot #${slot}: Disponível (pressione um botão para conectar)`;
+              select.appendChild(option);
+            }
+          }
         } else {
           const option = document.createElement('option');
           option.value = '';
-          option.textContent = 'Nenhum controle detectado (pressione um botão)';
+          option.textContent = 'Nenhum controle detectado (pressione qualquer botão para conectar até 4)';
           select.appendChild(option);
+          for (let slot = 0; slot < 4; slot++) {
+            const vacantOpt = document.createElement('option');
+            vacantOpt.value = `vacant:${slot}`;
+            vacantOpt.textContent = `Slot #${slot}: Disponível (pressione um botão para conectar)`;
+            select.appendChild(vacantOpt);
+          }
         }
         const availableValues = Array.from(select.options, (option) => option.value);
+        const selectedSlot = /^(?:web|xinput|vacant):(\d+)$/.exec(currentVal)?.[1];
+        const replacement = selectedSlot && (currentVal.startsWith('vacant:')
+          ? availableValues.find(value => value === `web:${selectedSlot}` || value === `xinput:${selectedSlot}`)
+          : availableValues.find(value => value === `vacant:${selectedSlot}`));
         select.value = availableValues.includes(currentVal)
           ? currentVal
-          : (availableValues.find((value) => value !== '') || '');
+          : (replacement || availableValues.find((value) => value !== '') || '');
       }
     }
 
     const selectedValue = select?.value || 'web:0';
+    const isVacant = selectedValue.startsWith('vacant:');
+    const vacantSlotIndex = isVacant ? Number(selectedValue.slice('vacant:'.length)) : null;
     const selectedNativeIndex = selectedValue.startsWith('xinput:')
       ? Number(selectedValue.slice('xinput:'.length))
       : null;
@@ -205,12 +254,30 @@ export function setupGamepadTesterModal(compatibilityContext) {
       : connectedPads.find((gamepad) => gamepad.index === selectedWebIndex) || null;
     buttonIndicators.forEach((indicator) => indicator.classList.remove('is-pressed'));
 
+    const multiHint = document.getElementById('gamepad-multi-hint');
+    const totalPadsCount = connectedPads.length || nativeXInputPads.length;
+    if (multiHint) {
+      if (totalPadsCount > 0 && totalPadsCount < 4) {
+        multiHint.textContent = `🎮 ${totalPadsCount} controle(s) conectado(s) · Conecte até 4 pressionando um botão em cada controle`;
+        multiHint.style.display = 'block';
+      } else if (totalPadsCount >= 4) {
+        multiHint.textContent = '🎮 4/4 controles conectados e ativos';
+        multiHint.style.display = 'block';
+      } else {
+        multiHint.textContent = '🎮 Suporta até 4 controles simultâneos (Slots 0 a 3)';
+        multiHint.style.display = 'block';
+      }
+    }
+
     if (gp) {
       gamepadVisual?.classList.add('is-connected');
       if (gamepadVisual) {
         gamepadVisual.setAttribute('aria-label', `Controle ${gp.id || `número ${gp.index}`}; botões pressionados são destacados na ilustração`);
       }
-      if (connectionLabel) connectionLabel.textContent = `${gp.id || `Controle ${gp.index}`} · mexa nos analógicos e pressione os botões para testar`;
+      const multiInvite = totalPadsCount < 4
+        ? ` · Conecte até 4 controles pressionando qualquer botão no próximo (${totalPadsCount}/4)`
+        : ' · 4 controles conectados';
+      if (connectionLabel) connectionLabel.textContent = `${gp.id || `Controle ${gp.index}`} · mexa nos analógicos e botões para testar${multiInvite}`;
       const lx = (gp.axes[0] || 0).toFixed(2);
       const ly = (gp.axes[1] || 0).toFixed(2);
       const rx = (gp.axes[2] || 0).toFixed(2);
@@ -222,7 +289,9 @@ export function setupGamepadTesterModal(compatibilityContext) {
       if (triggersLabel) triggersLabel.textContent = `LT: ${ltVal}% | RT: ${rtVal}%`;
 
       const pressed = [];
-      const btnNames = ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'Back', 'Start', 'L3', 'R3', 'Up', 'Down', 'Left', 'Right', 'Guide'];
+      const deviceType = compatibilityContext.detectGamepadType ? compatibilityContext.detectGamepadType(gp.id) : 'generic';
+      const preset = compatibilityContext.currentMappingPreset || 'xbox';
+      const labelPreset = preset === 'xbox' ? 'auto' : preset;
       const rawButtons = Array.from(gp.buttons || [], (button) => (
         typeof button === 'object' ? Boolean(button.pressed) : button === 1.0
       ));
@@ -231,9 +300,18 @@ export function setupGamepadTesterModal(compatibilityContext) {
         if (isPressed) {
           const physicalIdx = compatibilityContext.currentGamepadMapping.indexOf(i);
           if (physicalIdx !== -1 && physicalIdx !== i) {
-            pressed.push(`${btnNames[i] || `B${i}`} (Físico: ${btnNames[physicalIdx] || `B${physicalIdx}`})`);
+            const mappedName = compatibilityContext.getButtonDisplayLabel
+              ? compatibilityContext.getButtonDisplayLabel(i, labelPreset, deviceType)
+              : `B${i}`;
+            const physName = compatibilityContext.getButtonDisplayLabel
+              ? compatibilityContext.getButtonDisplayLabel(physicalIdx, 'auto', deviceType)
+              : `B${physicalIdx}`;
+            pressed.push(`${mappedName} (Físico: ${physName})`);
           } else {
-            pressed.push(btnNames[i] || `B${i}`);
+            const mappedName = compatibilityContext.getButtonDisplayLabel
+              ? compatibilityContext.getButtonDisplayLabel(i, labelPreset, deviceType)
+              : `B${i}`;
+            pressed.push(mappedName);
           }
         }
       });
@@ -272,6 +350,19 @@ export function setupGamepadTesterModal(compatibilityContext) {
           connected: true
         });
       }
+    } else if (isVacant) {
+      gamepadVisual?.classList.remove('is-connected');
+      gamepadVisual?.setAttribute('aria-label', `Slot ${vacantSlotIndex} disponível; aguardando conexão de controle`);
+      if (connectionLabel) {
+        connectionLabel.textContent = `Slot #${vacantSlotIndex} disponível · Pressione qualquer botão no controle para conectar (até 4 controles)`;
+      }
+      if (sticksLabel) sticksLabel.textContent = 'L: (0.00, 0.00) | R: (0.00, 0.00)';
+      if (triggersLabel) triggersLabel.textContent = 'LT: 0% | RT: 0%';
+      if (buttonsLabel) buttonsLabel.textContent = 'Aguardando controle...';
+      stickCaps.forEach((cap) => cap.setAttribute('transform', 'translate(0 0)'));
+      if (viewer3D) {
+        viewer3D.updateInputs({ axes: [0, 0, 0, 0], buttons: [], connected: false });
+      }
     } else if (selectedNativeIndex !== null) {
       gamepadVisual?.classList.add('is-connected');
       gamepadVisual?.setAttribute('aria-label', `Controle Xbox ${selectedNativeIndex + 1} conectado por XInput; botões ainda não estão disponíveis para animação`);
@@ -285,7 +376,7 @@ export function setupGamepadTesterModal(compatibilityContext) {
     } else {
       gamepadVisual?.classList.remove('is-connected');
       gamepadVisual?.setAttribute('aria-label', 'Ilustração 3D do controle; nenhum controle conectado');
-      if (connectionLabel) connectionLabel.textContent = 'Conecte um controle e pressione qualquer botão para começar';
+      if (connectionLabel) connectionLabel.textContent = 'Conecte um controle e pressione qualquer botão para começar (suporta até 4 controles)';
       if (sticksLabel) sticksLabel.textContent = 'L: (0.00, 0.00) | R: (0.00, 0.00)';
       if (triggersLabel) triggersLabel.textContent = 'LT: 0% | RT: 0%';
       if (buttonsLabel) buttonsLabel.textContent = 'Nenhum controle conectado';
@@ -378,6 +469,12 @@ export function setupGamepadTesterModal(compatibilityContext) {
       testRumbleBtn.textContent = originalLabel;
     }
   }, { signal: bindingAbort.signal });
+
+  if (modal.style.display !== 'none') {
+    updateDriverStatus();
+    updateMappingUI();
+    updateHud();
+  }
   return () => {
     if (disposed) return; disposed = true;
     closeModal(); bindingAbort.abort(); viewer3D?.destroy();

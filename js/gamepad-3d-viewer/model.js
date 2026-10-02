@@ -37,6 +37,7 @@ _loadModel() {
     // 1. Instanciação inicial imediata do modelo procedural (0ms de latência)
     const proceduralModel = createGamepadModel();
     this._attachModel(proceduralModel);
+    this.modelSource = 'procedural';
 
     // 2. Se houver URL do GLB e suporte a GLTFLoader, tenta carregar o GLB externo
     if (this.modelUrl && typeof GLTFLoader !== 'undefined') {
@@ -56,6 +57,7 @@ _loadModel() {
                 this._disposeHierarchy(child);
               }
               this._attachModel(gltf.scene);
+              this.modelSource = 'glb';
               this._lastInputs = null;
               if (this._cachedRawInputs) {
                 this.updateInputs(this._cachedRawInputs);
@@ -76,6 +78,7 @@ _loadModel() {
 
 _attachModel(model) {
     this.controllerGroup.add(model);
+    this._fitCameraToModel();
     this.initialTransforms.clear();
     this.partMaterials.clear();
     this._lastInputs = null;

@@ -245,12 +245,26 @@ export function dispatchHostGamepadInput(compatibilityContext, data) {
   }
 }
 
-export function dispatchHostInputReset(compatibilityContext) {
+export function dispatchHostInputReset(compatibilityContext, { unplugVirtualGamepads = true, slot = null } = {}) {
+  const scoped = Number.isInteger(slot) && slot >= 0 && slot <= 3;
   if (compatibilityContext.isTauriEnvironment()) {
-    compatibilityContext.unplugAllVirtualGamepads().catch(() => {});
+    if (unplugVirtualGamepads) compatibilityContext.unplugAllVirtualGamepads().catch(() => {});
+    else for (const targetSlot of scoped ? [slot] : compatibilityContext.coopSlots.keys()) {
+      compatibilityContext.updateVirtualGamepad(targetSlot, { buttons: new Array(17).fill(false), triggers: [0, 0], axes: [0, 0, 0, 0] }).catch(() => {});
+    }
   }
   if (compatibilityContext.isCompanionConnected && compatibilityContext.companionSocket && compatibilityContext.companionSocket.readyState === WebSocket.OPEN) {
-    try { compatibilityContext.companionSocket.send(JSON.stringify({ type: 'INPUT_RESET' })); } catch (e) {}
+    try { compatibilityContext.companionSocket.send(JSON.stringify({ type: 'INPUT_RESET', ...(scoped ? { slot } : {}) })); } catch (e) {}
+  }
+  if (scoped) {
+    const keys = compatibilityContext.slotPressedKeys.get(slot) || new Set();
+    compatibilityContext.slotPressedKeys.delete(slot);
+    for (const code of keys) {
+      if ([...compatibilityContext.slotPressedKeys.values()].some(other => other.has(code))) continue;
+      if (typeof window !== 'undefined') window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true, cancelable: true }));
+      compatibilityContext.pressedBrowserKeys.delete(code);
+    }
+    return;
   }
   if (typeof window !== 'undefined') {
     compatibilityContext.pressedBrowserKeys.forEach((code) => {

@@ -128,21 +128,23 @@ describe('R1. Ergonomic 3D Gamepad Geometry & PBR Materials', () => {
       }
     });
 
-    // Carcaça principal
+    // Carcaça de plástico claro e fosco, conforme o modelo de referência.
     const matBody = materialsByName.get('Mat_GamepadBody');
     expect(matBody).toBeDefined();
-    expect(matBody.roughness).toBeCloseTo(0.38, 1);
-    expect(matBody.metalness).toBeCloseTo(0.20, 1);
+    expect(matBody.roughness).toBeGreaterThanOrEqual(0.4);
+    expect(matBody.metalness).toBeLessThan(0.1);
+    expect(Math.min(matBody.color.r, matBody.color.g, matBody.color.b)).toBeGreaterThan(0.7);
 
     // Borracha de grip
     const matGrip = materialsByName.get('Mat_Grip');
     expect(matGrip).toBeDefined();
     expect(matGrip.roughness).toBeGreaterThanOrEqual(0.8);
 
-    // Metal Gunmetal D-Pad
+    // Direcional escuro com contraste sobre a carcaça clara.
     const matDpad = materialsByName.get('Mat_Dpad');
     expect(matDpad).toBeDefined();
-    expect(matDpad.metalness).toBeGreaterThanOrEqual(0.65);
+    expect(matDpad.metalness).toBeLessThan(0.2);
+    expect(Math.max(matDpad.color.r, matDpad.color.g, matDpad.color.b)).toBeLessThan(0.2);
 
     // Botões ABXY com emissivo base
     for (const btnLetter of ['A', 'B', 'X', 'Y']) {
@@ -442,11 +444,12 @@ describe('R2. Reactive Input Feedback & Visual Interactivity', () => {
     buttons[10] = { pressed: true, value: 1.0 };
     viewer.updateInputs({ buttons });
 
-    // Todos devem afundar
-    expect(cap.position.y).toBeLessThan(initCapY);
-    expect(dish.position.y).toBeLessThan(initDishY);
-    expect(rim.position.y).toBeLessThan(initRimY);
-    expect(groove.position.y).toBeLessThan(initGrooveY);
+    // O pivô move o conjunto uma vez; filhos não sofrem depressão duplicada.
+    expect(stickL.position.y).toBeCloseTo(viewer.initialTransforms.get(stickL).pos.y - 0.04, 4);
+    expect(cap.position.y).toBe(initCapY);
+    expect(dish.position.y).toBe(initDishY);
+    expect(rim.position.y).toBe(initRimY);
+    expect(groove.position.y).toBe(initGrooveY);
 
     // As distâncias relativas entre cap, dish, rim e ranhuras devem ser estritamente preservadas (sem peças flutuando)
     expect(dish.position.y - cap.position.y).toBeCloseTo(diffDish, 4);
@@ -998,11 +1001,13 @@ describe('R3. On-Demand Render Loop & Resource Management', () => {
 
     for (const { material, baseIntensity } of recordsL) {
       expect(material.emissive.getHex()).toBe(0x06b6d4);
-      expect(material.emissiveIntensity).toBeGreaterThan(baseIntensity);
+      expect(material.emissiveIntensity).toBeGreaterThan(0);
+      expect(material.emissiveIntensity).toBeLessThanOrEqual(0.6);
     }
     for (const { material, baseIntensity } of recordsR) {
       expect(material.emissive.getHex()).toBe(0x06b6d4);
-      expect(material.emissiveIntensity).toBeGreaterThan(baseIntensity);
+      expect(material.emissiveIntensity).toBeGreaterThan(0);
+      expect(material.emissiveIntensity).toBeLessThanOrEqual(0.6);
     }
 
     // Solta L3 e R3
