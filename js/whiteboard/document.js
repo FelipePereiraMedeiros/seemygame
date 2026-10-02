@@ -4,9 +4,15 @@ import { WHITEBOARD_TOOLS, WHITEBOARD_COLORS, CURSOR_PALETTE, getPeerCursorColor
 export const withWhiteboardManagerDocument = Base => class extends Base {
 setTool(toolId) {
     this.selectedTool = toolId;
-    if (toolId !== 'select') {
+    if (toolId === 'hand') {
       this.selectedElementId = null;
       this.isDraggingElement = false;
+      this.isResizingElement = false;
+      if (this.canvas && this.canvas.style) this.canvas.style.cursor = 'grab';
+    } else if (toolId !== 'select') {
+      this.selectedElementId = null;
+      this.isDraggingElement = false;
+      this.isResizingElement = false;
       if (this.canvas && this.canvas.style) this.canvas.style.cursor = toolId === 'eraser' ? 'cell' : 'crosshair';
     } else {
       if (this.canvas && this.canvas.style) this.canvas.style.cursor = 'default';
@@ -14,6 +20,36 @@ setTool(toolId) {
     this.render();
     if (typeof this.onToolChanged === 'function') {
       this.onToolChanged(toolId);
+    }
+  }
+
+  pan(dx, dy) {
+    this.panX = (this.panX || 0) + dx;
+    this.panY = (this.panY || 0) + dy;
+    this.render();
+  }
+
+  setZoom(newZoom, centerX = null, centerY = null) {
+    const clamped = Math.max(0.15, Math.min(6.0, newZoom));
+    const current = this.zoom || 1.0;
+    if (this.canvas && isFiniteNumber(centerX) && isFiniteNumber(centerY)) {
+      this.panX = centerX - (centerX - (this.panX || 0)) * (clamped / current);
+      this.panY = centerY - (centerY - (this.panY || 0)) * (clamped / current);
+    }
+    this.zoom = clamped;
+    this.render();
+    if (typeof this.onZoomChanged === 'function') {
+      this.onZoomChanged(this.zoom);
+    }
+  }
+
+  resetView() {
+    this.panX = 0;
+    this.panY = 0;
+    this.zoom = 1.0;
+    this.render();
+    if (typeof this.onZoomChanged === 'function') {
+      this.onZoomChanged(this.zoom);
     }
   }
 
@@ -177,8 +213,24 @@ async addImageFromDataUrl(dataUrl, targetX = null, targetY = null, broadcast = t
           h = Math.max(1, Math.round(h * ratio));
         }
 
-        const posX = isFiniteNumber(targetX) ? targetX : Math.round(WHITEBOARD_REF_WIDTH / 2 - w / 2);
-        const posY = isFiniteNumber(targetY) ? targetY : Math.round(WHITEBOARD_REF_HEIGHT / 2 - h / 2);
+        let posX = targetX;
+        let posY = targetY;
+        if (!isFiniteNumber(posX) || !isFiniteNumber(posY)) {
+          if (this.canvas && this.canvas.width && this.canvas.height) {
+            const scaleX = (this.canvas.width || WHITEBOARD_REF_WIDTH) / WHITEBOARD_REF_WIDTH;
+            const scaleY = (this.canvas.height || WHITEBOARD_REF_HEIGHT) / WHITEBOARD_REF_HEIGHT;
+            const zoom = this.zoom || 1.0;
+            const panX = this.panX || 0;
+            const panY = this.panY || 0;
+            const centerVirtX = ((this.canvas.width / 2) - panX) / (scaleX * zoom);
+            const centerVirtY = ((this.canvas.height / 2) - panY) / (scaleY * zoom);
+            posX = Math.round(centerVirtX - w / 2);
+            posY = Math.round(centerVirtY - h / 2);
+          } else {
+            posX = Math.round(WHITEBOARD_REF_WIDTH / 2 - w / 2);
+            posY = Math.round(WHITEBOARD_REF_HEIGHT / 2 - h / 2);
+          }
+        }
 
         const el = {
           id: 'wb_' + Math.random().toString(36).substring(2, 9),

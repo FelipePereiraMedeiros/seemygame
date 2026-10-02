@@ -24,7 +24,6 @@ import { createRequire } from 'node:module';
 import { machineFingerprint, readViewerControl, prepareRemoteViewer, resourceWindow, redactViewerSecrets } from './harness/remote-viewer.mjs';
 import { summarizeResources } from './harness/resources.mjs';
 import { readDisplayModes, validateWindowPosition } from './harness/displays.mjs';
-import { startReverseTunnel } from './harness/ssh-reverse.mjs';
 
 ensureDefaultDesktop();
 
@@ -37,8 +36,6 @@ if (!Number.isFinite(duration) || duration < 5 || duration > 1800) throw new Err
 const minFps = Number(option('--min-fps', '0'));
 if (!Number.isFinite(minFps) || minFps < 0 || minFps > 240) throw new Error('--min-fps: intervalo permitido 0..240');
 const remoteViewerEndpoint = option('--viewer-endpoint', null);
-const viewerSshHost = option('--viewer-ssh-host', null);
-if(viewerSshHost&&!remoteViewerEndpoint)throw new Error('--viewer-ssh-host requires --viewer-endpoint');
 const opticalHz = Number(option('--optical-hz', remoteViewerEndpoint ? '0' : '8'));
 if (!Number.isFinite(opticalHz) || opticalHz < 0 || opticalHz > 60) throw new Error('--optical-hz: 0 (desativado) ou 1..60');
 if (opticalHz > 0 && opticalHz < 1) throw new Error('--optical-hz: 0 (desativado) ou 1..60');
@@ -77,7 +74,6 @@ const report = {
   ]
 };
 let desktop, viewerBrowser, sourceBrowser, nativeBrowser, hostPage, viewerPage, server, remoteViewer;
-let reverseTunnel;
 const resources = await startResourceSampler({enabled:!args.includes('--no-system-metrics')});
 let signaling;
 let viewerContext = null;
@@ -165,11 +161,6 @@ try {
   else {
     const localOrigin = await serve();
     signaling = await startSignalingServer();
-    if(viewerSshHost){
-      reverseTunnel=await record('forward fixture and signaling to receiver loopback',()=>startReverseTunnel({host:viewerSshHost,ports:[Number(new URL(localOrigin).port),signaling.config.port]}));
-      report.receiverConditions.localServersTransport='explicit SSH reverse forwarding (HTTP/signaling only)';
-      report.limitations.push('HTTP and signaling ports reverse-forwarded to receiver loopback; WebRTC media still requires its own ICE route.');
-    }
     const webOrigin = customWebOrigin || localOrigin;
     report.webOrigin = webOrigin;
     const port = await freePort();
@@ -254,7 +245,7 @@ try {
       await source.goto(`${localOrigin}/e2e-motion.html`);
     }
     await source.bringToFront();
-    viewerBrowser = remoteViewer ? await chromium.connect(remoteViewer.wsEndpoint,{...(viewerSshHost?{}:{exposeNetwork:'<loopback>'}),timeout:30000}) : await chromium.launch({
+    viewerBrowser = remoteViewer ? await chromium.connect(remoteViewer.wsEndpoint,{exposeNetwork:'<loopback>',timeout:30000}) : await chromium.launch({
       channel,
       headless: false,
       args: [
@@ -910,7 +901,6 @@ finally {
   }
   if (server) { server.closeAllConnections(); await cleanup('close HTTP server', () => new Promise(r => server.close(r))); }
   if (signaling) await cleanup('close local signaling', () => signaling.close());
-  if (reverseTunnel) await cleanup('close owned reverse SSH forwarding',()=>reverseTunnel.stop());
   await writeFile(path.join(output, 'report.json'), serializeReport());
   console.log(`E2E ${report.status}: ${path.join(output, 'report.json')}`);
 }

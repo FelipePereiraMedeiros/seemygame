@@ -149,7 +149,7 @@ export function isSafeWhiteboardElement(element) {
   return ['startX', 'startY', 'endX', 'endY'].every((key) => isFiniteNumber(element[key]));
 }
 
-export async function processImageFile(file, maxWidth = 1024, maxHeight = 768) {
+export async function processImageFile(file, maxWidth = 960, maxHeight = 720) {
   if (!file) throw new Error('Nenhum arquivo fornecido');
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -172,12 +172,19 @@ export async function processImageFile(file, maxWidth = 1024, maxHeight = 768) {
           return;
         }
         ctx.drawImage(img, 0, 0, w, h);
-        const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
         try {
-          const dataUrl = canvas.toDataURL(mimeType, 0.85);
+          let dataUrl = canvas.toDataURL('image/webp', 0.80);
+          if (!dataUrl || !dataUrl.startsWith('data:image/webp')) {
+            const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+            dataUrl = canvas.toDataURL(mime, 0.80);
+          }
           resolve(dataUrl);
         } catch (_) {
-          resolve(e.target.result);
+          try {
+            resolve(canvas.toDataURL('image/jpeg', 0.80));
+          } catch (e2) {
+            resolve(e.target.result);
+          }
         }
       };
       img.onerror = () => reject(new Error('Erro ao decodificar imagem'));

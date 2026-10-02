@@ -655,6 +655,10 @@
           <!-- Chips gerados dinamicamente via JS com AUDIO_MEME_EFFECTS -->
         </div>
 
+        <div class="clip-meme-save-row" style="display: flex; gap: 8px; align-items: center; margin-top: 10px; margin-bottom: 6px;">
+          <input type="text" id="clip-meme-name-input" class="clip-meme-name-input" placeholder="Nome do meme (ex: Jogada Épica, Grito do Amigo)" style="flex: 1; padding: 6px 10px; border-radius: 6px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #fff; font-size: 13px;">
+        </div>
+
         <!-- Ações do Áudio Meme -->
         <div class="clip-meme-actions">
           <button id="clip-preview-audio-btn" class="btn-secondary" title="Ouvir como ficou o áudio com o efeito selecionado">
@@ -693,6 +697,7 @@
 
       <div class="whiteboard-tools" id="whiteboard-tools-group">
         <button class="wb-tool-btn" data-tool="select" title="Mover / Selecionar (V)">👆</button>
+        <button class="wb-tool-btn" data-tool="hand" title="Arrastar Tela / Pan (H ou Espaço+Arrastar)">🖐️</button>
         <button class="wb-tool-btn active" data-tool="pencil" title="Caneta Livre (P)">✏️</button>
         <button class="wb-tool-btn" data-tool="rectangle" title="Retângulo (R)">⬜</button>
         <button class="wb-tool-btn" data-tool="diamond" title="Losango (D)">💎</button>
@@ -706,6 +711,11 @@
       </div>
 
       <div class="whiteboard-actions">
+        <div class="wb-zoom-group" style="display: flex; align-items: center; gap: 2px;">
+          <button id="wb-zoom-out-btn" class="wb-action-btn" title="Diminuir Zoom (-)">🔍−</button>
+          <button id="wb-zoom-reset-btn" class="wb-action-btn" title="Resetar Visualização (100%)" style="min-width: 48px; font-weight: 600;">100%</button>
+          <button id="wb-zoom-in-btn" class="wb-action-btn" title="Aumentar Zoom (+)">🔍+</button>
+        </div>
         <button id="wb-undo-btn" class="wb-action-btn" title="Desfazer (Ctrl+Z)">↩️</button>
         <button id="wb-redo-btn" class="wb-action-btn" title="Refazer (Ctrl+Y)">↪️</button>
         <button id="wb-clear-btn" class="wb-action-btn" title="Limpar Lousa">🗑️</button>
@@ -822,6 +832,14 @@
         <button id="clip-btn" class="btn-clip" title="Salvar últimos 30 segundos da tela em vídeo" style="display: none;">
           <span>🎬</span> Clipa Isso!
         </button>
+        <select id="clip-quick-duration-select" class="clip-duration-select" title="Duração da gravação do clipe" style="display: none; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.4); color: var(--accent-cyan); font-size: 11.5px; font-weight: 600;">
+          <option value="15">15s</option>
+          <option value="30" selected>30s</option>
+          <option value="60">1m</option>
+          <option value="120">2m</option>
+          <option value="300">5m</option>
+          <option value="0">Full</option>
+        </select>
         <span id="viewer-count" class="id-badge" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: var(--accent-green);">
           <span>👥</span> <strong>0</strong> online
         </span>

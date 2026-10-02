@@ -29,10 +29,35 @@ export function bindWhiteboardUI(manager, {
     onElementDeleted: manager.onElementDeleted,
     onBoardCleared: manager.onBoardCleared,
     onCursorMoved: manager.onCursorMoved,
-    onToolChanged: manager.onToolChanged
+    onToolChanged: manager.onToolChanged,
+    onZoomChanged: manager.onZoomChanged
   };
-  manager.onElementCreated = (element) => { previous.onElementCreated?.(element); broadcast({ type: 'WHITEBOARD_ELEMENT_ADD', element }); };
-  manager.onElementUpdated = (element) => { previous.onElementUpdated?.(element); broadcast({ type: 'WHITEBOARD_ELEMENT_UPDATE', element }); };
+  const broadcastElement = (element, isUpdate = false) => {
+    if (element?.type === 'image' && element.dataUrl && element.dataUrl.length > 32000) {
+      const CHUNK_SIZE = 30000;
+      const chunkId = 'wb_img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      const dataUrl = element.dataUrl;
+      const total = Math.ceil(dataUrl.length / CHUNK_SIZE);
+      const meta = { ...element };
+      delete meta.dataUrl;
+      for (let i = 0; i < total; i++) {
+        const slice = dataUrl.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        broadcast({
+          type: 'WHITEBOARD_ELEMENT_CHUNK',
+          chunkId,
+          index: i,
+          total,
+          chunk: slice,
+          meta,
+          isUpdate
+        });
+      }
+    } else {
+      broadcast({ type: isUpdate ? 'WHITEBOARD_ELEMENT_UPDATE' : 'WHITEBOARD_ELEMENT_ADD', element });
+    }
+  };
+  manager.onElementCreated = (element) => { previous.onElementCreated?.(element); broadcastElement(element, false); };
+  manager.onElementUpdated = (element) => { previous.onElementUpdated?.(element); broadcastElement(element, true); };
   manager.onElementDeleted = (element) => { previous.onElementDeleted?.(element); broadcast({ type: 'WHITEBOARD_ELEMENT_DELETE', elementId: element.id }); };
   manager.onBoardCleared = () => { previous.onBoardCleared?.(); broadcast({ type: 'WHITEBOARD_CLEAR' }); };
   let cursorSentAt = 0;
@@ -45,6 +70,13 @@ export function bindWhiteboardUI(manager, {
   manager.onToolChanged = (toolId) => {
     previous.onToolChanged?.(toolId);
     setActive('.wb-tool-btn', (button) => button.dataset.tool === toolId);
+  };
+  manager.onZoomChanged = (zoom) => {
+    previous.onZoomChanged?.(zoom);
+    const zoomResetBtn = document.getElementById('wb-zoom-reset-btn');
+    if (zoomResetBtn) {
+      zoomResetBtn.textContent = `${Math.round((zoom || 1.0) * 100)}%`;
+    }
   };
 
   const resizeCanvas = () => {
@@ -85,10 +117,31 @@ export function bindWhiteboardUI(manager, {
     } else if ((event.ctrlKey || event.metaKey) && ['y', 'Y'].includes(event.key)) {
       event.preventDefault();
       if (manager.redo()) broadcast({ type: 'WHITEBOARD_SYNC', elements: manager.elements });
+    } else if ((event.ctrlKey || event.metaKey) && event.key === '0') {
+      event.preventDefault();
+      manager.resetView();
     } else if (event.key === 'Delete' || event.key === 'Backspace') {
       if (manager.selectedElementId) { event.preventDefault(); manager.deleteSelected(); }
+    } else if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+      const key = event.key.toLowerCase();
+      if (key === 'h') manager.setTool('hand');
+      else if (key === 'v') manager.setTool('select');
+      else if (key === 'p') manager.setTool('pencil');
+      else if (key === 'r') manager.setTool('rectangle');
+      else if (key === 'd') manager.setTool('diamond');
+      else if (key === 'c') manager.setTool('circle');
+      else if (key === 'a') manager.setTool('arrow');
+      else if (key === 'l') manager.setTool('line');
+      else if (key === 't') manager.setTool('text');
+      else if (key === 'e') manager.setTool('eraser');
+      else if (key === '+' || key === '=') manager.setZoom((manager.zoom || 1.0) * 1.2);
+      else if (key === '-') manager.setZoom((manager.zoom || 1.0) * 0.85);
     }
   });
+
+  click('wb-zoom-in-btn', () => manager.setZoom((manager.zoom || 1.0) * 1.2));
+  click('wb-zoom-out-btn', () => manager.setZoom((manager.zoom || 1.0) * 0.85));
+  click('wb-zoom-reset-btn', () => manager.resetView());
 
   modal.querySelectorAll('.wb-tool-btn').forEach((button) => listen(button, 'click', () => {
     const tool = button.dataset.tool;
@@ -152,7 +205,14 @@ export function bindWhiteboardUI(manager, {
     try {
       const dataUrl = await processImageFile(file);
       const rect = canvas.getBoundingClientRect();
-      await manager.addImageFromDataUrl(dataUrl, Math.round((event.clientX - rect.left) / (rect.width || 1) * 1920), Math.round((event.clientY - rect.top) / (rect.height || 1) * 1080));
+      const scaleX = (canvas.width || 1920) / 1920;
+      const scaleY = (canvas.height || 1080) / 1080;
+      const zoom = manager.zoom || 1.0;
+      const panX = manager.panX || 0;
+      const panY = manager.panY || 0;
+      const dropX = Math.round(((event.clientX - rect.left) - panX) / (scaleX * zoom));
+      const dropY = Math.round(((event.clientY - rect.top) - panY) / (scaleY * zoom));
+      await manager.addImageFromDataUrl(dataUrl, dropX, dropY);
     } catch (_) { showToast('Erro ao carregar imagem solta na lousa.', 'error'); }
   };
   listen(modal, 'dragover', (event) => { if (modal.style.display === 'flex') event.preventDefault(); });

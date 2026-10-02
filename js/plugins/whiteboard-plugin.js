@@ -22,6 +22,37 @@ export class WhiteboardPlugin extends BasePlugin {
     const broadcast = (data, excludePeer) => this.context?.broadcastDataMessage?.(data, excludePeer);
 
     if (dispatcher) {
+      const incomingChunks = new Map();
+
+      this._dispatcherUnsubs.push(
+        dispatcher.register('WHITEBOARD_ELEMENT_CHUNK', (data, sourceConn) => {
+          if (!data || !data.chunkId || typeof data.index !== 'number' || typeof data.total !== 'number') return;
+          let entry = incomingChunks.get(data.chunkId);
+          if (!entry) {
+            entry = { total: data.total, received: new Map(), meta: data.meta, isUpdate: data.isUpdate, timestamp: Date.now() };
+            incomingChunks.set(data.chunkId, entry);
+          }
+          entry.received.set(data.index, data.chunk);
+          if (entry.received.size === entry.total) {
+            incomingChunks.delete(data.chunkId);
+            let fullDataUrl = '';
+            for (let i = 0; i < entry.total; i++) {
+              fullDataUrl += (entry.received.get(i) || '');
+            }
+            const fullElement = { ...entry.meta, dataUrl: fullDataUrl };
+            if (entry.isUpdate) {
+              this.manager.updateElement(fullElement, false);
+            } else {
+              const exists = this.manager.elements.some(el => el.id === fullElement.id);
+              if (!exists) {
+                this.manager.addElement(fullElement, false);
+                if (shouldRelay()) broadcast({ type: 'WHITEBOARD_ELEMENT_ADD', element: fullElement }, sourceConn?.peer);
+              }
+            }
+          }
+        }, { description: 'Whiteboard: Element Chunk' })
+      );
+
       this._dispatcherUnsubs.push(
         dispatcher.register('WHITEBOARD_ELEMENT_ADD', (data, sourceConn) => {
           const exists = this.manager.elements.some(el => el.id === data.element?.id);

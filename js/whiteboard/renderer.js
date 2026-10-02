@@ -24,10 +24,14 @@ render() {
 
     const scaleX = width / WHITEBOARD_REF_WIDTH;
     const scaleY = height / WHITEBOARD_REF_HEIGHT;
+    const zoom = this.zoom || 1.0;
+    const panX = this.panX || 0;
+    const panY = this.panY || 0;
 
-    this.ctx.save();
+    if (typeof this.ctx.save === 'function') this.ctx.save();
+    if (typeof this.ctx.translate === 'function') this.ctx.translate(panX, panY);
     if (typeof this.ctx.scale === 'function') {
-      this.ctx.scale(scaleX, scaleY);
+      this.ctx.scale(scaleX * zoom, scaleY * zoom);
     }
 
     // 2. Renderiza todos os elementos consolidados no plano de referência virtual
@@ -48,7 +52,7 @@ render() {
       }
     }
 
-    this.ctx.restore();
+    if (typeof this.ctx.restore === 'function') this.ctx.restore();
 
     // 5. Renderiza os cursores multiplayer remotos
     this.drawRemoteCursors(this.ctx, width, height);
@@ -74,8 +78,8 @@ drawSelectionBox(ctx, el) {
     }
     if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
 
-    const handleSize = 7;
-    const handles = [
+    const handles = this.getResizeHandles ? this.getResizeHandles(el) : null;
+    const handleList = handles ? Object.values(handles) : [
       { x: x, y: y },
       { x: x + w, y: y },
       { x: x + w, y: y + h },
@@ -84,8 +88,9 @@ drawSelectionBox(ctx, el) {
 
     ctx.fillStyle = '#ffffff';
     ctx.strokeStyle = '#0284c7';
-    ctx.lineWidth = 1.5;
-    for (const hPos of handles) {
+    ctx.lineWidth = 1.8;
+    const handleSize = 8;
+    for (const hPos of handleList) {
       ctx.beginPath();
       if (typeof ctx.rect === 'function') {
         ctx.rect(hPos.x - handleSize / 2, hPos.y - handleSize / 2, handleSize, handleSize);
@@ -101,8 +106,15 @@ drawDotGrid(dotColor, spacing = 24) {
     this.ctx.fillStyle = dotColor;
     const w = this.canvas.width;
     const h = this.canvas.height;
-    for (let x = spacing; x < w; x += spacing) {
-      for (let y = spacing; y < h; y += spacing) {
+    const zoom = this.zoom || 1.0;
+    const effectiveSpacing = Math.max(12, Math.round(spacing * zoom));
+    const panX = this.panX || 0;
+    const panY = this.panY || 0;
+    const startX = ((panX % effectiveSpacing) + effectiveSpacing) % effectiveSpacing;
+    const startY = ((panY % effectiveSpacing) + effectiveSpacing) % effectiveSpacing;
+
+    for (let x = startX; x < w; x += effectiveSpacing) {
+      for (let y = startY; y < h; y += effectiveSpacing) {
         this.ctx.beginPath();
         this.ctx.arc(x, y, 1.2, 0, Math.PI * 2);
         this.ctx.fill();

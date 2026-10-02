@@ -14,6 +14,7 @@
 
       <div class="whiteboard-tools" id="whiteboard-tools-group">
         <button class="wb-tool-btn" data-tool="select" title="Mover / Selecionar (V)">👆</button>
+        <button class="wb-tool-btn" data-tool="hand" title="Arrastar Tela / Pan (H ou Espaço+Arrastar)">🖐️</button>
         <button class="wb-tool-btn active" data-tool="pencil" title="Caneta Livre (P)">✏️</button>
         <button class="wb-tool-btn" data-tool="rectangle" title="Retângulo (R)">⬜</button>
         <button class="wb-tool-btn" data-tool="diamond" title="Losango (D)">💎</button>
@@ -27,6 +28,11 @@
       </div>
 
       <div class="whiteboard-actions">
+        <div class="wb-zoom-group" style="display: flex; align-items: center; gap: 2px;">
+          <button id="wb-zoom-out-btn" class="wb-action-btn" title="Diminuir Zoom (-)">🔍−</button>
+          <button id="wb-zoom-reset-btn" class="wb-action-btn" title="Resetar Visualização (100%)" style="min-width: 48px; font-weight: 600;">100%</button>
+          <button id="wb-zoom-in-btn" class="wb-action-btn" title="Aumentar Zoom (+)">🔍+</button>
+        </div>
         <button id="wb-undo-btn" class="wb-action-btn" title="Desfazer (Ctrl+Z)">↩️</button>
         <button id="wb-redo-btn" class="wb-action-btn" title="Refazer (Ctrl+Y)">↪️</button>
         <button id="wb-clear-btn" class="wb-action-btn" title="Limpar Lousa">🗑️</button>

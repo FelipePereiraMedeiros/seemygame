@@ -11,12 +11,32 @@ export function initWhiteboard(compatibilityContext) {
   compatibilityContext.whiteboardManager.setCanvas(canvas);
 
   // Conecta callbacks P2P do WhiteboardManager
-  compatibilityContext.whiteboardManager.onElementCreated = (element) => {
-    compatibilityContext.broadcastDataMessage({ type: 'WHITEBOARD_ELEMENT_ADD', element });
+  const broadcastElement = (element, isUpdate = false) => {
+    if (element?.type === 'image' && element.dataUrl && element.dataUrl.length > 32000) {
+      const CHUNK_SIZE = 30000;
+      const chunkId = 'wb_img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      const dataUrl = element.dataUrl;
+      const total = Math.ceil(dataUrl.length / CHUNK_SIZE);
+      const meta = { ...element };
+      delete meta.dataUrl;
+      for (let i = 0; i < total; i++) {
+        const slice = dataUrl.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        compatibilityContext.broadcastDataMessage({
+          type: 'WHITEBOARD_ELEMENT_CHUNK',
+          chunkId,
+          index: i,
+          total,
+          chunk: slice,
+          meta,
+          isUpdate
+        });
+      }
+    } else {
+      compatibilityContext.broadcastDataMessage({ type: isUpdate ? 'WHITEBOARD_ELEMENT_UPDATE' : 'WHITEBOARD_ELEMENT_ADD', element });
+    }
   };
-  compatibilityContext.whiteboardManager.onElementUpdated = (element) => {
-    compatibilityContext.broadcastDataMessage({ type: 'WHITEBOARD_ELEMENT_UPDATE', element });
-  };
+  compatibilityContext.whiteboardManager.onElementCreated = (element) => broadcastElement(element, false);
+  compatibilityContext.whiteboardManager.onElementUpdated = (element) => broadcastElement(element, true);
   compatibilityContext.whiteboardManager.onElementDeleted = (element) => {
     compatibilityContext.broadcastDataMessage({ type: 'WHITEBOARD_ELEMENT_DELETE', elementId: element.id });
   };
@@ -205,6 +225,25 @@ export function initWhiteboard(compatibilityContext) {
     };
   });
 
+  // Zoom Controls
+  const zoomInBtn = document.getElementById('wb-zoom-in-btn');
+  const zoomOutBtn = document.getElementById('wb-zoom-out-btn');
+  const zoomResetBtn = document.getElementById('wb-zoom-reset-btn');
+  if (zoomInBtn) {
+    zoomInBtn.onclick = () => compatibilityContext.whiteboardManager.setZoom((compatibilityContext.whiteboardManager.zoom || 1.0) * 1.2);
+  }
+  if (zoomOutBtn) {
+    zoomOutBtn.onclick = () => compatibilityContext.whiteboardManager.setZoom((compatibilityContext.whiteboardManager.zoom || 1.0) * 0.85);
+  }
+  if (zoomResetBtn) {
+    zoomResetBtn.onclick = () => compatibilityContext.whiteboardManager.resetView();
+  }
+  compatibilityContext.whiteboardManager.onZoomChanged = (zoom) => {
+    if (zoomResetBtn) {
+      zoomResetBtn.textContent = `${Math.round((zoom || 1.0) * 100)}%`;
+    }
+  };
+
   // Desfazer / Refazer
   const undoBtn = document.getElementById('wb-undo-btn');
   if (undoBtn) {
@@ -301,10 +340,13 @@ export function initWhiteboard(compatibilityContext) {
     if (!imgFile) return;
 
     const rect = canvas.getBoundingClientRect();
-    const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1)));
-    const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / (rect.height || 1)));
-    const dropX = Math.round(normX * 1920);
-    const dropY = Math.round(normY * 1080);
+    const scaleX = (canvas.width || 1920) / 1920;
+    const scaleY = (canvas.height || 1080) / 1080;
+    const zoom = compatibilityContext.whiteboardManager.zoom || 1.0;
+    const panX = compatibilityContext.whiteboardManager.panX || 0;
+    const panY = compatibilityContext.whiteboardManager.panY || 0;
+    const dropX = Math.round(((e.clientX - rect.left) - panX) / (scaleX * zoom));
+    const dropY = Math.round(((e.clientY - rect.top) - panY) / (scaleY * zoom));
 
     try {
       const dataUrl = await compatibilityContext.processImageFile(imgFile);

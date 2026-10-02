@@ -9,13 +9,25 @@ attachEvents() {
       const rect = this.canvas.getBoundingClientRect();
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      const normX = Math.max(0, Math.min(1, (clientX - rect.left) / (rect.width || 1)));
-      const normY = Math.max(0, Math.min(1, (clientY - rect.top) / (rect.height || 1)));
+      const scaleX = (this.canvas.width || WHITEBOARD_REF_WIDTH) / WHITEBOARD_REF_WIDTH;
+      const scaleY = (this.canvas.height || WHITEBOARD_REF_HEIGHT) / WHITEBOARD_REF_HEIGHT;
+      const zoom = this.zoom || 1.0;
+      const panX = this.panX || 0;
+      const panY = this.panY || 0;
+
+      const screenX = clientX - rect.left;
+      const screenY = clientY - rect.top;
+
+      const virtX = (screenX - panX) / (scaleX * zoom);
+      const virtY = (screenY - panY) / (scaleY * zoom);
+
       return {
-        x: Math.round(normX * WHITEBOARD_REF_WIDTH * 10) / 10,
-        y: Math.round(normY * WHITEBOARD_REF_HEIGHT * 10) / 10,
-        normX,
-        normY
+        x: Math.round(virtX * 10) / 10,
+        y: Math.round(virtY * 10) / 10,
+        screenX,
+        screenY,
+        normX: Math.max(0, Math.min(1, virtX / WHITEBOARD_REF_WIDTH)),
+        normY: Math.max(0, Math.min(1, virtY / WHITEBOARD_REF_HEIGHT))
       };
     };
 
@@ -23,8 +35,32 @@ attachEvents() {
       e.preventDefault();
       const pos = getCanvasPos(e);
 
-      // Ferramenta Selecionar / Mover
+      // Pan da tela (Botão do meio do mouse, barra de espaço pressionada ou ferramenta 'hand')
+      if (e.button === 1 || this.isSpacePressed || this.selectedTool === 'hand') {
+        this.isPanning = true;
+        this.panStartPos = { x: e.clientX, y: e.clientY, initialPanX: this.panX || 0, initialPanY: this.panY || 0 };
+        if (this.canvas && this.canvas.style) this.canvas.style.cursor = 'grabbing';
+        return;
+      }
+
+      // Ferramenta Selecionar / Mover / Redimensionar
       if (this.selectedTool === 'select') {
+        if (this.selectedElementId) {
+          const selectedEl = this.elements.find(el => el.id === this.selectedElementId);
+          if (selectedEl && this.hitTestResizeHandle) {
+            const handleHit = this.hitTestResizeHandle(selectedEl, pos.x, pos.y);
+            if (handleHit) {
+              this.isResizingElement = true;
+              this.activeResizeHandle = handleHit.handle;
+              this.resizeStartPos = { x: pos.x, y: pos.y };
+              this.resizeInitialState = JSON.parse(JSON.stringify(selectedEl));
+              this._resizeUndoSnapshot = this.elements.map(el => JSON.parse(JSON.stringify(el)));
+              if (this.canvas && this.canvas.style) this.canvas.style.cursor = handleHit.cursor;
+              return;
+            }
+          }
+        }
+
         const target = this.findElementAt(pos.x, pos.y);
         if (target) {
           this.selectedElementId = target.id;
@@ -36,6 +72,7 @@ attachEvents() {
         } else {
           this.selectedElementId = null;
           this.isDraggingElement = false;
+          this.isResizingElement = false;
           this.dragStartPos = null;
           this.dragInitialState = null;
           this._dragUndoSnapshot = null;
@@ -104,8 +141,29 @@ attachEvents() {
         this.onCursorMoved({ x: pos.normX, y: pos.normY });
       }
 
-      // Ferramenta Selecionar / Mover
+      // Pan ativo da tela
+      if (this.isPanning && this.panStartPos) {
+        this.panX = this.panStartPos.initialPanX + (e.clientX - this.panStartPos.x);
+        this.panY = this.panStartPos.initialPanY + (e.clientY - this.panStartPos.y);
+        this.render();
+        return;
+      }
+
+      // Ferramenta Selecionar / Mover / Redimensionar
       if (this.selectedTool === 'select') {
+        // Redimensionamento ativo
+        if (this.isResizingElement && this.selectedElementId && this.resizeInitialState && this.activeResizeHandle) {
+          const dx = pos.x - this.resizeStartPos.x;
+          const dy = pos.y - this.resizeStartPos.y;
+          const el = this.elements.find(e => e.id === this.selectedElementId);
+          if (el && this.resizeElement) {
+            this.resizeElement(el, this.resizeInitialState, this.activeResizeHandle, dx, dy);
+            this.render();
+          }
+          return;
+        }
+
+        // Mover/arrastar objeto ativo
         if (this.isDraggingElement && this.selectedElementId && this.dragInitialState) {
           const dx = pos.x - this.dragStartPos.x;
           const dy = pos.y - this.dragStartPos.y;
@@ -116,9 +174,24 @@ attachEvents() {
           }
           return;
         } else if (this.canvas && this.canvas.style) {
+          if (this.selectedElementId && this.hitTestResizeHandle) {
+            const selectedEl = this.elements.find(e => e.id === this.selectedElementId);
+            if (selectedEl) {
+              const handleHit = this.hitTestResizeHandle(selectedEl, pos.x, pos.y);
+              if (handleHit) {
+                this.canvas.style.cursor = handleHit.cursor;
+                return;
+              }
+            }
+          }
           const hoverEl = this.findElementAt(pos.x, pos.y);
           this.canvas.style.cursor = hoverEl ? 'grab' : 'default';
         }
+        return;
+      }
+
+      if (this.selectedTool === 'hand' && this.canvas?.style) {
+        this.canvas.style.cursor = this.isPanning ? 'grabbing' : 'grab';
         return;
       }
 
@@ -147,6 +220,36 @@ attachEvents() {
     };
 
     const handlePointerUp = (e) => {
+      // Pan finalizado
+      if (this.isPanning) {
+        this.isPanning = false;
+        this.panStartPos = null;
+        if (this.canvas && this.canvas.style) {
+          this.canvas.style.cursor = (this.isSpacePressed || this.selectedTool === 'hand') ? 'grab' : 'default';
+        }
+        return;
+      }
+
+      // Redimensionamento finalizado
+      if (this.selectedTool === 'select' && this.isResizingElement) {
+        this.isResizingElement = false;
+        this.activeResizeHandle = null;
+        if (this.canvas && this.canvas.style) this.canvas.style.cursor = 'default';
+        const el = this.elements.find(e => e.id === this.selectedElementId);
+        if (el && this._resizeUndoSnapshot) {
+          this.undoStack.push(this._resizeUndoSnapshot);
+          this.redoStack = [];
+          if (typeof this.onElementUpdated === 'function') {
+            this.onElementUpdated(el);
+          }
+        }
+        this.resizeStartPos = null;
+        this.resizeInitialState = null;
+        this._resizeUndoSnapshot = null;
+        this.render();
+        return;
+      }
+
       // Ferramenta Selecionar / Mover
       if (this.selectedTool === 'select' && this.isDraggingElement) {
         this.isDraggingElement = false;
@@ -203,25 +306,87 @@ attachEvents() {
       }
     };
 
-    if (this._pointerUpHandler) {
+    const handleWheel = (e) => {
+      e.preventDefault();
+      if (!this.canvas) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+      const currentZoom = this.zoom || 1.0;
+      this.setZoom(currentZoom * zoomFactor, cx, cy);
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.code === 'Space' && !this.isSpacePressed) {
+        if (e.target?.matches?.('input,textarea')) return;
+        this.isSpacePressed = true;
+        if (this.canvas?.style && !this.isPanning) {
+          this.canvas.style.cursor = 'grab';
+        }
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      if (e.code === 'Space') {
+        this.isSpacePressed = false;
+        if (this.canvas?.style && !this.isPanning && this.selectedTool !== 'hand') {
+          this.canvas.style.cursor = this.selectedTool === 'select' ? 'default' : (this.selectedTool === 'eraser' ? 'cell' : 'crosshair');
+        }
+      }
+    };
+
+    if (this._pointerUpHandler && typeof window !== 'undefined') {
       window.removeEventListener('mouseup', this._pointerUpHandler);
       window.removeEventListener('touchend', this._pointerUpHandler);
     }
+    if (this._wheelHandler && this.canvas) {
+      this.canvas.removeEventListener('wheel', this._wheelHandler);
+    }
+    if (this._keyDownHandler && typeof window !== 'undefined') {
+      window.removeEventListener('keydown', this._keyDownHandler);
+      window.removeEventListener('keyup', this._keyUpHandler);
+    }
+
     this._pointerUpHandler = handlePointerUp;
+    this._wheelHandler = handleWheel;
+    this._keyDownHandler = handleKeyDown;
+    this._keyUpHandler = handleKeyUp;
 
     this.canvas.onmousedown = handlePointerDown;
     this.canvas.onmousemove = handlePointerMove;
-    window.addEventListener('mouseup', handlePointerUp);
+    if (typeof window !== 'undefined') window.addEventListener('mouseup', handlePointerUp);
 
     this.canvas.ontouchstart = handlePointerDown;
     this.canvas.ontouchmove = handlePointerMove;
-    window.addEventListener('touchend', handlePointerUp);
+    if (typeof window !== 'undefined') window.addEventListener('touchend', handlePointerUp);
+
+    if (typeof this.canvas.addEventListener === 'function') {
+      this.canvas.addEventListener('wheel', handleWheel, { passive: false });
+    } else {
+      this.canvas.onwheel = handleWheel;
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('keyup', handleKeyUp);
+    }
   }
 
 dispose() {
     if (this._pointerUpHandler && typeof window !== 'undefined') {
       window.removeEventListener('mouseup', this._pointerUpHandler);
       window.removeEventListener('touchend', this._pointerUpHandler);
+    }
+    if (this._wheelHandler && this.canvas) {
+      if (typeof this.canvas.removeEventListener === 'function') {
+        this.canvas.removeEventListener('wheel', this._wheelHandler);
+      } else {
+        this.canvas.onwheel = null;
+      }
+    }
+    if (this._keyDownHandler && typeof window !== 'undefined') {
+      window.removeEventListener('keydown', this._keyDownHandler);
+      window.removeEventListener('keyup', this._keyUpHandler);
     }
     if (this.canvas) {
       this.canvas.onmousedown = null;
@@ -230,6 +395,9 @@ dispose() {
       this.canvas.ontouchmove = null;
     }
     this._pointerUpHandler = null;
+    this._wheelHandler = null;
+    this._keyDownHandler = null;
+    this._keyUpHandler = null;
     this.canvas = null;
     this.ctx = null;
     this.elements = [];
