@@ -59,6 +59,11 @@ export async function openClipPostModal(compatibilityContext, clipBlob) {
   const downloadWavBtn = document.getElementById('clip-download-wav-btn');
   const saveSoundboardBtn = document.getElementById('clip-save-soundboard-btn');
   const broadcastVoiceBtn = document.getElementById('clip-broadcast-voice-btn');
+  const memeNameInput = document.getElementById('clip-meme-name-input');
+  if (memeNameInput) {
+    memeNameInput.value = '';
+    memeNameInput.placeholder = 'Nome do meme (ex: Jogada Épica, Grito do Amigo)';
+  }
 
   if (closeBtn) {
     closeBtn.onclick = () => compatibilityContext.closeClipPostModal();
@@ -326,8 +331,13 @@ export async function openClipPostModal(compatibilityContext, clipBlob) {
 
         const effectObj = compatibilityContext.AUDIO_MEME_EFFECTS.find(e => e.id === compatibilityContext.activeEffectId);
         const defaultName = effectObj && effectObj.id !== 'none' ? `Meme ${effectObj.name}` : 'Meme Clip';
-        const promptName = typeof prompt === 'function' ? prompt('Dê um nome para este meme no Soundboard do SeeMyGame:', defaultName) : defaultName;
-        const finalName = (promptName && promptName.trim()) || defaultName;
+        const inputEl = document.getElementById('clip-meme-name-input');
+        const inputName = inputEl?.value?.trim();
+        let finalName = inputName;
+        if (!finalName) {
+          const promptName = typeof prompt === 'function' ? prompt('Dê um nome para este meme no Soundboard do SeeMyGame:', defaultName) : defaultName;
+          finalName = (promptName && promptName.trim()) || defaultName;
+        }
 
         const savedSound = compatibilityContext.soundboardManager.addCustomSound({
           name: finalName,

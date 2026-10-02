@@ -14,7 +14,7 @@ export function bindClipEditor(session, { recorder, soundboardManager, showToast
     get myId() { return getPeerId(); },
     closeClipPostModal: () => closeClipPostModal(ports),
     syncClipDurationUI: seconds => {
-      for (const id of ['clip-buffer-duration-select', 'clip-modal-duration-select']) {
+      for (const id of ['clip-buffer-duration-select', 'clip-modal-duration-select', 'clip-quick-duration-select']) {
         const select = document.getElementById(id);
         if (select) select.value = String(seconds);
       }
@@ -62,6 +62,9 @@ export function bindClipEditor(session, { recorder, soundboardManager, showToast
   if (clipButton) clipButton.title = 'Salvar clipe. Com SeeMyGame em foco: C, Alt+C ou Ctrl+Shift+C. Controle padrão: Back/Select + RB/R1; PlayStation: Share/Create.';
   session.addEventListener(clipButton, 'click', click);
   session.addEventListener(document.getElementById('clip-buffer-duration-select'), 'change', event => {
+    ports.syncClipDurationUI(recorder.setMaxDurationSeconds(Number(event.target.value)));
+  });
+  session.addEventListener(document.getElementById('clip-quick-duration-select'), 'change', event => {
     ports.syncClipDurationUI(recorder.setMaxDurationSeconds(Number(event.target.value)));
   });
 
