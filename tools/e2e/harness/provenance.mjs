@@ -10,3 +10,13 @@ export async function listFrontendFiles(root, folder = 'js') {
   }
   return files.sort();
 }
+
+export async function listRustFiles(root, folder = 'src-tauri/src') {
+  const files = [];
+  for (const entry of await readdir(path.join(root, folder), { withFileTypes: true })) {
+    const relative = `${folder}/${entry.name}`;
+    if (entry.isDirectory()) files.push(...await listRustFiles(root, relative));
+    else if (entry.name.endsWith('.rs')) files.push(relative);
+  }
+  return files.sort();
+}

@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { launchHistoricalBrowser, historicalArtifactDir, waitHistorical } from '../tools/e2e/harness/historical-browser.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,7 +69,7 @@ async function run() {
     console.log(`[E2E] Executando teste diretamente contra o ambiente de PRODUÇÃO: ${targetBase}`);
   }
 
-  const browser = await chromium.launch({
+  const browser = await launchHistoricalBrowser({
     channel: 'chrome',
     headless: true,
     args: [
@@ -101,22 +101,22 @@ async function run() {
     // Com --use-fake-device-for-media-stream, o microfone fake gera áudio senoidal
     // O VU meter deve receber sinal e ter largura maior que 0%
     console.log('Aguardando captação de áudio pelo VU meter...');
-    await page.waitForFunction(() => {
+    await waitHistorical(page, async () => {
       const vu = document.getElementById('green-room-vu-bar');
       if (!vu) return false;
       const width = parseFloat(vu.style.width || '0');
       return width > 0;
-    }, { timeout: 10000 });
+    }, undefined, { timeout: 10000 });
 
-    const vuWidth = await page.evaluate(() => document.getElementById('green-room-vu-bar').style.width);
+    const vuWidth = await page.evaluate(async () => document.getElementById('green-room-vu-bar').style.width);
     console.log(`✅ VU Meter captando áudio ativamente no lobby! Largura: ${vuWidth}`);
 
     // Verifica status text
-    await page.waitForFunction(() => {
+    await waitHistorical(page, async () => {
       const status = document.getElementById('green-room-mic-status');
       return status && status.textContent.includes('captado');
-    }, { timeout: 5000 });
-    const statusText = await page.evaluate(() => document.getElementById('green-room-mic-status').textContent);
+    }, undefined, { timeout: 5000 });
+    const statusText = await page.evaluate(async () => document.getElementById('green-room-mic-status').textContent);
     console.log(`✅ Status do microfone: "${statusText}"`);
 
     console.log('\n--- 3. TESTE DE MUTE/UNMUTE NO LOBBY PRÉ-ENTRADA ---');
@@ -124,25 +124,25 @@ async function run() {
     await toggleBtn.click();
     console.log('Clicou no botão de mutar microfone...');
 
-    await page.waitForFunction(() => {
+    await waitHistorical(page, async () => {
       const btn = document.getElementById('green-room-toggle-mic-btn');
       const text = document.getElementById('green-room-mic-btn-text');
       const vu = document.getElementById('green-room-vu-bar');
       return btn.classList.contains('is-muted') && text.textContent.includes('Mutado') && vu.style.width === '0%';
-    }, { timeout: 5000 });
+    }, undefined, { timeout: 5000 });
     console.log('✅ Microfone mutado no lobby com sucesso (VU meter travado em 0% e botão com estilo mutado)!');
 
     // Desmuta novamente
     await toggleBtn.click();
-    await page.waitForFunction(() => {
+    await waitHistorical(page, async () => {
       const btn = document.getElementById('green-room-toggle-mic-btn');
       const text = document.getElementById('green-room-mic-btn-text');
       return !btn.classList.contains('is-muted') && text.textContent.includes('Ativo');
-    }, { timeout: 5000 });
+    }, undefined, { timeout: 5000 });
     console.log('✅ Microfone reativado no lobby com sucesso!');
 
     console.log('\n--- 4. TESTE DE SELEÇÃO DE DISPOSITIVOS E TESTE DE SOM ---');
-    const micOptionsCount = await page.evaluate(() => {
+    const micOptionsCount = await page.evaluate(async () => {
       const select = document.getElementById('green-room-mic-select');
       return select ? select.options.length : 0;
     });
@@ -158,11 +158,12 @@ async function run() {
     console.log('\n--- 5. ENTRADA NA SALA E TRANSIÇÃO LIMPA ---');
     const joinBtn = page.locator('#green-room-join-btn');
     await joinBtn.click();
-    await page.waitForFunction(() => {
+    await waitHistorical(page, async () => {
       const m = document.getElementById('green-room-modal');
       return !m || m.style.display === 'none';
-    }, { timeout: 5000 });
+    }, undefined, { timeout: 5000 });
     console.log('✅ Modal da Green Room fechou e transferiu o controle para a sala com sucesso!');
+    await waitHistorical(page, async () => (await import('/js/entries/room-entry.js')).roomState.roomManager?.isInRoom, undefined, { timeout: 15000 });
 
     console.log('\n======================================================');
     console.log('🎉 TESTE DO MICROFONE NA TELA PRÉ-SALA CONCLUÍDO COM 100% DE SUCESSO!');

@@ -1,14 +1,15 @@
 import http from 'node:http';
+import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { launchHistoricalBrowser, historicalArtifactDir, waitHistorical } from '../tools/e2e/harness/historical-browser.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
 const PORT = 3001;
-const ARTIFACT_DIR = 'C:\\Users\\diogo\\.gemini\\antigravity\\brain\\1dcd93eb-1e09-4570-856b-4ee876bf9f9b';
+const ARTIFACT_DIR = historicalArtifactDir('room-persistence-audit');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -66,7 +67,7 @@ function startStaticServer() {
     server.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
         console.log(`[E2E Server] Porta ${PORT} já em uso, reaproveitando servidor ativo.`);
-        resolve(null);
+        reject(err);
       } else {
         reject(err);
       }
@@ -163,7 +164,7 @@ async function runPersistenceAudit() {
   const roomUrl = `http://localhost:${PORT}/room.html?room=${roomId}`;
   console.log(`[E2E] URL da sala: ${roomUrl}`);
 
-  const browser = await chromium.launch({
+  const browser = await launchHistoricalBrowser({
     channel: 'chrome',
     headless: true,
     args: [
@@ -199,23 +200,23 @@ async function runPersistenceAudit() {
 
     // Aguarda ambos aparecerem na sala
     console.log('[E2E] Aguardando confirmação de presença mútua (2 online)...');
-    await pageHost.waitForFunction(() => {
+    await waitHistorical(pageHost, async () => {
       const badge = document.getElementById('sidebar-members-count');
       return badge && badge.textContent.includes('2 online');
-    }, { timeout: 20000 });
+    }, undefined, { timeout: 20000 });
 
-    await pageFriend.waitForFunction(() => {
+    await waitHistorical(pageFriend, async () => {
       const badge = document.getElementById('sidebar-members-count');
       return badge && badge.textContent.includes('2 online');
-    }, { timeout: 20000 });
+    }, undefined, { timeout: 20000 });
 
-    const hostMembers = await pageHost.evaluate(() => {
+    const hostMembers = await pageHost.evaluate(async () => {
       const items = Array.from(document.querySelectorAll('#room-participants-list .participant-item'));
       return items.map(el => el.textContent.trim());
     });
     console.log('[E2E] Membros visíveis no Host:', hostMembers);
 
-    const friendMembers = await pageFriend.evaluate(() => {
+    const friendMembers = await pageFriend.evaluate(async () => {
       const items = Array.from(document.querySelectorAll('#room-participants-list .participant-item'));
       return items.map(el => el.textContent.trim());
     });
@@ -243,10 +244,10 @@ async function runPersistenceAudit() {
     const friendVideo = pageFriend.locator('.video-card video');
     await friendVideo.waitFor({ state: 'visible', timeout: 20000 });
 
-    await pageFriend.waitForFunction(() => {
+    await waitHistorical(pageFriend, async () => {
       const v = document.querySelector('.video-card video');
       return Boolean(v && !v.paused && v.readyState >= 2 && v.videoWidth > 0);
-    }, { timeout: 15000 });
+    }, undefined, { timeout: 15000 });
 
     console.log('[E2E] Amigo está assistindo à transmissão do Host com sucesso!');
     const shot2 = path.join(ARTIFACT_DIR, 'audit_persistence_02_friend_watching_host.png');
@@ -271,10 +272,10 @@ async function runPersistenceAudit() {
     const hostReceivedVideo = pageHost.locator('.video-card video');
     await hostReceivedVideo.waitFor({ state: 'visible', timeout: 20000 });
 
-    await pageHost.waitForFunction(() => {
+    await waitHistorical(pageHost, async () => {
       const v = document.querySelector('.video-card video');
       return Boolean(v && !v.paused && v.readyState >= 2 && v.videoWidth > 0);
-    }, { timeout: 15000 });
+    }, undefined, { timeout: 15000 });
 
     console.log('[E2E] Host está assistindo à transmissão do Amigo com sucesso!');
     const shot3 = path.join(ARTIFACT_DIR, 'audit_persistence_03_host_watching_friend.png');
@@ -323,6 +324,8 @@ async function runPersistenceAudit() {
     const hostMembersCountAfterRelog = await pageHost.locator('#sidebar-members-count').innerText();
     const hostParticipantItems = await pageHost.locator('#room-participants-list .participant-item').count();
     console.log(`[E2E] Host após relog do Amigo: "${hostMembersCountAfterRelog}" | Itens: ${hostParticipantItems}`);
+    assert.ok(hostMembersCountAfterRelog.includes('2 online'));
+    assert.equal(hostParticipantItems, 2, 'Reload must not leave ghost participants');
 
     const shot4 = path.join(ARTIFACT_DIR, 'audit_persistence_04_after_friend_relog.png');
     await safeScreenshot(pageHost, shot4);
@@ -342,10 +345,10 @@ async function runPersistenceAudit() {
     await joinBtnFriend2.click();
     console.log('[E2E] Amigo 2 entrou na sala');
 
-    await pageHost.waitForFunction(() => {
+    await waitHistorical(pageHost, async () => {
       const badge = document.getElementById('sidebar-members-count');
       return badge && badge.textContent.includes('3 online');
-    }, { timeout: 20000 });
+    }, undefined, { timeout: 20000 });
 
     console.log('[E2E] Sala escalada para 3 membros online com sucesso!');
     const shot5 = path.join(ARTIFACT_DIR, 'audit_persistence_05_three_members_stable.png');

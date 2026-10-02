@@ -1,6 +1,7 @@
 // Injected only into isolated E2E browser contexts. Never ships with dist.
-export function installTelemetry({ expectedSessionMagic = null, enableOptical = null } = {}) {
+export function installTelemetry({ expectedSessionMagic = null, enableOptical = null, opticalSampleHz = 8 } = {}) {
   const opticalEnabled = enableOptical ?? (expectedSessionMagic !== null);
+  if (!Number.isFinite(opticalSampleHz) || opticalSampleHz < 1 || opticalSampleHz > 60) throw new Error('Optical sampling must be 1..60 Hz');
   const Base = window.RTCPeerConnection;
   const peers = [];
   window.RTCPeerConnection = class extends Base {
@@ -161,7 +162,7 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
     let lastSuccessfulWidth = null;
     let lastCallbackTime = performance.now();
     let lastOpticalAnalysisTime = 0;
-    const opticalIntervalMs = 125; // ~8 amostras ópticas por segundo para evitar sobrecarga da thread principal
+    const opticalIntervalMs = 1000 / opticalSampleHz;
     const latencies = [];
     const gaps = [];
     const recentSeqs = [];

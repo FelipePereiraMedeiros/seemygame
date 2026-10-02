@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { launchHistoricalBrowser, historicalArtifactDir, waitHistorical } from '../tools/e2e/harness/historical-browser.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,7 +63,7 @@ async function run() {
   const server = await startServer();
   console.log(`[E2E] Servidor para teste de lousa multi-cliente ouvindo na porta ${PORT}`);
 
-  const browser = await chromium.launch({
+  const browser = await launchHistoricalBrowser({
     channel: 'chrome',
     headless: true,
     args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--disable-web-security']
@@ -107,10 +107,10 @@ async function run() {
     // Aguarda todos verem 3 online
     console.log('[E2E] Aguardando confirmação de 3 membros online...');
     for (const page of [pageHost, pageV1, pageV2]) {
-      await page.waitForFunction(() => {
+      await waitHistorical(page, async () => {
         const badge = document.getElementById('sidebar-members-count');
         return badge && badge.textContent.includes('3 online');
-      }, { timeout: 20000 });
+      }, undefined, { timeout: 20000 });
     }
     console.log('[E2E] Todos os 3 membros confirmados online!');
 
@@ -120,18 +120,18 @@ async function run() {
       const dockBtn = page.locator('#dock-whiteboard-btn');
       await dockBtn.waitFor({ state: 'visible' });
       await dockBtn.click();
-      await page.waitForFunction(() => {
+      await waitHistorical(page, async () => {
         const modal = document.getElementById('whiteboard-modal');
         return modal && modal.style.display === 'flex';
-      }, { timeout: 5000 });
+      }, undefined, { timeout: 5000 });
     }
     console.log('[E2E] Lousa aberta nos 3 clientes simultaneamente.');
 
     // 1. Host desenha um elemento na lousa
     console.log('[E2E] Host adicionando elemento de desenho (retângulo)...');
-    const diag = await pageHost.evaluate(() => {
-      const rm = window.roomManager;
-      const wbm = window.whiteboardManager;
+    const diag = await pageHost.evaluate(async () => {
+      const rm = (await import('/js/entries/room-entry.js')).roomState.roomManager;
+      const wbm = (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager;
       return {
         hasWbm: Boolean(wbm),
         hasOnElementCreated: typeof wbm?.onElementCreated === 'function',
@@ -143,8 +143,8 @@ async function run() {
     });
     console.log('[E2E Host Diag]:', JSON.stringify(diag));
 
-    await pageHost.evaluate(() => {
-      window.whiteboardManager.addElement({
+    await pageHost.evaluate(async () => {
+      (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager.addElement({
         id: 'host-shape-1',
         type: 'rectangle',
         startX: 200,
@@ -160,16 +160,16 @@ async function run() {
     // 2. Verifica se Viewer 1 e Viewer 2 receberam o desenho do Host
     console.log('[E2E] Verificando se Viewer 1 e Viewer 2 receberam o retângulo do Host...');
     for (const [name, page] of [['Viewer 1', pageV1], ['Viewer 2', pageV2]]) {
-      await page.waitForFunction(() => {
-        return window.whiteboardManager.elements.some(el => el.id === 'host-shape-1');
-      }, { timeout: 10000 });
+      await waitHistorical(page, async () => {
+        return (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager.elements.some(el => el.id === 'host-shape-1');
+      }, undefined, { timeout: 10000 });
       console.log(`✅ ${name} recebeu o desenho do Host com sucesso!`);
     }
 
     // 3. Viewer 1 desenha um elemento
     console.log('[E2E] Viewer 1 desenhando círculo...');
-    await pageV1.evaluate(() => {
-      window.whiteboardManager.addElement({
+    await pageV1.evaluate(async () => {
+      (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager.addElement({
         id: 'v1-shape-2',
         type: 'circle',
         startX: 520,
@@ -185,22 +185,22 @@ async function run() {
     // 4. Verifica se Host e Viewer 2 receberam o desenho do Viewer 1
     console.log('[E2E] Verificando se Host e Viewer 2 receberam o círculo do Viewer 1...');
     for (const [name, page] of [['Host', pageHost], ['Viewer 2', pageV2]]) {
-      await page.waitForFunction(() => {
-        return window.whiteboardManager.elements.some(el => el.id === 'v1-shape-2');
-      }, { timeout: 10000 });
+      await waitHistorical(page, async () => {
+        return (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager.elements.some(el => el.id === 'v1-shape-2');
+      }, undefined, { timeout: 10000 });
       console.log(`✅ ${name} recebeu o desenho do Viewer 1 com sucesso!`);
     }
 
     // 5. Todos os 3 clientes têm exatamente os mesmos 2 elementos
     for (const [name, page] of [['Host', pageHost], ['Viewer 1', pageV1], ['Viewer 2', pageV2]]) {
-      const count = await page.evaluate(() => window.whiteboardManager.elements.length);
+      const count = await page.evaluate(async () => (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager.elements.length);
       if (count !== 2) throw new Error(`${name} possui ${count} elementos em vez de 2!`);
       console.log(`✅ ${name} possui 2/2 elementos sincronizados perfeitamente.`);
     }
 
     // 5.5 Testar cursores multiplayer com apelido e cores vibrantes
     console.log('[E2E] Movendo cursor do Viewer 1 para testar badge multiplayer...');
-    await pageV1.evaluate(() => {
+    await pageV1.evaluate(async () => {
       const canvas = document.getElementById('whiteboard-canvas');
       const rect = canvas.getBoundingClientRect();
       const event = new MouseEvent('mousemove', {
@@ -212,13 +212,13 @@ async function run() {
 
     console.log('[E2E] Verificando recebimento do cursor multiplayer no Host e Viewer 2...');
     for (const [name, page] of [['Host', pageHost], ['Viewer 2', pageV2]]) {
-      await page.waitForFunction(() => {
-        const wbm = window.whiteboardManager;
+      await waitHistorical(page, async () => {
+        const wbm = (await import('/js/entries/room-entry.js')).roomState.features.whiteboard.manager;
         if (!wbm || wbm.remoteCursors.size === 0) return false;
         const cursors = Array.from(wbm.remoteCursors.values());
         const v1Cursor = cursors.find(c => c.userName === 'Viewer1');
         return v1Cursor && v1Cursor.color && v1Cursor.color !== '#ffffff';
-      }, { timeout: 10000 });
+      }, undefined, { timeout: 10000 });
       console.log(`✅ ${name} recebeu o cursor multiplayer do Viewer1 com apelido puro e cor não-branca!`);
     }
 
@@ -229,10 +229,10 @@ async function run() {
     await pageV2.locator('#wb-close-btn').click();
 
     for (const [name, page] of [['Host', pageHost], ['Viewer 1', pageV1], ['Viewer 2', pageV2]]) {
-      await page.waitForFunction(() => {
+      await waitHistorical(page, async () => {
         const modal = document.getElementById('whiteboard-modal');
         return modal && modal.style.display === 'none';
-      }, { timeout: 5000 });
+      }, undefined, { timeout: 5000 });
       console.log(`✅ ${name} retornou para a sala com sucesso!`);
     }
 

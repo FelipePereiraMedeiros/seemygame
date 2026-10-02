@@ -2,13 +2,13 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { launchHistoricalBrowser, historicalArtifactDir, waitHistorical } from '../tools/e2e/harness/historical-browser.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
 const PORT = 3049;
-const ARTIFACT_DIR = path.join(root, 'output', 'artifacts');
+const ARTIFACT_DIR = historicalArtifactDir('late-joiner-trios');
 if (!fs.existsSync(ARTIFACT_DIR)) {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
 }
@@ -65,7 +65,7 @@ function startServer() {
     server.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
         console.log(`[E2E Server] Porta ${PORT} em uso, reaproveitando.`);
-        resolve(null);
+        reject(err);
       } else {
         reject(err);
       }
@@ -185,7 +185,7 @@ const desktopInitScript = (name, primaryColor = '#38bdf8') => `
 `;
 
 async function toggleStream(page) {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const btn = document.getElementById('dock-stream-btn');
     if (btn) btn.click();
   });
@@ -201,31 +201,31 @@ async function startDesktopStream(page, sourceSearchText) {
   await item.click();
   await modal.waitFor({ state: 'hidden', timeout: 6000 });
 
-  await page.waitForFunction(() => {
+  await waitHistorical(page, async () => {
     const btn = document.getElementById('dock-stream-btn');
     return btn && btn.classList.contains('is-streaming');
-  }, { timeout: 10000 });
+  }, undefined, { timeout: 10000 });
 }
 
 async function startWebStream(page) {
   await toggleStream(page);
-  await page.waitForFunction(() => {
+  await waitHistorical(page, async () => {
     const btn = document.getElementById('dock-stream-btn');
     return btn && btn.classList.contains('is-streaming');
-  }, { timeout: 10000 });
+  }, undefined, { timeout: 10000 });
 }
 
 async function stopStream(page) {
   await toggleStream(page);
-  await page.waitForFunction(() => {
+  await waitHistorical(page, async () => {
     const btn = document.getElementById('dock-stream-btn');
     return btn && !btn.classList.contains('is-streaming');
-  }, { timeout: 10000 });
+  }, undefined, { timeout: 10000 });
 }
 
 async function verifyStreamReceived(page, peerLabel) {
   await page.bringToFront().catch(() => {});
-  const result = await page.waitForFunction(() => {
+  const result = await waitHistorical(page, async () => {
     const grid = document.getElementById('video-grid');
     if (!grid) return false;
     const cards = grid.querySelectorAll('.video-card:not([data-is-local="true"])');
@@ -235,7 +235,7 @@ async function verifyStreamReceived(page, peerLabel) {
       if (video && video.srcObject) {
         const stream = video.srcObject;
         const tracks = stream.getVideoTracks ? stream.getVideoTracks() : [];
-        if (tracks.length > 0 && tracks[0].readyState === 'live') {
+        if (tracks.length > 0 && tracks[0].readyState === 'live' && video.videoWidth > 0 && video.readyState >= 2) {
           video.muted = true;
           if (video.paused) video.play().catch(() => {});
           return {
@@ -249,12 +249,12 @@ async function verifyStreamReceived(page, peerLabel) {
       }
     }
     return false;
-  }, { timeout: 25000 });
+  }, undefined, { timeout: 25000 });
   return await result.jsonValue();
 }
 
 async function verifyStreamStillActive(page, label = '') {
-  const result = await page.evaluate(() => {
+  const result = await page.evaluate(async () => {
     const grid = document.getElementById('video-grid');
     if (!grid) return false;
     const cards = grid.querySelectorAll('.video-card:not([data-is-local="true"])');
@@ -263,7 +263,7 @@ async function verifyStreamStillActive(page, label = '') {
       const video = card.querySelector('video');
       if (video && video.srcObject) {
         const tracks = video.srcObject.getVideoTracks();
-        if (tracks.length > 0 && tracks[0].readyState === 'live') {
+        if (tracks.length > 0 && tracks[0].readyState === 'live' && video.videoWidth > 0 && video.readyState >= 2) {
           return { cardId: card.id, live: true };
         }
       }
@@ -278,14 +278,14 @@ async function verifyStreamStillActive(page, label = '') {
 
 async function verifyStreamStopped(page, label = '') {
   try {
-    await page.waitForFunction(() => {
+    await waitHistorical(page, async () => {
       const grid = document.getElementById('video-grid');
       if (!grid) return true;
       const cards = grid.querySelectorAll('.video-card:not(#card-local-me):not([data-is-local="true"])');
       return cards.length === 0;
-    }, { timeout: 10000 });
+    }, undefined, { timeout: 10000 });
   } catch (err) {
-    const cardsInfo = await page.evaluate(() => {
+    const cardsInfo = await page.evaluate(async () => {
       const grid = document.getElementById('video-grid');
       if (!grid) return 'No grid found';
       const cards = Array.from(grid.querySelectorAll('.video-card'));
@@ -371,10 +371,10 @@ async function runTrioTest({
     await joinBtnS.waitFor({ state: 'visible', timeout: 10000 });
     await joinBtnS.click();
 
-    await pageStreamer.waitForFunction(() => {
-      const rm = window.roomManager;
+    await waitHistorical(pageStreamer, async () => {
+      const rm = (await import('/js/entries/room-entry.js')).roomState.roomManager;
       return rm && rm.isMaster && rm.isInRoom;
-    }, { timeout: 15000 });
+    }, undefined, { timeout: 15000 });
     console.log(`✅ ${streamerConfig.name} confirmado como Coordenador Master.`);
 
     // 2. Existing Viewer 1 entra na sala
@@ -386,10 +386,10 @@ async function runTrioTest({
 
     // Aguarda sincronização de 2 membros online
     for (const [name, p] of [[streamerConfig.name, pageStreamer], [existingViewerConfig.name, pageViewer1]]) {
-      await p.waitForFunction(() => {
+      await waitHistorical(p, async () => {
         const badge = document.getElementById('sidebar-members-count');
         return badge && badge.textContent.includes('2 online');
-      }, { timeout: 15000 });
+      }, undefined, { timeout: 15000 });
       console.log(`✅ ${name} confirmou 2 membros online.`);
     }
 
@@ -425,10 +425,10 @@ async function runTrioTest({
       [existingViewerConfig.name, pageViewer1],
       [lateJoinerConfig.name, pageLateJoiner]
     ]) {
-      await p.waitForFunction(() => {
+      await waitHistorical(p, async () => {
         const badge = document.getElementById('sidebar-members-count');
         return badge && badge.textContent.includes('3 online');
-      }, { timeout: 20000 });
+      }, undefined, { timeout: 20000 });
       console.log(`✅ ${name} confirmou 3 membros online.`);
     }
 
@@ -468,7 +468,7 @@ async function run() {
   const server = await startServer();
   console.log(`[E2E Late-Joiner] Servidor ouvindo na porta ${PORT}`);
 
-  const browser = await chromium.launch({
+  const browser = await launchHistoricalBrowser({
     channel: 'chrome',
     headless: true,
     args: [

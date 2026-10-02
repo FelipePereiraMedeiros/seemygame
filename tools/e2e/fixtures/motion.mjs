@@ -1,24 +1,29 @@
-export function createMotionFixture(syntheticTitle, sessionMagic) {
+export function createMotionFixture(syntheticTitle, sessionMagic, fps = 60, {width=1280,height=720}={}) {
+if (!Number.isFinite(fps) || fps < 1 || fps > 120) throw new Error('Cadência sintética inválida');
+if (![width,height].every(v=>Number.isInteger(v)&&v>=240&&v<=3840)) throw new Error('Dimensão sintética inválida');
 return `<!doctype html>
 <title>${syntheticTitle}</title>
 <style>
   html, body { background:#0a0f18; color:white; font:24px monospace; margin:0; padding:0; overflow:hidden; }
-  canvas { display:block; width:1280px; height:720px; }
+  canvas { display:block; width:${width}px; height:${height}px; }
 </style>
-<canvas width="1280" height="720"></canvas>
+<canvas width="${width}" height="${height}"></canvas>
 <script>
 const c = document.querySelector('canvas'), x = c.getContext('2d');
 let frame = 0;
 let lastSec = performance.now();
 let framesThisSec = 0;
-let instantFps = 60;
+let instantFps = ${fps};
 const runMagic = ${sessionMagic};
 
 window.__smgSourceStats = {
   framesProduced: 0,
-  fps: 60,
+  fps: ${fps},
+  rafFps: null,
+  rafTicks: 0,
   lastTime: Date.now(),
   sessionMagic: runMagic,
+  width:${width},height:${height},
   frameLog: []
 };
 
@@ -62,7 +67,7 @@ function encodeOptical(seq, timeMs) {
 }
 
 let lastFrameTime = 0;
-const targetIntervalMs = 1000 / 60; // 16.666667 ms
+const targetIntervalMs = 1000 / ${fps};
 
 function renderFrame(now) {
   if (!lastFrameTime) lastFrameTime = now;
@@ -91,7 +96,7 @@ function renderFrame(now) {
   }
 
   x.fillStyle = '#142033';
-  x.fillRect(0, 0, 1280, 720);
+  x.fillRect(0, 0, c.width, c.height);
 
   // Marcador óptico no topo esquerdo (772px de largura, 20px de altura)
   encodeOptical(frame, nowMs);
@@ -116,7 +121,15 @@ function renderFrame(now) {
   frame++;
 }
 
+let rafLastSec = performance.now(), rafTicksThisSec = 0;
 function onRaf(t) {
+  window.__smgSourceStats.rafTicks++;
+  rafTicksThisSec++;
+  if (t - rafLastSec >= 1000) {
+    window.__smgSourceStats.rafFps = rafTicksThisSec * 1000 / (t - rafLastSec);
+    rafTicksThisSec = 0;
+    rafLastSec = t;
+  }
   requestAnimationFrame(onRaf);
   renderFrame(t);
 }

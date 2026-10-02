@@ -16,7 +16,8 @@ for (const name of ['fetch','setInterval','requestAnimationFrame','WebSocket','R
 }
 window.AudioContext = globalThis.AudioContext;
 let count = 0;
-for (const file of authoredModules().filter(file => !/[\\/]pages[\\/]/.test(file))) {
+// theme.js is an intentional classic, pre-style HTML bootstrap, not an ESM module.
+for (const file of authoredModules().filter(file => !/[\\/]pages[\\/]/.test(file) && !/[\\/]theme\.js$/.test(file))) {
   try { await import(pathToFileURL(file)); count++; }
   catch (error) { console.error(`ESM FAIL: ${file}: ${error.message}`); process.exitCode = 1; }
 }
