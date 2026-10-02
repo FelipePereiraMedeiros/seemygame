@@ -1,4 +1,5 @@
 import { handleHostCoopMessage, handleViewerCoopMessage } from '../coop.js';
+import { PROTOCOL_TYPES } from './messages.js';
 
 export function bindSessionMessageHandlers(session, {
   role,
@@ -106,10 +107,22 @@ export function bindSessionMessageHandlers(session, {
       if (role === 'streamer' || role === 'room') {
         if (sourceConn?.peer) (coopController?.handleHostCoopMessage || handleHostCoopMessage)(sourceConn.peer, data, sourceConn);
       } else if (sourceConn?.peer) {
-        (coopController?.handleViewerCoopMessage || handleViewerCoopMessage)(data, sourceConn.peer, getVideoCard(sourceConn.peer));
+        (coopController?.handleViewerCoopMessage || handleViewerCoopMessage)(data, sourceConn.peer, getVideoCard(sourceConn.peer), sourceConn);
       }
       relay(data, sourceConn);
     }, `Session Co-op: ${type}`);
+  }
+
+  // Inputs vão apenas ao host escolhido; sua autorização por peer/slot fica
+  // no controlador Co-op. Não os retransmita aos outros membros da sala.
+  if (role === 'streamer' || role === 'room') {
+    const { INPUT_KEY, INPUT_MOUSE, INPUT_GAMEPAD, INPUT_RESET } = PROTOCOL_TYPES.COOP;
+    for (const type of [INPUT_KEY, INPUT_MOUSE, INPUT_GAMEPAD, INPUT_RESET]) {
+      register(type, (data, sourceConn) => {
+        if (session.isDisposed || !sourceConn?.peer) return;
+        (coopController?.handleHostCoopMessage || handleHostCoopMessage)(sourceConn.peer, data, sourceConn);
+      }, `Session Co-op input: ${type}`);
+    }
   }
 
   session.registerCleanup(() => unsubs.splice(0).forEach((unsubscribe) => unsubscribe()));

@@ -39,6 +39,21 @@ export async function initGreenRoomLobby(compatibilityContext) {
   let isMicMuted = false;
   let lastSpokeTime = 0;
   let isCleanedUp = false;
+  let previewEpoch = 0;
+  let unwatchDevices;
+  const listenerScope = new AbortController();
+  const cleanup = () => {
+    isCleanedUp = true;
+    previewEpoch++;
+    stopMicPreview();
+    unwatchDevices?.();
+    listenerScope.abort();
+    if (joinBtn) joinBtn.onclick = null;
+    if (toggleMicBtn) toggleMicBtn.onclick = null;
+    if (testSpeakerBtn) testSpeakerBtn.onclick = null;
+    if (greenRoomModal) delete greenRoomModal.dataset.greenRoomInitialized;
+  };
+  compatibilityContext.registerCleanup?.(cleanup);
 
   const requestAnimFrame = typeof requestAnimationFrame === 'function'
     ? requestAnimationFrame
@@ -91,7 +106,7 @@ export async function initGreenRoomLobby(compatibilityContext) {
       if (compatibilityContext.voiceManager) {
         compatibilityContext.voiceManager.selectedSpeakerId = deviceId;
       }
-    });
+    }, { signal: listenerScope.signal });
   }
 
   function stopMicPreview() {
@@ -118,7 +133,9 @@ export async function initGreenRoomLobby(compatibilityContext) {
 
   async function startMicPreview(deviceId = null) {
     if (isCleanedUp) return;
+    const epoch = ++previewEpoch;
     stopMicPreview();
+    let acquiredStream;
 
     const savedPrefs = compatibilityContext.getSavedAudioPreferences();
     const targetDeviceId = deviceId !== null ? deviceId : (savedPrefs.inputId || compatibilityContext.voiceManager?.selectedMicId || '');
@@ -138,11 +155,11 @@ export async function initGreenRoomLobby(compatibilityContext) {
     try {
       if (navigator?.mediaDevices?.getUserMedia) {
         try {
-          previewStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+          acquiredStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
         } catch (deviceErr) {
           if (targetDeviceId) {
             console.warn('[GreenRoom] Dispositivo preferencial falhou, tentando padrão:', deviceErr);
-            previewStream = await navigator.mediaDevices.getUserMedia({
+            acquiredStream = await navigator.mediaDevices.getUserMedia({
               audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
               video: false
             });
@@ -160,7 +177,12 @@ export async function initGreenRoomLobby(compatibilityContext) {
       return;
     }
 
-    if (isCleanedUp || !previewStream) return;
+    if (isCleanedUp || epoch !== previewEpoch) {
+      acquiredStream?.getTracks().forEach(track => track.stop());
+      return;
+    }
+    previewStream = acquiredStream;
+    if (!previewStream) return;
 
     try {
       const tracks = previewStream.getAudioTracks ? previewStream.getAudioTracks() : (previewStream._tracks || []);
@@ -233,8 +255,10 @@ export async function initGreenRoomLobby(compatibilityContext) {
   }
 
   async function refreshDevices() {
+    if (isCleanedUp) return;
     try {
       const { microphones, speakers } = await compatibilityContext.getAudioDevices(false);
+      if (isCleanedUp) return;
       const prefs = compatibilityContext.getSavedAudioPreferences();
       const currentMicId = micSelect?.value || prefs.inputId || compatibilityContext.voiceManager?.selectedMicId || '';
       const currentSpeakerId = speakerSelect?.value || prefs.outputId || compatibilityContext.voiceManager?.selectedSpeakerId || '';
@@ -258,7 +282,7 @@ export async function initGreenRoomLobby(compatibilityContext) {
         compatibilityContext.voiceManager.selectedMicId = newDeviceId;
       }
       await startMicPreview(newDeviceId);
-    });
+    }, { signal: listenerScope.signal });
   }
 
   if (toggleMicBtn) {
@@ -299,7 +323,7 @@ export async function initGreenRoomLobby(compatibilityContext) {
           ctx.resume().catch(() => {});
         }
       } catch (_) {}
-    }, { once: true });
+    }, { once: true, signal: listenerScope.signal });
   }
 
   refreshDevices().catch(() => {});
@@ -308,15 +332,14 @@ export async function initGreenRoomLobby(compatibilityContext) {
     await refreshDevices();
   }).catch(() => {});
 
-  const unwatchDevices = compatibilityContext.watchDeviceChanges(() => {
+  unwatchDevices = compatibilityContext.watchDeviceChanges(() => {
     refreshDevices().catch(() => {});
   });
 
   if (joinBtn) {
     joinBtn.onclick = () => {
-      isCleanedUp = true;
-      stopMicPreview();
-      if (typeof unwatchDevices === 'function') unwatchDevices();
+      if (isCleanedUp) return;
+      cleanup();
 
       if (nameInput && nameInput.value.trim() && typeof localStorage !== 'undefined') {
         localStorage.setItem('seemygame_user_name', nameInput.value.trim());
@@ -335,7 +358,9 @@ export async function initGreenRoomLobby(compatibilityContext) {
         }
       }
 
-      if (!compatibilityContext.peer || compatibilityContext.peer.destroyed) {
+      if (compatibilityContext.onProceed) {
+        compatibilityContext.onProceed();
+      } else if (!compatibilityContext.peer || compatibilityContext.peer.destroyed) {
         compatibilityContext.initPeer();
       } else if (compatibilityContext.peer.open && compatibilityContext.roomManager && !compatibilityContext.roomManager.isInRoom) {
         compatibilityContext.setupRoomSession(compatibilityContext.peer.id);

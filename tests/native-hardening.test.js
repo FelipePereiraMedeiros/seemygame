@@ -53,9 +53,12 @@ describe('Fase 4: Endurecimento da Camada Nativa Desktop e Reconciliação (R1 a
       const conn3 = { send: vi.fn(), open: true };
 
       registerCoopPromptHandler(({ approve }) => approve());
-      handleHostCoopMessage('p2-peer', { type: 'COOP_REQUEST', name: 'Player2' }, conn1); // slot 1
-      handleHostCoopMessage('p3-peer', { type: 'COOP_REQUEST', name: 'Player3' }, conn2); // slot 2
-      handleHostCoopMessage('p4-peer', { type: 'COOP_REQUEST', name: 'Player4' }, conn3); // slot 3
+      conn1.peer = 'p2-peer'; conn1.open = true;
+    handleHostCoopMessage('p2-peer', { type: 'COOP_REQUEST', name: 'Player2' }, conn1); // slot 1
+      conn2.peer = 'p3-peer'; conn2.open = true;
+    handleHostCoopMessage('p3-peer', { type: 'COOP_REQUEST', name: 'Player3' }, conn2); // slot 2
+      conn3.peer = 'p4-peer'; conn3.open = true;
+    handleHostCoopMessage('p4-peer', { type: 'COOP_REQUEST', name: 'Player4' }, conn3); // slot 3
 
       // Aguarda resolução de plugVirtualGamepad (Tauri invoke)
       await vi.advanceTimersByTimeAsync(50);
@@ -83,7 +86,8 @@ describe('Fase 4: Endurecimento da Camada Nativa Desktop e Reconciliação (R1 a
       registerCoopPromptHandler(({ approve }) => approve());
 
       // Convidado entra no slot 0 (Player 1 remoto em party mode)
-      handleHostCoopMessage('guest-p1', { type: 'COOP_REQUEST', name: 'GuestHost' }, connHostRemote);
+      connHostRemote.peer = 'guest-p1'; connHostRemote.open = true;
+    handleHostCoopMessage('guest-p1', { type: 'COOP_REQUEST', name: 'GuestHost' }, connHostRemote);
       await vi.advanceTimersByTimeAsync(50);
 
       expect(connHostRemote.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'COOP_CAPABILITIES', slot: 0 }));

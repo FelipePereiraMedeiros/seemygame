@@ -11,6 +11,8 @@ import {
 import { bindWhiteboardUI } from '../whiteboard-ui.js';
 import { bindClipEditor } from '../clipping/editor-controller.js';
 import { NativeMediaPlugin } from './native-media-plugin.js';
+import { nativeReplayContext } from '../clipping/native-context.js';
+import { bindControllerLab } from '../controller-lab/index.js';
 
 export function registerSessionFeatures(session, {
   role,
@@ -23,6 +25,7 @@ export function registerSessionFeatures(session, {
   getRole = () => 'viewer',
   includeClipping = false,
   getCaptureProvider = () => null,
+  getConnections = () => [],
   isAuthorizedPeer = () => false
 } = {}) {
   const plugins = [
@@ -31,7 +34,9 @@ export function registerSessionFeatures(session, {
     createTacticalPingPlugin({ manager: new TacticalPingManager({ audioScope: session.audioScope }) }),
     createReactionsPlugin()
   ];
-  if (includeClipping) plugins.push(createClippingPlugin({ recorder: new ClipRecorderRegistry({ audioScope: session.audioScope }) }));
+  if (includeClipping) plugins.push(createClippingPlugin({ recorder: new ClipRecorderRegistry({ audioScope: session.audioScope,
+    getNativeContext: sourceId => nativeReplayContext(sourceId, getCaptureProvider())
+  }) }));
   plugins.push(new NativeMediaPlugin({ session, getProvider: getCaptureProvider, isAuthorized: isAuthorizedPeer,
     onClip: sourceId => session.state.features?.clipEditor?.exportClip(sourceId)
   }));
@@ -43,6 +48,7 @@ export function registerSessionFeatures(session, {
     getViewersCount,
     getDisplayName,
     isRoomMode: () => role === 'room',
+    isTrustedLaserRelayPeer: peerId => role === 'viewer' && isAuthorizedPeer(peerId),
     audioScope: session.audioScope,
     showToast
   });
@@ -72,5 +78,10 @@ export function registerSessionFeatures(session, {
     recorder: clipping.recorder, soundboardManager: soundboard?.manager,
     showToast, broadcastDataMessage, getPeerId
   }) : null;
-  return { plugins, whiteboard, whiteboardUI, soundboard, ping, reactions, clipping, clipEditor, nativeMedia: session.pluginManager.get('native-media') };
+  const controllerLab = typeof document !== 'undefined' ? bindControllerLab(session, {
+    getPeerId: () => session.getPeerId?.() || null, getDisplayName, getConnections, isAuthorizedPeer,
+    canInvite: role !== 'viewer', canManageAccess: role === 'streamer' || role === 'room',
+    showToast, coopController: session.services?.coopController
+  }) : null;
+  return { plugins, whiteboard, whiteboardUI, soundboard, ping, reactions, clipping, clipEditor, controllerLab, nativeMedia: session.pluginManager.get('native-media') };
 }

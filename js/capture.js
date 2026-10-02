@@ -9,6 +9,7 @@
 
 import {
   getNativeCaptureState,
+  getNativeCaptureCapabilities,
   startNativeCapture,
   reconfigureNativeCapture,
   stopNativeCapture,
@@ -16,6 +17,7 @@ import {
   listenNativeCapture
 } from './desktop.js';
 import './native-webrtc.js';
+import { getVideoCapabilities, selectCodec } from './streaming/codecs.js';
 
 export const CAPTURE_STATES = Object.freeze({
   IDLE: 'idle',
@@ -124,6 +126,15 @@ export class NativeCaptureProvider {
     if (!sourceId) throw new Error('Selecione uma janela ou monitor antes de iniciar');
 
     const operationId = ++this._operationId;
+    const browserCaps = getVideoCapabilities();
+    const capabilities = browserCaps.receive.length ? await getNativeCaptureCapabilities() : null;
+    if (browserCaps.receive.length && capabilities?.supports_h264 !== undefined) {
+      const choice = selectCodec(videoCodec || 'auto', browserCaps, 'receive', capabilities);
+      if (!choice.selected) throw new Error(choice.reason);
+      this.codecSelection = choice;
+      videoCodec = choice.selected;
+    } else if (videoCodec === 'auto') videoCodec = 'h264';
+    this.requestedSettings = { width, height, fps, bitrateKbps, videoCodec };
     let nativeState;
     try {
       nativeState = await startNativeCapture({ sourceId, audioMode, videoCodec, h264Encoder, showCursor, width, height, fps, bitrateKbps, excludeApp });
@@ -208,6 +219,7 @@ export class NativeCaptureProvider {
     });
     if (res) {
       this.session = { ...this.session, ...res };
+      this.requestedSettings = { ...this.requestedSettings, ...options };
     }
     return res;
   }

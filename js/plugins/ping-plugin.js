@@ -36,9 +36,23 @@ export class TacticalPingPlugin extends BasePlugin {
 
       this._dispatcherUnsubs.push(
         dispatcher.register('TACTICAL_LASER', (data, sourceConn) => {
+          const peer = sourceConn?.peer;
+          // Só o host conhecido pode atestar a origem de um laser retransmitido.
+          // Em conexões diretas a identidade sempre vem da conexão, não do payload.
+          const senderId = peer
+            ? (this.context?.isTrustedLaserRelayPeer?.(peer) && typeof data.laserOriginPeerId === 'string' && data.laserOriginPeerId.length > 0
+              ? data.laserOriginPeerId : peer)
+            : 'local';
+          const point = data.point && { ...data.point, senderId };
+          const message = { ...data, senderId, laserOriginPeerId: senderId, ...(point ? { point } : {}) };
+          if (data.action === 'stop') {
+            this.manager.stopLaserTrail(senderId);
+            if (shouldRelay()) broadcast(message, peer);
+            return;
+          }
           if (data.point) {
-            this.manager.addLaserPoint(data.point);
-            if (shouldRelay()) broadcast(data, sourceConn?.peer);
+            this.manager.addLaserPoint(point);
+            if (shouldRelay()) broadcast(message, peer);
           }
         }, { description: 'Ping: Laser Pointer' })
       );

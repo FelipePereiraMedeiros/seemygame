@@ -1,3 +1,4 @@
+import { createStatsHud } from '../stats/hud.js';
 /** video-cards: commands receive explicit compatibility ports; no page initialization. */
 export function resolveCardDisplayStream(compatibilityContext, stream, isLocal = false) {
   if (!stream) return stream;
@@ -438,15 +439,7 @@ export function addOrUpdateVideoCard(compatibilityContext, optionsOrPeerId, stre
   videoWrapper.className = 'video-wrapper';
 
   // HUD de Estatísticas em Tempo Real (Inicia com -- em vez de valor fictício)
-  const statsHud = document.createElement('div');
-  statsHud.className = 'stats-hud';
-  statsHud.innerHTML = `
-    <div class="stats-row"><span class="stats-label">Taxa de Quadros:</span> <span class="stats-val stats-val-green" id="stat-fps-${peerId}">-- FPS</span></div>
-    <div class="stats-row"><span class="stats-label">Latência (RTT):</span> <span class="stats-val stats-val-green" id="stat-rtt-${peerId}">-- ms</span></div>
-    <div class="stats-row"><span class="stats-label">Bitrate:</span> <span class="stats-val" id="stat-bitrate-${peerId}">-- Mbps</span></div>
-    <div class="stats-row"><span class="stats-label">Resolução:</span> <span class="stats-val" id="stat-res-${peerId}">--</span></div>
-    <div class="stats-row"><span class="stats-label">Prioridade:</span> <span class="stats-val stats-val-purple">Máxima Fluidez</span></div>
-  `;
+  const statsHud = createStatsHud(peerId);
 
   const video = document.createElement('video');
   video.srcObject = compatibilityContext.resolveCardDisplayStream(stream, isLocal);
@@ -673,7 +666,7 @@ export function addOrUpdateVideoCard(compatibilityContext, optionsOrPeerId, stre
     mirrorOverlay.style.cssText = 'position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 12, 20, 0.95); z-index: 4; text-align: center; padding: 20px;';
     mirrorOverlay.innerHTML = `
       <div style="font-size: 2.2rem; margin-bottom: 8px;">🎮📡</div>
-      <p style="font-weight: 600; color: #fff; margin-bottom: 4px;">Sua transmissão está ativa para os amigos!</p>
+      <p style="font-weight: 600; color: var(--text-main); margin-bottom: 4px;">Sua transmissão está ativa para os amigos!</p>
       <p style="font-size: 12.5px; color: var(--text-muted); max-width: 320px;">A prévia da sua tela foi pausada aqui para evitar o efeito espelho infinito do navegador.</p>
     `;
     videoWrapper.appendChild(mirrorOverlay);

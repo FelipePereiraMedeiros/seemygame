@@ -1,55 +1,18 @@
-/** sender: commands receive explicit compatibility ports; no page initialization. */
-export function applyTransceiverOptimizations(pc, latencyMode = 'ultra-low', preferredCodec = 'h264') {
-  if (!pc || !pc.getTransceivers) return;
-
-  try {
-    const transceivers = pc.getTransceivers();
-    const hasAudio = transceivers.some((t) => 
-      (t.sender && t.sender.track && t.sender.track.kind === 'audio') ||
-      (t.receiver && t.receiver.track && t.receiver.track.kind === 'audio') ||
-      (t.mid && t.mid.toLowerCase().includes('audio'))
-    );
-
-    transceivers.forEach((t) => {
-      // IMPORTANTE: Só aplica preferências de codecs de VÍDEO se o transceiver NÃO for explicitamente de áudio
-      const isAudio = (t.sender && t.sender.track && t.sender.track.kind === 'audio') ||
-                      (t.receiver && t.receiver.track && t.receiver.track.kind === 'audio') ||
-                      (t.mid && t.mid.toLowerCase().includes('audio'));
-
-      // Ajuste de Jitter Buffer do receptor:
-      // Em modo ultra-low latency, áudio e vídeo operam com alvo 0 para minimizar tempo de residência e descarte por A/V sync.
-      if (t.receiver) {
-        const targetMs = latencyMode === 'stable' ? 50 : (latencyMode === 'smooth' ? 25 : 0);
-        const targetSec = latencyMode === 'stable' ? 0.05 : 0;
-        if ('jitterBufferTarget' in t.receiver) t.receiver.jitterBufferTarget = targetMs;
-        if ('playoutDelayHint' in t.receiver) t.receiver.playoutDelayHint = targetSec;
-      }
-
-      if (!isAudio && t.sender && RTCRtpSender.getCapabilities) {
-        const capabilities = RTCRtpSender.getCapabilities('video');
-        if (capabilities && capabilities.codecs) {
-          const codecMime = preferredCodec === 'av1' ? 'video/av1'
-            : (preferredCodec === 'hevc' || preferredCodec === 'h265') ? 'video/h265'
-            : 'video/h264';
-          let prioritized = capabilities.codecs.filter(c => c.mimeType.toLowerCase() === codecMime);
-          // Fallback para H264 se o codec desejado não estiver presente na engine
-          if (prioritized.length === 0 && codecMime !== 'video/h264') {
-            prioritized = capabilities.codecs.filter(c => c.mimeType.toLowerCase() === 'video/h264');
-          }
-          const others = capabilities.codecs.filter(c => !prioritized.includes(c));
-          if (prioritized.length > 0 && 'setCodecPreferences' in t) {
-            try {
-              t.setCodecPreferences([...prioritized, ...others]);
-            } catch (e) {
-              // Silencia erros caso a engine rejeite lista específica
-            }
-          }
-        }
-      }
-    });
-  } catch (err) {
-    console.warn('Erro em applyTransceiverOptimizations:', err);
+import { configureVideoCodecs } from '../streaming/codecs.js';
+import { mutateVideoSender } from '../streaming/sender-parameters.js';
+/** Codec preference is a capability hint; getStats is the negotiated truth. */
+export function applyTransceiverOptimizations(pc,latencyMode='ultra-low',preferredCodec='h264') {
+ if(!pc?.getTransceivers)return [];
+ const results=[];
+ for(const t of pc.getTransceivers()) {
+  const isAudio=t.sender?.track?.kind==='audio'||t.receiver?.track?.kind==='audio'||t.mid?.toLowerCase().includes('audio');
+  if(t.receiver) {
+   const targetMs=latencyMode==='stable'?50:latencyMode==='smooth'?25:0;
+   try {if('jitterBufferTarget' in t.receiver)t.receiver.jitterBufferTarget=targetMs;if('playoutDelayHint' in t.receiver)t.receiver.playoutDelayHint=targetMs/1000;}catch(_){}
   }
+  if(!isAudio)results.push(configureVideoCodecs(t,preferredCodec));
+ }
+ return results;
 }
 
 export async function applySenderOptimizations(pc, bitrateBps, fps = 60, scaleResolutionDownBy = 1) {
@@ -62,30 +25,16 @@ export async function applySenderOptimizations(pc, bitrateBps, fps = 60, scaleRe
       if (sender.track && sender.track.kind === 'video') {
         sender.track.contentHint = 'motion';
 
-        const params = sender.getParameters ? sender.getParameters() : {};
-        if (!params.encodings || params.encodings.length === 0) {
-          // Os encodings ainda não foram negociados pelo navegador.
-          continue;
-        }
-
-        // Prioriza taxa de quadros (maintain-framerate)
-        params.degradationPreference = 'maintain-framerate';
-        params.encodings[0].maxFramerate = fps;
-        params.encodings[0].maxBitrate = bitrateBps;
-        params.encodings[0].priority = 'high';
-        params.encodings[0].networkPriority = 'high';
-
-        // Escala de resolução dinâmica no encoder (essencial para getDisplayMedia onde applyConstraints falha)
-        if (scaleResolutionDownBy && scaleResolutionDownBy > 1) {
-          params.encodings[0].scaleResolutionDownBy = scaleResolutionDownBy;
-        } else if ('scaleResolutionDownBy' in params.encodings[0]) {
-          params.encodings[0].scaleResolutionDownBy = 1;
-        }
-
-        if (sender.setParameters) {
-          await sender.setParameters(params);
-          applied = true;
-        }
+        const ok = await mutateVideoSender(sender, params => {
+          params.degradationPreference = 'maintain-framerate';
+          for (const encoding of params.encodings) {
+            encoding.maxFramerate = Math.max(1, Math.min(120, Number(fps) || 60));
+            encoding.maxBitrate = Math.max(256000, Math.min(50000000, Number(bitrateBps) || 7500000));
+            encoding.priority = 'high'; encoding.networkPriority = 'high';
+            encoding.scaleResolutionDownBy = Math.max(1, Number(scaleResolutionDownBy) || 1);
+          }
+        });
+        applied ||= ok;
         console.log(`[FPS Target] Alvo: ${fps} FPS | Bitrate: ${(bitrateBps / 1000000).toFixed(1)} Mbps | Escala: ${scaleResolutionDownBy || 1}x`);
       }
     }
@@ -101,12 +50,15 @@ export function applySenderOptimizationsWhenReady(pc, getBitrateBps, getFps = 60
 
   let cancelled = false;
   let retryTimer = null;
+  let applying = false;
 
   const tryApply = async () => {
     if (cancelled || !pc || pc.connectionState === 'closed') {
       cleanup();
       return;
     }
+    if (applying) return;
+    applying = true;
     const bitrate = typeof getBitrateBps === 'function' ? getBitrateBps() : getBitrateBps;
     const fps = typeof getFps === 'function' ? getFps() : getFps;
     const scale = typeof getScaleFactor === 'function' ? getScaleFactor() : getScaleFactor;
@@ -116,7 +68,7 @@ export function applySenderOptimizationsWhenReady(pc, getBitrateBps, getFps = 60
       if (ok) {
         cleanup();
       }
-    } catch (_) {}
+    } catch (_) {} finally { applying = false; }
   };
 
   const cleanup = () => {
@@ -171,13 +123,9 @@ export async function updateSenderBitrate(pc, bitrateBps) {
     const senders = pc.getSenders();
     for (const sender of senders) {
       if (sender.track && sender.track.kind === 'video' && sender.setParameters) {
-        const params = sender.getParameters ? sender.getParameters() : {};
-        if (!params.encodings || params.encodings.length === 0) {
-          params.encodings = [{}];
-        }
-        params.encodings[0].maxBitrate = bitrateBps;
-        await sender.setParameters(params);
-        return true;
+        return await mutateVideoSender(sender, params => {
+          for (const encoding of params.encodings) encoding.maxBitrate = Math.max(256000, Math.min(50000000, Number(bitrateBps) || 7500000));
+        });
       }
     }
     return false;

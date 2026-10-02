@@ -56,7 +56,11 @@ export const PROTOCOL_TYPES = Object.freeze({
     COOP_DENY: 'COOP_DENY',
     COOP_RELEASE: 'COOP_RELEASE',
     COOP_REVOKE: 'COOP_REVOKE',
-    COOP_INPUT: 'COOP_INPUT'
+    COOP_INPUT: 'COOP_INPUT',
+    INPUT_KEY: 'INPUT_KEY',
+    INPUT_MOUSE: 'INPUT_MOUSE',
+    INPUT_GAMEPAD: 'INPUT_GAMEPAD',
+    INPUT_RESET: 'INPUT_RESET'
   },
 
   // Features e Ferramentas Periféricas

@@ -51,14 +51,14 @@ export function showReloadConfirmationModal(compatibilityContext) {
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     modal.innerHTML = `
-      <div class="modal-content" style="max-width: 460px; background: #141520; border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 14px; padding: 24px; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.8);">
-        <h3 id="reload-confirm-title" style="color: #fbbf24; margin: 0 0 12px 0; font-size: 1.25rem; display: flex; align-items: center; gap: 8px;">
+      <div class="modal-content" style="max-width: 460px; background: var(--bg-card); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 14px; padding: 24px; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.8);">
+        <h3 id="reload-confirm-title" style="color: var(--accent-text); margin: 0 0 12px 0; font-size: 1.25rem; display: flex; align-items: center; gap: 8px;">
           <span>⚠️</span> Recarregar a Sala?
         </h3>
         <p id="reload-confirm-desc" style="color: var(--text-muted); font-size: 13.5px; line-height: 1.55; margin: 0 0 16px 0;">
           Você está em uma sessão ativa na sala. Recarregar agora interromperá conexões e transmissões temporariamente.
         </p>
-        <div id="reload-confirm-warnings" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 12px; font-size: 12.5px; line-height: 1.5; color: #fde68a; margin-bottom: 20px; display: none;"></div>
+        <div id="reload-confirm-warnings" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 12px; font-size: 12.5px; line-height: 1.5; color: var(--accent-text); margin-bottom: 20px; display: none;"></div>
         <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 10px;">
           <button id="reload-confirm-cancel-btn" class="btn-secondary" style="padding: 9px 18px; font-size: 13px; border-radius: 8px; cursor: pointer;">
             Continuar na Sala

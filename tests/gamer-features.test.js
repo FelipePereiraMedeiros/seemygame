@@ -138,7 +138,7 @@ describe('Integração de Recursos Gamer Profissionais (app.js)', () => {
 
       handleIncomingP2PMessage(laserData, null);
 
-      expect(addLaserSpy).toHaveBeenCalledWith(laserData.point);
+      expect(addLaserSpy).toHaveBeenCalledWith({ ...laserData.point, senderId: 'local' });
     });
 
     it('deve processar EMOJI_REACTION e instanciar reação flutuante', () => {

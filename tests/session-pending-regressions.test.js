@@ -115,7 +115,8 @@ describe('Regressões das pendências da verificação de modularização', () =
     firstConnection.open = true;
     firstConnection.emit('open');
     expect(firstConnection.send).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'ROOM_JOIN_REQUEST', roomId, roomKey, clientSessionId: session.sessionId
+      type: 'ROOM_JOIN_REQUEST', roomId, roomKey,
+      clientSessionId: sessionStorage.getItem('seemygame_client_session_id')
     }));
 
     firstConnection.emit('data', { type: 'ROOM_PIN_REQUIRED', error: 'PIN incorreto' });

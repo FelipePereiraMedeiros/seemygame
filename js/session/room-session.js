@@ -1,4 +1,10 @@
-import { bindCaptureSettings } from '../capture/settings.js';
+import { bindCaptureSettings, bindQualityCapabilities, readCaptureSettings } from '../capture/settings.js';
+import { createQualityController } from '../streaming/adaptation.js';
+import { captureVideoConstraints } from '../streaming/quality.js';
+import { bindStreamingQuality } from '../streaming/settings-controller.js';
+import { initGreenRoomLobby as mountGreenRoomLobby } from '../app/green-room.js';
+import { getClientSessionId } from '../app/session-identity.js';
+import { handleReloadKeypress, showReloadConfirmationModal, hideReloadConfirmationModal } from '../app/session-lifecycle.js';
 import { createStatsMonitorScope } from '../stats.js';
 import { NativeCaptureProvider } from '../capture.js';
 import { requestBrowserDisplayMedia } from '../browser-capture.js';
@@ -12,7 +18,8 @@ import {
 } from '../config.js';
 import { 
   hookPeerConnectionSdp, 
-  applyTransceiverOptimizations 
+  applyTransceiverOptimizations,
+  applySenderOptimizationsWhenReady
 } from '../webrtc.js';
 import { 
   RoomManager, 
@@ -31,7 +38,10 @@ import {
   getAudioDevices, 
   populateDeviceSelect, 
   playTestTone, 
-  isAudioOutputSupported 
+  isAudioOutputSupported,
+  getSavedAudioPreferences,
+  saveAudioPreference,
+  watchDeviceChanges
 } from '../audio-devices.js';
 import { 
   showToast, 
@@ -97,67 +107,26 @@ function getRoomInfoFromUrl() {
 }
 
 async function initGreenRoomLobby(onProceed) {
-  const greenRoomModal = document.getElementById('green-room-modal');
-  if (greenRoomModal) {
-    greenRoomModal.style.display = 'flex';
-  }
-
-  const info = getRoomInfoFromUrl();
-  const idLabel = document.getElementById('green-room-id-label');
-  if (idLabel && info?.roomId) {
-    idLabel.textContent = `#${info.roomId}`;
-  }
-
-  const joinBtn = document.getElementById('green-room-join-btn');
-  const nameInput = document.getElementById('green-room-user-name');
-  if (nameInput) {
-    const savedName = typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_user_name') : null;
-    if (savedName && !nameInput.value) nameInput.value = savedName;
-  }
-
-  const micSelect = document.getElementById('green-room-mic-select');
-  const speakerSelect = document.getElementById('green-room-speaker-select');
-  const testSpeakerBtn = document.getElementById('green-room-test-speaker-btn');
-  const vuBar = document.getElementById('green-room-vu-bar');
-
-if (joinBtn) {
-    joinBtn.onclick = () => {
-      if (roomState.session?.isDisposed) return;
-      if (nameInput && nameInput.value.trim() && typeof localStorage !== 'undefined') {
-        localStorage.setItem('seemygame_user_name', nameInput.value.trim());
-        roomState.userName = nameInput.value.trim();
-      }
-      if (greenRoomModal) {
-        greenRoomModal.style.display = 'none';
-      }
-      if (typeof onProceed === 'function') {
-        onProceed();
-      }
-    };
-  }
-  roomState.session?.registerCleanup(() => { if (joinBtn) joinBtn.onclick = null; if (testSpeakerBtn) testSpeakerBtn.onclick = null; });
-  // Popula microfones e alto-falantes
-  try {
-    const { microphones, speakers } = await getAudioDevices();
-    if (roomState.session?.isDisposed) return;
-    if (micSelect && microphones.length > 0) populateDeviceSelect(micSelect, microphones);
-    if (speakerSelect && speakers.length > 0 && isAudioOutputSupported()) populateDeviceSelect(speakerSelect, speakers);
-  } catch (err) {
-    console.warn('[Room GreenRoom] Dispositivos de áudio:', err);
-  }
-
-  if (testSpeakerBtn && isAudioOutputSupported()) {
-    testSpeakerBtn.onclick = async () => {
-      const selectedSinkId = speakerSelect ? speakerSelect.value : '';
-      try {
-        await playTestTone(selectedSinkId);
-      } catch (e) {
-        console.warn('[Room GreenRoom] Erro no teste de áudio:', e);
-      }
-    };
-  }
-
-  
+  const session = roomState.session;
+  return mountGreenRoomLobby({
+    getRoomInfoFromUrl,
+    getAudioDevices,
+    populateDeviceSelect,
+    playTestTone,
+    isAudioOutputSupported,
+    getSavedAudioPreferences,
+    saveAudioPreference,
+    watchDeviceChanges,
+    voiceManager,
+    getAudioContext: () => session?.audioScope.getContext(),
+    registerCleanup: callback => session?.registerCleanup(callback),
+    onProceed: () => {
+      if (session?.isDisposed) return;
+      const name = document.getElementById('green-room-user-name')?.value.trim();
+      if (name) roomState.userName = name.slice(0, 30);
+      return onProceed?.();
+    }
+  });
 }
 
 async function setupRoomSession(peerId, session = roomState.session) {
@@ -168,14 +137,23 @@ async function setupRoomSession(peerId, session = roomState.session) {
 
   const coordinatorId = getRoomMasterPeerId(roomId, roomKey);
   const isMaster = peerId === coordinatorId;
+  const savedName = typeof localStorage !== 'undefined' ? localStorage.getItem('seemygame_user_name') : null;
+  if (!savedName && roomState.userName === 'Gamer') {
+    roomState.userName = isMaster ? 'Host' : `Amigo ${peerId.slice(-4)}`;
+  }
 
   // Instancia o RoomManager para a sala indicada com o contrato real de objeto de opções
   const rm = new RoomManager({
     roomId,
     userName: roomState.userName,
-    clientSessionId: session?.sessionId || peerId,
+    clientSessionId: getClientSessionId(),
     roomPin,
-    roomKey
+    roomKey,
+    onStateChange: state => {
+      if (session?.isDisposed) return;
+      roomState.discordUI?.updateRoomPresence(state.members);
+      roomState.discordUI?.syncStageView(state.streamersCount > 0);
+    }
   });
   roomState.roomManager = rm;
   const submitPinBtn = document.getElementById('viewer-pin-submit-btn');
@@ -215,10 +193,7 @@ async function setupRoomSession(peerId, session = roomState.session) {
   rm.on('membersUpdated', () => {
     if (!roomState.localStream || !roomState.peer) return;
     for (const [memberId, connection] of rm.meshConnections) {
-      if (!connection.open || !rm.isPeerAuthorized(memberId) || roomState.screenCalls.has(memberId)) continue;
-      if (roomState.features?.nativeMedia.broadcastTo(connection)) continue;
-      const call = roomState.peer.call(memberId, roomState.localStream, { metadata: { type: 'ROOM_STREAM', name: rm.userName } });
-      if (call) { roomState.screenCalls.set(memberId, call); call.on('close', () => roomState.screenCalls.delete(memberId)); }
+      sendRoomStream(memberId, connection, rm, session);
     }
   });
   // Conecta eventos do RoomManager à UI e ao barramento da sessão
@@ -403,15 +378,56 @@ function handleRoomMediaCall(call, rm, session) {
     return;
   }
   call.answer();
+  // PeerJS applies the remote offer asynchronously. The transceivers do not
+  // exist immediately after answer(); tune them before it creates the answer.
+  const pc = call.peerConnection;
+  if (pc?.createAnswer) {
+    const createAnswer = pc.createAnswer.bind(pc);
+    pc.createAnswer = (...args) => {
+      applyTransceiverOptimizations(pc);
+      return createAnswer(...args);
+    };
+  }
   call.on('stream', (stream) => {
+    roomState.remoteStreams.set(call.peer, { call, stream });
+    startStatsMonitor(call.peer, call.peerConnection, false);
     const member = rm.members.get(call.peer);
     addOrUpdateVideoCard({ audioScope: roomState.session?.audioScope, peerId: call.peer, stream, label: member?.name || `Amigo ${call.peer.slice(-4)}`, isLocal: false, onClipClick: sourceId => roomState.features?.clipEditor?.exportClip(sourceId) });
     session?.eventBus.emit('stream:received', { hostId: call.peer, stream });
   });
   call.on('close', () => {
+    if (roomState.remoteStreams.get(call.peer)?.call !== call) return;
+    roomState.remoteStreams.delete(call.peer);
+    stopStatsMonitor(call.peer);
     removeVideoCard(call.peer);
     session?.eventBus.emit('stream:stopped', { sourceId: call.peer });
   });
+}
+
+function sendRoomStream(memberId, conn, rm, session) {
+  if (!roomState.localStream || session?.isDisposed || !conn?.open || !rm.isPeerAuthorized(memberId)) return;
+  if (roomState.features?.nativeMedia.broadcastTo(conn)) return;
+  if (roomState.screenCalls.has(memberId)) return;
+  const settings = roomState.captureSettings || readCaptureSettings();
+  const call = roomState.peer?.call(memberId, roomState.localStream, { metadata: { type: 'ROOM_STREAM', name: rm.userName } });
+  if (!call) return;
+  roomState.screenCalls.set(memberId, call);
+  hookPeerConnectionSdp(call.peerConnection, () => settings.bitrateKbps * 1000);
+  applyTransceiverOptimizations(call.peerConnection, 'ultra-low', settings.videoCodec || 'h264');
+  const stopTuning = applySenderOptimizationsWhenReady(call.peerConnection, () => settings.bitrateKbps * 1000, () => settings.fps);
+  const quality = createQualityController(call.peerConnection, () => roomState.captureSettings || settings);
+  startStatsMonitor(`send-${memberId}`, call.peerConnection, true, sample => quality.process(sample), { cardId: 'local-me', context: () => ({ requestedFps: (roomState.captureSettings || settings).fps, requestedCodec: settings.videoCodec }) });
+  let unregisterCleanup;
+  const release = () => {
+    stopTuning();
+    quality.dispose();
+    stopStatsMonitor(`send-${memberId}`);
+    unregisterCleanup?.();
+    if (roomState.screenCalls.get(memberId) === call) roomState.screenCalls.delete(memberId);
+  };
+  unregisterCleanup = session?.registerCleanup(() => { release(); try { call.close(); } catch (_) {} });
+  call.on('close', release);
+  call.on('error', release);
 }
 
 async function joinRoomVoice(rm, session) {
@@ -422,8 +438,6 @@ async function joinRoomVoice(rm, session) {
     rm.broadcast({ type: 'VOICE_SIGNAL', action: 'VOICE_JOINED', peerId: rm.myPeerId, name: rm.userName, role: rm.isMaster ? 'host' : 'member' });
     for (const [memberId, conn] of rm.meshConnections) {
       if (!conn.open || !rm.isPeerAuthorized(memberId) || rm.myPeerId.localeCompare(memberId) >= 0) continue;
-      if (roomState.features?.nativeMedia.broadcastTo(conn)) continue;
-      if (roomState.features?.nativeMedia.broadcastTo(conn)) continue;
       const call = roomState.peer?.call(memberId, stream, { metadata: { type: 'VOICE_CHAT', name: rm.userName, role: rm.isMaster ? 'host' : 'member' } });
       session?.messageHandlers?.bindVoiceCall(call);
     }
@@ -446,6 +460,7 @@ async function startRoomCapture(rm, session, captureOptions = {}) {
     return;
   }
   roomState.isStartingStream = true;
+  captureOptions = { ...readCaptureSettings(), ...captureOptions };
   const epoch = roomState.captureEpoch = (roomState.captureEpoch || 0) + 1;
   try {
     let stream;
@@ -458,24 +473,24 @@ async function startRoomCapture(rm, session, captureOptions = {}) {
       session?.registerCleanup(() => provider.stop());
       const result = await provider.start({ fps: 60, width: 1920, height: 1080, bitrateKbps: 7500, ...captureOptions });
       stream = result.stream;
-    } else stream = await requestBrowserDisplayMedia({ video: { width: { ideal: captureOptions.width || 1920 }, height: { ideal: captureOptions.height || 1080 }, frameRate: { ideal: captureOptions.fps || 60 } }, ...captureOptions });
+    } else stream = await requestBrowserDisplayMedia({ ...captureOptions, video: captureVideoConstraints(captureOptions) });
     if (captureOptions.audioMode === 'mic') {
       const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
       microphone.getAudioTracks().forEach(track => stream.addTrack(track));
     }
     if (session?.isDisposed || epoch !== roomState.captureEpoch) { stream.getTracks().forEach(track => track.stop()); return null; }
     roomState.localStream = stream;
+    roomState.captureSettings = { ...readCaptureSettings(), ...captureOptions };
     stream.getVideoTracks().forEach((track) => track.addEventListener('ended', () => stopRoomCapture(rm, session), { once: true }));
     addOrUpdateVideoCard({ audioScope: roomState.session?.audioScope, peerId: 'local-me', stream, label: `${rm.userName} (Ao Vivo)`, isLocal: true });
     roomState.discordUI?.setStreamingState(true);
     rm.setLocalStreaming(true, { sourceType: 'display', title: 'Compartilhamento de tela' });
     for (const [memberId, conn] of rm.meshConnections) {
-      if (!conn.open || !rm.isPeerAuthorized(memberId)) continue;
-      const call = roomState.peer?.call(memberId, stream, { metadata: { type: 'ROOM_STREAM', name: rm.userName } });
-      if (call) roomState.screenCalls.set(memberId, call);
+      sendRoomStream(memberId, conn, rm, session);
     }
     session?.eventBus.emit('stream:started', { stream, sourceId: 'local-me' });
   } catch (error) {
+    console.error('[Room] Falha ao iniciar captura:', error);
     showToast('Não foi possível iniciar o compartilhamento.', 'error');
   } finally { roomState.isStartingStream = false; }
 }
@@ -485,9 +500,10 @@ function stopRoomCapture(rm, session) {
   if (roomState.captureProvider) { const provider = roomState.captureProvider; roomState.captureProvider = null; const pending = provider.stop(); session?.registerCleanup(() => pending); }
   if (!roomState.localStream) return;
   roomState.localStream.getTracks?.().forEach((track) => { try { track.stop(); } catch (_) {} });
-  roomState.screenCalls.forEach((call) => { try { call.close(); } catch (_) {} });
+  [...roomState.screenCalls.values()].forEach((call) => { try { call.close(); } catch (_) {} });
   roomState.screenCalls.clear();
   roomState.localStream = null;
+  roomState.captureSettings = null;
   removeVideoCard('local-me');
   roomState.discordUI?.setStreamingState(false);
   rm.setLocalStreaming(false);
@@ -573,6 +589,9 @@ async function initRoomApp(options = {}) {
   session.getPeerId = () => roomState.peer?.id;
   audioScope = session.audioScope;
   session.services = { chatManager, voiceManager, coopController, statsScope };
+  bindQualityCapabilities(session);
+  bindCaptureSettings(session, () => roomState.captureProvider, showToast);
+  bindStreamingQuality(session, { getStream: () => roomState.localStream, getProvider: () => roomState.captureProvider, getCalls: () => roomState.screenCalls.values(), onSettings: settings => { roomState.captureSettings = settings; }, showToast });
   session.registerCleanup(() => statsScope.dispose());
   installNativeCaptureBridge();
   roomState.sourcePicker = bindSourcePicker(session, {
@@ -584,6 +603,7 @@ async function initRoomApp(options = {}) {
 
   const features = registerSessionFeatures(session, {
     role: 'room',
+    getConnections: () => roomState.roomManager?.meshConnections.values() || [],
     includeClipping: true,
     getCaptureProvider: () => roomState.captureProvider,
     isAuthorizedPeer: id => roomState.roomManager?.isPeerAuthorized(id),
@@ -628,7 +648,7 @@ async function initRoomApp(options = {}) {
 
   session.registerCleanup(initTermsModal(startRoomFlow));
 
-  return {
+  const runtime = {
     isRoom: true,
     session,
     dispose: () => {
@@ -650,6 +670,7 @@ async function initRoomApp(options = {}) {
       roomState.discordUI = null;
       roomState.coordinatorConn = null;
       roomState.screenCalls.clear();
+      roomState.remoteStreams.clear();
       if (roomState.session === session) roomState.session = null;
       session.dispose();
     },
@@ -658,6 +679,21 @@ async function initRoomApp(options = {}) {
     state: roomState,
     getRoomInfo: getRoomInfoFromUrl
   };
+  const reloadPorts = {
+    get roomManager() { return roomState.roomManager; },
+    get localStream() { return roomState.localStream; },
+    get activeNativeCaptureProvider() { return roomState.captureProvider; },
+    connectedViewers: new Map(),
+    watchingHosts: roomState.remoteStreams,
+    voiceManager,
+    isRoomMode: () => true,
+    showReloadConfirmationModal: () => showReloadConfirmationModal(reloadPorts),
+    hideReloadConfirmationModal: () => hideReloadConfirmationModal(reloadPorts),
+    handlePageUnload: () => runtime.dispose()
+  };
+  session.addEventListener(window, 'keydown', event => handleReloadKeypress(reloadPorts, event));
+  session.registerCleanup(() => hideReloadConfirmationModal(reloadPorts));
+  return runtime;
 }
 return {
 get isRoomPage() { return isRoomPage; },

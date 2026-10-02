@@ -4,6 +4,8 @@ import { createNativeViewerPeer, closeNativeViewerPeer, addNativeViewerIceCandid
 import { sendSessionMessage } from '../protocol/transport.js';
 import { addOrUpdateVideoCard, removeVideoCard } from '../ui.js';
 import { startStatsMonitor, stopStatsMonitor } from '../stats.js';
+import { getNativeStreamStats } from '../desktop/webrtc.js';
+import { applyTransceiverOptimizations } from '../webrtc.js';
 
 /** Direct GStreamer transport. State belongs to this session, separate from PeerJS calls. */
 export class NativeMediaPlugin extends BasePlugin {
@@ -46,6 +48,7 @@ export class NativeMediaPlugin extends BasePlugin {
       this.registerCleanup(this.context.eventBus.on(event, async data => {
         const id = data?.peerId || data?.streamerId;
         if (!id) return;
+        this.session.services?.statsScope?.stopStatsMonitor(`native-send-${id}`);
         this.closeReceiver(id);
         const captureId = this.senders.get(id);
         this.senders.delete(id); this.negotiating.delete(id); this.connections?.delete(id);
@@ -72,7 +75,7 @@ export class NativeMediaPlugin extends BasePlugin {
     this.connections ||= new Map(); this.connections.set(conn.peer, conn);
     if (this.negotiating.has(conn.peer) || this.senders.has(conn.peer)) return true;
     this.negotiating.add(conn.peer);
-    if (!sendSessionMessage(this.session, conn, { type: 'START_DIRECT_STREAM', sessionId, hasAudio: Boolean(provider.session.audioRtpPort || provider.session.audio_rtp_port) })) this.negotiating.delete(conn.peer);
+    if (!sendSessionMessage(this.session, conn, { type: 'START_DIRECT_STREAM', sessionId, quality: provider.requestedSettings, hasAudio: Boolean(provider.session.audioRtpPort || provider.session.audio_rtp_port) })) this.negotiating.delete(conn.peer);
     return true;
   }
   async answer(data, conn) {
@@ -85,6 +88,10 @@ export class NativeMediaPlugin extends BasePlugin {
         await closeNativeViewerPeer(sessionId, conn.peer); return;
       }
       sendSessionMessage(this.session, conn, { type: 'DIRECT_STREAM_ANSWER', sdp: answer.sdp });
+      this.session.services?.statsScope?.startStatsMonitor(`native-send-${conn.peer}`, { getStats: () => getNativeStreamStats(sessionId, conn.peer) }, true, null, { cardId: 'local-me', context: () => {
+        const provider = this.getProvider?.(), codec = provider?.session?.videoCodec;
+        return { requestedCodec: codec, requestedFps: provider?.requestedSettings?.fps, encoderImplementation: codec === 'av1' ? 'svtav1enc' : codec === 'hevc' ? 'mfh265enc' : provider?.session?.h264Encoder || null };
+      } });
     } catch (error) { this.senders.delete(conn.peer); throw error; }
     finally { this.negotiating.delete(conn.peer); }
   }
@@ -96,12 +103,13 @@ export class NativeMediaPlugin extends BasePlugin {
     this.receivers.set(conn.peer, { pc, stream, pending: [] });
     pc.addTransceiver('video', { direction: 'recvonly' });
     if (data.hasAudio) pc.addTransceiver('audio', { direction: 'recvonly' });
+    applyTransceiverOptimizations(pc, 'ultra-low', 'auto');
     pc.ontrack = event => {
       if (this.session.isDisposed || this.receivers.get(conn.peer)?.pc !== pc) return;
       if (!stream.getTracks().includes(event.track)) stream.addTrack(event.track);
       addOrUpdateVideoCard({ audioScope: this.session.audioScope, peerId: conn.peer, stream, label: `Ao Vivo: ${conn.peer.slice(0, 8)}`, onClipClick: this.onClip });
       this.context.eventBus.emit('stream:received', { hostId: conn.peer, stream });
-      (this.session.services?.statsScope?.startStatsMonitor || startStatsMonitor)(conn.peer, pc, false);
+      (this.session.services?.statsScope?.startStatsMonitor || startStatsMonitor)(conn.peer, pc, false, null, { context: () => ({ requestedFps: Number.isFinite(data.quality?.fps) && data.quality.fps > 0 && data.quality.fps <= 120 ? data.quality.fps : null }) });
     };
     pc.onicecandidate = event => {
       if (event.candidate) sendSessionMessage(this.session, conn, { type: 'DIRECT_STREAM_ICE_CANDIDATE', candidate: event.candidate.candidate, mlineIndex: event.candidate.sdpMLineIndex ?? 0 });
@@ -122,6 +130,7 @@ export class NativeMediaPlugin extends BasePlugin {
     this.context?.eventBus.emit('stream:stopped', { sourceId: id });
   }
   stopSending() {
+    for (const id of this.senders.keys()) this.session.services?.statsScope?.stopStatsMonitor(`native-send-${id}`);
     for (const conn of this.connections?.values() || []) sendSessionMessage(this.session, conn, { type: 'DIRECT_STREAM_STOP' });
     const pending = [...this.senders].map(([id, sessionId]) => closeNativeViewerPeer(sessionId, id));
     this.senders.clear(); this.negotiating.clear(); this.connections?.clear();

@@ -343,6 +343,7 @@ async function initViewerApp(options = {}) {
 
   const features = registerSessionFeatures(session, {
     includeClipping: true,
+    getConnections: () => viewerState.activeConn ? [viewerState.activeConn] : [],
     isAuthorizedPeer: id => id === viewerState.targetHostId,
     role: 'viewer',
     showToast,

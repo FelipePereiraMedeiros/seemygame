@@ -65,6 +65,54 @@ describe('Módulo: ping.js (TacticalPingManager)', () => {
     expect(manager.isDrawingLaser).toBe(false);
   });
 
+  it('deve isolar traçados de laser entre diferentes remetentes (sem conectar traços de pessoas distintas)', () => {
+    // Usuário A desenha
+    manager.startLaserTrail({ senderId: 'user-a', color: '#10b981' });
+    manager.addLaserPoint({ senderId: 'user-a', x: 0.1, y: 0.1 });
+    manager.addLaserPoint({ senderId: 'user-a', x: 0.2, y: 0.2 });
+
+    // Usuário B desenha simultaneamente
+    manager.startLaserTrail({ senderId: 'user-b', color: '#3b82f6' });
+    manager.addLaserPoint({ senderId: 'user-b', x: 0.8, y: 0.8 });
+    manager.addLaserPoint({ senderId: 'user-b', x: 0.9, y: 0.9 });
+
+    // Ambos devem ter trilhas separadas
+    expect(manager.laserTrails.length).toBe(2);
+
+    const trailA = manager.laserTrails.find(t => t.senderId === 'user-a');
+    const trailB = manager.laserTrails.find(t => t.senderId === 'user-b');
+
+    expect(trailA).toBeDefined();
+    expect(trailB).toBeDefined();
+    expect(trailA.points.length).toBe(2);
+    expect(trailB.points.length).toBe(2);
+
+    // Pontos do usuário A não devem conter coordenadas de B
+    expect(trailA.points[0].x).toBe(0.1);
+    expect(trailA.points[1].x).toBe(0.2);
+    expect(trailB.points[0].x).toBe(0.8);
+    expect(trailB.points[1].x).toBe(0.9);
+
+    // Parar o traço do usuário A não deve afetar a trilha ativa do usuário B
+    manager.stopLaserTrail('user-a');
+    expect(manager.activeLaserTrails.has('user-a')).toBe(false);
+    expect(manager.activeLaserTrails.has('user-b')).toBe(true);
+
+    // Usuário B continua adicionando pontos
+    manager.addLaserPoint({ senderId: 'user-b', x: 0.95, y: 0.95 });
+    expect(trailB.points.length).toBe(3);
+  });
+
+  it('clear(senderId) deve remover apenas a trilha do remetente especificado', () => {
+    manager.addLaserPoint({ senderId: 'peer-1', x: 0.1, y: 0.1 });
+    manager.addLaserPoint({ senderId: 'peer-2', x: 0.5, y: 0.5 });
+    expect(manager.laserTrails.length).toBe(2);
+
+    manager.clear('peer-1');
+    expect(manager.laserTrails.length).toBe(1);
+    expect(manager.laserTrails[0].senderId).toBe('peer-2');
+  });
+
   it('render() deve desenhar pings e lasers chamando métodos do contexto 2D', () => {
     manager.addPing({ x: 0.5, y: 0.5, senderName: 'Tester' });
     manager.startLaserTrail();

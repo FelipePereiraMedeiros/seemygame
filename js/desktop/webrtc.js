@@ -42,6 +42,11 @@ export async function closeNativeViewerPeer(sessionId, viewerId) {
     return invokeDesktopCommand('close_native_viewer_peer', { sessionId, viewerId });
 }
 
+export async function getNativeStreamStats(sessionId, viewerId) {
+    if (!isDesktopApp() || !sessionId || !viewerId) return [];
+    return invokeDesktopCommand('get_native_stream_stats', { sessionId, viewerId });
+}
+
 export async function startNativeViewer(hostId, offerSdp, iceServers = null, openDedicatedWindow = true) {
     if (!isDesktopApp()) throw new Error('Visualizador nativo Direct3D 11 requer o aplicativo desktop');
     return invokeDesktopCommand('start_native_viewer', {

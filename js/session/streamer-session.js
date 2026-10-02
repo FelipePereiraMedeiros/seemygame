@@ -1,4 +1,7 @@
-import { bindCaptureSettings } from '../capture/settings.js';
+import { bindCaptureSettings, bindQualityCapabilities, readCaptureSettings } from '../capture/settings.js';
+import { createQualityController } from '../streaming/adaptation.js';
+import { captureVideoConstraints } from '../streaming/quality.js';
+import { bindStreamingQuality } from '../streaming/settings-controller.js';
 import { createStatsMonitorScope } from '../stats.js';
 import { bindSourcePicker } from '../capture/source-picker.js';
 import { installNativeCaptureBridge } from '../native-webrtc.js';
@@ -15,6 +18,7 @@ import {
   hookPeerConnectionSdp, 
   applyTransceiverOptimizations,
   applySenderOptimizations,
+  applySenderOptimizationsWhenReady,
   swapStreamAudioTrack 
 } from '../webrtc.js';
 import { 
@@ -300,11 +304,13 @@ function callViewerWithStream(viewerId, session = streamerState.session) {
   if (!call) return null;
 
   hookPeerConnectionSdp(call.peerConnection);
-  applySenderOptimizations(
-    call.peerConnection, 
-    streamerState.targetBitrateBps, 
-    streamerState.fpsTarget
-  );
+  applyTransceiverOptimizations(call.peerConnection, 'ultra-low', readCaptureSettings().videoCodec || 'auto');
+  const stopTuning = applySenderOptimizationsWhenReady(call.peerConnection, () => streamerState.targetBitrateBps, () => streamerState.fpsTarget);
+  const quality = createQualityController(call.peerConnection, () => ({ ...readCaptureSettings(), bitrateKbps: streamerState.targetBitrateBps / 1000, fps: streamerState.fpsTarget }));
+  startStatsMonitor(`send-${viewerId}`, call.peerConnection, true, sample => quality.process(sample), { cardId: 'local-me', context: () => ({ requestedFps: streamerState.fpsTarget, requestedCodec: readCaptureSettings().videoCodec }) });
+  const release = () => { stopTuning(); quality.dispose(); stopStatsMonitor(`send-${viewerId}`); if (streamerState.activeCalls.get(viewerId) === call) streamerState.activeCalls.delete(viewerId); };
+  call.on('close', release); call.on('error', release);
+  session?.registerCleanup(release);
 
   streamerState.activeCalls.set(viewerId, call);
   return call;
@@ -313,6 +319,9 @@ function callViewerWithStream(viewerId, session = streamerState.session) {
 async function startCapture(sourceId = null, captureOptions = {}, session = streamerState.session) {
   if (session?.isDisposed || streamerState.isStartingStream || streamerState.localStream) return null;
   streamerState.isStartingStream = true;
+  captureOptions = { ...readCaptureSettings(), ...captureOptions };
+  streamerState.fpsTarget = captureOptions.fps;
+  streamerState.targetBitrateBps = captureOptions.bitrateKbps * 1000;
   const epoch = streamerState.captureEpoch = (streamerState.captureEpoch || 0) + 1;
   let stream = null;
 
@@ -335,11 +344,7 @@ async function startCapture(sourceId = null, captureOptions = {}, session = stre
       // Captura via API padrão de navegadores (Screen Capture API)
       stream = await requestBrowserDisplayMedia({
         audioMode: captureOptions.audioMode || 'system',
-        video: {
-          frameRate: { ideal: 60, max: 60 },
-          width: { ideal: 1920, max: 1920 },
-          height: { ideal: 1080, max: 1080 }
-        }
+        video: captureVideoConstraints(captureOptions)
       });
     }
     if (captureOptions.audioMode === 'mic') {
@@ -439,6 +444,8 @@ function setQualityProfile(profileName) {
   streamerState.currentProfile = normalizedKey;
   streamerState.targetBitrateBps = profile.bitrate;
   streamerState.fpsTarget = profile.fps;
+  const slider = document.getElementById('bitrate-slider');
+  if (slider) slider.value = String(profile.bitrate / 1000);
 
   // Aplica aos senders de conexões ativas
   for (const call of streamerState.activeCalls.values()) {
@@ -469,7 +476,9 @@ async function initStreamerApp(options = {}) {
   audioScope = session.audioScope;
   session.services = { chatManager, voiceManager, coopController, statsScope };
   session.registerCleanup(() => statsScope.dispose());
+  bindQualityCapabilities(session);
   bindCaptureSettings(session, () => streamerState.captureProvider, showToast);
+  bindStreamingQuality(session, { getStream: () => streamerState.localStream, getProvider: () => streamerState.captureProvider, getCalls: () => streamerState.activeCalls.values(), onSettings: settings => { streamerState.fpsTarget = settings.fps; streamerState.targetBitrateBps = settings.bitrateKbps * 1000; }, showToast });
   installNativeCaptureBridge();
   const sourcePicker = bindSourcePicker(session, {
     start: captureOptions => startCapture(captureOptions.sourceId, captureOptions, session),
@@ -480,6 +489,7 @@ async function initStreamerApp(options = {}) {
 
   const features = registerSessionFeatures(session, {
     role: 'streamer',
+    getConnections: () => streamerState.connectedViewers.values(),
     includeClipping: true,
     getCaptureProvider: () => streamerState.captureProvider,
     isAuthorizedPeer: id => streamerState.admissionGate.isAuthenticated(id),

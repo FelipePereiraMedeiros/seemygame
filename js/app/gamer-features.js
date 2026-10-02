@@ -150,7 +150,8 @@ export function initTacticalPing(compatibilityContext) {
       const color = isHost ? '#10b981' : '#00ffff';
       compatibilityContext.tacticalPingManager.startLaserTrail({ color });
       compatibilityContext.tacticalPingManager.addLaserPoint({ x, y, color });
-      compatibilityContext.broadcastDataMessage({ type: 'TACTICAL_LASER', point: { x, y, color } });
+      const senderId = compatibilityContext.myId || 'local';
+      compatibilityContext.broadcastDataMessage({ type: 'TACTICAL_LASER', senderId, point: { x, y, color } });
     } else {
       const ping = { x, y, type: currentPingMode, senderName };
       compatibilityContext.tacticalPingManager.addPing(ping);
@@ -168,7 +169,8 @@ export function initTacticalPing(compatibilityContext) {
       const isHost = !window.location.pathname.endsWith('viewer.html');
       const color = isHost ? '#10b981' : '#00ffff';
       compatibilityContext.tacticalPingManager.addLaserPoint({ x, y, color });
-      compatibilityContext.broadcastDataMessage({ type: 'TACTICAL_LASER', point: { x, y, color } });
+      const senderId = compatibilityContext.myId || 'local';
+      compatibilityContext.broadcastDataMessage({ type: 'TACTICAL_LASER', senderId, point: { x, y, color } });
     }
   }, { signal });
 
@@ -176,7 +178,8 @@ export function initTacticalPing(compatibilityContext) {
     if (isPointerDown) {
       isPointerDown = false;
       if (compatibilityContext.tacticalPingManager.isDrawingLaser) {
-        compatibilityContext.tacticalPingManager.stopLaserTrail();
+        compatibilityContext.tacticalPingManager.stopLaserTrail('local');
+        compatibilityContext.broadcastDataMessage({ type: 'TACTICAL_LASER', action: 'stop', senderId: compatibilityContext.myId || 'local' });
       }
     }
   };

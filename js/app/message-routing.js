@@ -14,6 +14,8 @@ export function initPlugins(compatibilityContext) {
   compatibilityContext.pluginManager.initAll({
     broadcastDataMessage: (data, exclude) => compatibilityContext.broadcastDataMessage(data, exclude),
     isRoomMode: () => compatibilityContext.isRoomMode(),
+    isTrustedLaserRelayPeer: peerId => !compatibilityContext.isRoomMode()
+      && compatibilityContext.watchingHosts?.get(peerId)?.state === 'CONNECTED',
     getViewersCount: () => compatibilityContext.connectedViewers.size,
     showToast: (msg, type, dur) => compatibilityContext.showToast(msg, type, dur),
     getDisplayName: () => compatibilityContext.getLocalUserDisplayName()
