@@ -1,4 +1,5 @@
 import { bindCaptureSettings, bindQualityCapabilities, readCaptureSettings } from '../capture/settings.js';
+import { createInitialCodecTransform } from '../streaming/codecs.js';
 import { createQualityController } from '../streaming/adaptation.js';
 import { captureVideoConstraints } from '../streaming/quality.js';
 import { bindStreamingQuality } from '../streaming/settings-controller.js';
@@ -43,6 +44,7 @@ import {
   saveAudioPreference,
   watchDeviceChanges
 } from '../audio-devices.js';
+import { initTuningAudioDeviceControls } from '../app/tuning-controller.js';
 import { 
   showToast, 
   initTermsModal, 
@@ -345,9 +347,16 @@ async function setupRoomSession(peerId, session = roomState.session) {
       voiceManager,
       roomManager: rm,
       soundboardManager: roomState.session?.pluginManager.get('soundboard')?.manager,
-      onOpenTuning: () => {
+      onOpenTuning: async () => {
         const modal = document.getElementById('tuning-modal');
         if (modal) modal.style.display = 'flex';
+        const controls = roomState.tuningAudioControls || (await roomState.tuningControlsPromise);
+        if (controls) {
+          if (typeof controls.syncVolumeUI === 'function') {
+            controls.syncVolumeUI();
+          }
+          await controls.refreshDevices(true).catch(() => {});
+        }
       },
       onSendMessage: (text) => {
         if (chatManager) {
@@ -498,7 +507,10 @@ function sendRoomStream(memberId, conn, rm, session) {
   if (roomState.features?.nativeMedia.broadcastTo(conn)) return;
   if (roomState.screenCalls.has(memberId)) return;
   const settings = roomState.captureSettings || readCaptureSettings();
-  const call = roomState.peer?.call(memberId, roomState.localStream, { metadata: { type: 'ROOM_STREAM', name: rm.userName } });
+  const call = roomState.peer?.call(memberId, roomState.localStream, {
+    metadata: { type: 'ROOM_STREAM', name: rm.userName },
+    sdpTransform:createInitialCodecTransform(()=>settings.videoCodec||'auto')
+  });
   if (!call) return;
   roomState.screenCalls.set(memberId, call);
   hookPeerConnectionSdp(call.peerConnection, () => settings.bitrateKbps * 1000);
@@ -678,16 +690,84 @@ function setupTuningModal(session = roomState.session) {
   const closeBtn = document.getElementById('close-tuning-modal-btn');
   const saveBtn = document.getElementById('save-tuning-btn');
   const controller = new AbortController();
-  session?.registerCleanup(() => { controller.abort(); modal.style.display = 'none'; delete modal.dataset.tuningMounted; });
+
+  const tuningContext = {
+    isAudioOutputSupported,
+    getAudioDevices,
+    populateDeviceSelect,
+    playTestTone,
+    getSavedAudioPreferences,
+    saveAudioPreference,
+    watchDeviceChanges,
+    voiceManager
+  };
+
+  const tuningPromise = initTuningAudioDeviceControls(tuningContext).then((controls) => {
+    roomState.tuningAudioControls = controls;
+    return controls;
+  }).catch((err) => {
+    console.warn('[Room] Falha ao inicializar controles de áudio do tuning:', err);
+    return null;
+  });
+  roomState.tuningControlsPromise = tuningPromise;
+
+  session?.registerCleanup(() => {
+    controller.abort();
+    modal.style.display = 'none';
+    delete modal.dataset.tuningMounted;
+    if (roomState.tuningAudioControls?.destroy) {
+      try { roomState.tuningAudioControls.destroy(); } catch (_) {}
+    }
+    roomState.tuningAudioControls = null;
+    roomState.tuningControlsPromise = null;
+  });
 
   if (closeBtn) {
     closeBtn.addEventListener('click', () => {
       modal.style.display = 'none';
     }, { signal: controller.signal });
   }
-  if (saveBtn) {
-    saveBtn.addEventListener('click', () => {
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
       modal.style.display = 'none';
+    }
+  }, { signal: controller.signal });
+
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      const micSelect = document.getElementById('tuning-mic-select');
+      const speakerSelect = document.getElementById('tuning-speaker-select');
+      if (micSelect) {
+        saveAudioPreference('input', micSelect.value);
+        if (voiceManager) {
+          await voiceManager.setAudioInputDevice(micSelect.value).catch((err) => {
+            console.warn('[Room] Falha ao definir microfone no voiceManager:', err);
+          });
+        }
+      }
+      if (speakerSelect && isAudioOutputSupported()) {
+        saveAudioPreference('output', speakerSelect.value);
+        if (voiceManager) {
+          await voiceManager.setAudioOutputDevice(speakerSelect.value).catch((err) => {
+            console.warn('[Room] Falha ao definir saída de som no voiceManager:', err);
+          });
+        }
+      }
+      const codecSelect = document.getElementById('video-codec-select');
+      if (codecSelect) {
+        try { localStorage.setItem('seemygame_video_codec', codecSelect.value); } catch (_) {}
+      }
+      const h264Select = document.getElementById('h264-encoder-select');
+      if (h264Select) {
+        try { localStorage.setItem('seemygame_h264_encoder', h264Select.value); } catch (_) {}
+      }
+      const cursorToggle = document.getElementById('capture-cursor-toggle');
+      if (cursorToggle) {
+        try { localStorage.setItem('seemygame_capture_cursor', String(cursorToggle.checked)); } catch (_) {}
+      }
+      modal.style.display = 'none';
+      showToast('Configurações atualizadas com sucesso!', 'success');
     }, { signal: controller.signal });
   }
 }
@@ -750,7 +830,7 @@ async function initRoomApp(options = {}) {
   });
 
   // Configura modais de calibração de controle e configurações
-  setupTuningModal();
+  setupTuningModal(session);
   setupGamepadTesterModal();
 
   const startRoomFlow = () => {

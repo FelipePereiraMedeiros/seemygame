@@ -24,16 +24,28 @@ export async function initTuningAudioDeviceControls(compatibilityContext) {
 
   async function refreshDevices(requestPermission = false) {
     const { microphones, speakers } = await compatibilityContext.getAudioDevices(requestPermission);
-    const prefs = compatibilityContext.getSavedAudioPreferences();
+    const prefs = compatibilityContext.getSavedAudioPreferences ? compatibilityContext.getSavedAudioPreferences() : { inputId: '', outputId: '' };
 
     if (micSelect) {
-      const currentMicId = micSelect.value || prefs.inputId || (compatibilityContext.voiceManager?.selectedMicId) || '';
+      let currentMicId = micSelect.value || prefs.inputId || (compatibilityContext.voiceManager?.selectedMicId) || '';
+      if (currentMicId && microphones.length > 0 && !microphones.some((m) => m.deviceId === currentMicId)) {
+        currentMicId = '';
+        compatibilityContext.saveAudioPreference?.('input', '');
+      }
       compatibilityContext.populateDeviceSelect(micSelect, microphones, currentMicId, 'Microfone Padrão do Sistema');
     }
 
-    if (speakerSelect && supportsOutput) {
-      const currentSpeakerId = speakerSelect.value || prefs.outputId || (compatibilityContext.voiceManager?.selectedSpeakerId) || '';
-      compatibilityContext.populateDeviceSelect(speakerSelect, speakers, currentSpeakerId, 'Alto-falante Padrão do Sistema');
+    if (speakerSelect) {
+      if (supportsOutput) {
+        let currentSpeakerId = speakerSelect.value || prefs.outputId || (compatibilityContext.voiceManager?.selectedSpeakerId) || '';
+        if (currentSpeakerId && speakers.length > 0 && !speakers.some((s) => s.deviceId === currentSpeakerId)) {
+          currentSpeakerId = '';
+          compatibilityContext.saveAudioPreference?.('output', '');
+        }
+        compatibilityContext.populateDeviceSelect(speakerSelect, speakers, currentSpeakerId, 'Alto-falante Padrão do Sistema');
+      } else {
+        compatibilityContext.populateDeviceSelect(speakerSelect, [], '', 'Alto-falante Padrão do Sistema');
+      }
     }
   }
 
@@ -41,7 +53,7 @@ export async function initTuningAudioDeviceControls(compatibilityContext) {
   await refreshDevices(false);
 
   // Monitora alterações físicas de dispositivos (conectar/desconectar fones)
-  compatibilityContext.watchDeviceChanges(() => {
+  const unwatch = compatibilityContext.watchDeviceChanges?.(() => {
     refreshDevices(false).catch(() => {});
   });
 
@@ -128,7 +140,13 @@ export async function initTuningAudioDeviceControls(compatibilityContext) {
     });
   }
 
-  return { refreshDevices, syncVolumeUI };
+  function destroy() {
+    if (typeof unwatch === 'function') {
+      try { unwatch(); } catch (_) {}
+    }
+  }
+
+  return { refreshDevices, syncVolumeUI, destroy };
 }
 
 export function initDiscordFeatures(compatibilityContext) {

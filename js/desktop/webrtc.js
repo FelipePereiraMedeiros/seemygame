@@ -48,7 +48,7 @@ export async function getNativeStreamStats(sessionId, viewerId) {
 }
 
 export async function startNativeViewer(hostId, offerSdp, iceServers = null, openDedicatedWindow = true) {
-    if (!isDesktopApp()) throw new Error('Visualizador nativo Direct3D 11 requer o aplicativo desktop');
+    if (!isDesktopApp()) throw new Error('Visualizador nativo requer o aplicativo desktop');
     return invokeDesktopCommand('start_native_viewer', {
         hostId: String(hostId),
         offerSdp: String(offerSdp),

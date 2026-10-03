@@ -41,7 +41,7 @@ export async function startLocalStream(compatibilityContext, options = {}) {
     const wantSystemAudio = (effectiveAudioMode === 'system' || effectiveAudioMode === 'process');
 
     if (compatibilityContext.isDesktopApp() && (options.sourceId || options.sourceType)) {
-      compatibilityContext.showToast('Iniciando captura nativa Direct3D 11...', 'info', 2500);
+      compatibilityContext.showToast('Iniciando captura nativa...', 'info', 2500);
       const nativeProvider = new compatibilityContext.NativeCaptureProvider();
       const chosenCodec = compatibilityContext.videoCodecSelect ? compatibilityContext.videoCodecSelect.value : (options.videoCodec || null);
       const chosenEncoder = compatibilityContext.h264EncoderSelect ? compatibilityContext.h264EncoderSelect.value : (options.h264Encoder || null);

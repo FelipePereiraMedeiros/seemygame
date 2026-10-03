@@ -114,6 +114,7 @@ impl AudioMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CaptureBackend {
     #[default]
+    Auto,
     D3d11,
     D3d12,
 }
@@ -121,9 +122,30 @@ pub enum CaptureBackend {
 impl CaptureBackend {
     pub fn parse(value: &str) -> Result<Self, String> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
             "d3d11" => Ok(Self::D3d11),
             "d3d12" => Ok(Self::D3d12),
-            _ => Err(format!("Backend de captura inválido: {value}; use d3d11 ou d3d12")),
+            _ => Err(format!("Backend de captura inválido: {value}; use auto, d3d11 ou d3d12")),
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::D3d11 => "d3d11",
+            Self::D3d12 => "d3d12",
+        }
+    }
+
+    /// Called after resolving the encoder. Explicit selections stay strict.
+    pub fn resolve(self, codec: VideoCodec, encoder: H264EncoderBackend, d3d12_available: bool) -> Result<Self, String> {
+        let compatible = codec == VideoCodec::H264 && encoder == H264EncoderBackend::Nvenc;
+        match self {
+            Self::Auto if compatible && d3d12_available => Ok(Self::D3d12),
+            Self::Auto => Ok(Self::D3d11),
+            Self::D3d12 if !compatible => Err("Captura D3D12 requer H.264/NVENC; seleção explícita não admite fallback".into()),
+            Self::D3d12 if !d3d12_available => Err("Captura D3D12 indisponível: plugins de captura/conversão/interop ausentes".into()),
+            backend => Ok(backend),
         }
     }
 }
@@ -157,7 +179,7 @@ impl Default for MediaWorkerConfig {
             height: None,
             gop_size: None,
             capture_api: None,
-            capture_backend: CaptureBackend::D3d11,
+            capture_backend: CaptureBackend::Auto,
             exclude_process_id: None,
         }
     }
@@ -185,7 +207,7 @@ impl MediaWorkerConfig {
         if let Ok(value) = env::var("SEEMYGAME_NATIVE_H264_ENCODER") {
             config.h264_encoder = H264EncoderBackend::parse(&value)?;
         }
-        // Experimental opt-in; never changes the default capture path.
+        // Auto prefers D3D12 for H.264/NVENC; explicit values are diagnostic overrides.
         if let Ok(value) = env::var("SEEMYGAME_NATIVE_CAPTURE_BACKEND") {
             config.capture_backend = CaptureBackend::parse(&value)?;
         }

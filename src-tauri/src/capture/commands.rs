@@ -35,6 +35,8 @@ pub fn get_native_capture_state() -> Result<NativeCaptureState, String> {
             dpi: None,
             video_codec: None,
             h264_encoder: None,
+            capture_backend: None,
+            capture_fallback_reason: None,
             video_rtp_port: None,
             audio_rtp_port: None,
             exclude_app: None,
@@ -111,6 +113,8 @@ pub fn start_native_capture(
         dpi: Some(validated.dpi),
         video_codec: None,
         h264_encoder: None,
+        capture_backend: None,
+        capture_fallback_reason: None,
         video_rtp_port: None,
         audio_rtp_port: None,
         exclude_app: exclude_app_name.clone(),
@@ -206,6 +210,8 @@ pub fn start_native_capture(
         state: "live".to_string(),
         video_codec: Some(worker.config.codec.as_str().to_string()),
         h264_encoder: Some(worker.config.h264_encoder.as_str().to_string()),
+        capture_backend: Some(worker.active_capture_backend.as_str().to_string()),
+        capture_fallback_reason: worker.capture_fallback_reason.clone(),
         video_rtp_port: Some(worker.video_rtp_port),
         audio_rtp_port: worker.audio_rtp_port,
         exclude_app: exclude_app_name,
@@ -257,8 +263,16 @@ pub(crate) fn spawn_worker_health_monitor(app: &AppHandle, session_id: String) {
                     {
                         true
                     } else if let Some(worker) = session.worker.as_mut() {
-                        match worker.health_error() {
-                            Ok(()) => false,
+                        match worker.health_error(&session.validated_source) {
+                            Ok(()) => {
+                                let backend = Some(worker.active_capture_backend.as_str().to_string());
+                                if session.state.capture_backend != backend {
+                                    session.state.capture_backend = backend;
+                                    session.state.capture_fallback_reason = worker.capture_fallback_reason.clone();
+                                    state_event = Some(session.state.clone());
+                                }
+                                false
+                            },
                             Err(error) => {
                                 log::error!("[Capture] Worker GStreamer falhou: {error}");
                                 session.state.state = "error".to_string();
@@ -499,6 +513,8 @@ pub fn reconfigure_native_capture(
         dpi: session.state.dpi,
         video_codec: Some(new_worker.config.codec.as_str().to_string()),
         h264_encoder: Some(new_worker.config.h264_encoder.as_str().to_string()),
+        capture_backend: Some(new_worker.active_capture_backend.as_str().to_string()),
+        capture_fallback_reason: new_worker.capture_fallback_reason.clone(),
         video_rtp_port: Some(video_rtp_port),
         audio_rtp_port: target_audio_rtp_port,
         exclude_app: session.state.exclude_app.clone(),
@@ -547,6 +563,8 @@ pub fn set_native_capture_audio_mode(
         if worker.config.audio_mode != parsed_mode {
             worker.restart_audio_mode(&session.validated_source, parsed_mode)?;
             session.state.audio_rtp_port = worker.audio_rtp_port;
+            session.state.capture_backend = Some(worker.active_capture_backend.as_str().to_string());
+            session.state.capture_fallback_reason = worker.capture_fallback_reason.clone();
         }
     }
     session.state.audio_mode = Some(audio_mode);
@@ -585,6 +603,8 @@ pub fn stop_native_capture(
         dpi: previous.as_ref().and_then(|s| s.state.dpi),
         video_codec: previous.as_ref().and_then(|s| s.state.video_codec.clone()),
         h264_encoder: previous.as_ref().and_then(|s| s.state.h264_encoder.clone()),
+        capture_backend: previous.as_ref().and_then(|s| s.state.capture_backend.clone()),
+        capture_fallback_reason: previous.as_ref().and_then(|s| s.state.capture_fallback_reason.clone()),
         video_rtp_port: previous.as_ref().and_then(|s| s.state.video_rtp_port),
         audio_rtp_port: previous.as_ref().and_then(|s| s.state.audio_rtp_port),
         exclude_app: previous.as_ref().and_then(|s| s.state.exclude_app.clone()),

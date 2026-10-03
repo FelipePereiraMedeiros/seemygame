@@ -84,8 +84,9 @@ pub fn probe_capabilities() -> MediaCapabilities {
 mod tests {
     use super::*;
     #[test]
-    fn d3d12_capture_is_opt_in_and_rejects_invalid_backends() {
-        assert_eq!(MediaWorkerConfig::default().capture_backend, CaptureBackend::D3d11);
+    fn d3d12_capture_is_preferred_automatically_and_rejects_invalid_backends() {
+        assert_eq!(MediaWorkerConfig::default().capture_backend, CaptureBackend::Auto);
+        assert_eq!(CaptureBackend::parse("auto").unwrap(), CaptureBackend::Auto);
         assert_eq!(CaptureBackend::parse(" D3D12 ").unwrap(), CaptureBackend::D3d12);
         assert!(CaptureBackend::parse("automatic").is_err());
         for encoder in [H264EncoderBackend::Auto, H264EncoderBackend::MediaFoundation, H264EncoderBackend::Cpu] {
@@ -111,6 +112,54 @@ mod tests {
         }
         assert_eq!(build_pipeline(&source("window"),&MediaWorkerConfig::default(),5000,None).unwrap()[0],"d3d11screencapturesrc");
     }
+
+    #[test]
+    fn automatic_capture_preserves_other_encoders_codecs_and_explicit_overrides() {
+        for codec in [VideoCodec::H264, VideoCodec::Hevc, VideoCodec::Av1] {
+            for encoder in [H264EncoderBackend::Auto, H264EncoderBackend::Nvenc,
+                H264EncoderBackend::MediaFoundation, H264EncoderBackend::Cpu] {
+                for available in [false, true] {
+                    let expected = if available && codec == VideoCodec::H264 && encoder == H264EncoderBackend::Nvenc {
+                        CaptureBackend::D3d12
+                    } else { CaptureBackend::D3d11 };
+                    assert_eq!(CaptureBackend::Auto.resolve(codec, encoder, available).unwrap(), expected);
+                    assert_eq!(CaptureBackend::D3d11.resolve(codec, encoder, available).unwrap(), CaptureBackend::D3d11);
+                    assert_eq!(CaptureBackend::D3d12.resolve(codec, encoder, available).is_ok(), expected == CaptureBackend::D3d12);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn automatic_fallback_is_once_only_and_preserves_requested_settings_and_ports() {
+        let mut worker = NativeMediaWorker {
+            runtime: GStreamerRuntime::discover().unwrap(), child: None,
+            rtp_port_leases: Vec::new(),
+            config: MediaWorkerConfig {h264_encoder:H264EncoderBackend::Nvenc,
+                width:Some(1920),height:Some(1080),audio_mode:AudioMode::System,
+                bitrate_kbps:4500,..Default::default()},
+            active_capture_backend:CaptureBackend::D3d12, capture_fallback_reason:None,
+            video_rtp_port:5555,audio_rtp_port:Some(6666),
+        };
+        // Reject the replacement before spawning any process, to exercise a failed fallback.
+        let mut invalid = source("window"); invalid.hwnd = None;
+        let error = worker.fallback_to_d3d11(&invalid,"device initialization failed").unwrap_err();
+        assert!(error.contains("fallback D3D11 falhou"));
+        assert_eq!(worker.active_capture_backend,CaptureBackend::D3d11);
+        assert_eq!(worker.config.capture_backend,CaptureBackend::Auto);
+        assert_eq!(worker.capture_fallback_reason.as_deref(),Some("device initialization failed"));
+        assert_eq!(worker.fallback_to_d3d11(&invalid,"second failure").unwrap_err(),"second failure");
+        let mut pipeline_config=worker.config.clone();pipeline_config.capture_backend=worker.active_capture_backend;
+        let args=build_pipeline(&source("window"),&pipeline_config,worker.video_rtp_port,worker.audio_rtp_port).unwrap();
+        assert_eq!(args[0],"d3d11screencapturesrc");
+        assert!(args.iter().any(|s|s=="port=5555"));
+        assert!(args.iter().any(|s|s=="port=6666"));
+        assert!(args.iter().any(|s|s=="bitrate=4500"));
+        worker.config.capture_backend=CaptureBackend::D3d12;
+        worker.active_capture_backend=CaptureBackend::D3d12;
+        assert_eq!(worker.fallback_to_d3d11(&invalid,"forced failure").unwrap_err(),"forced failure");
+        assert_eq!(worker.active_capture_backend,CaptureBackend::D3d12);
+    }
     include!("media/cadence_probe.rs");
     include!("media/capture_stage_probe.rs");
 
@@ -133,6 +182,8 @@ mod tests {
             child: None,
             rtp_port_leases: vec![lease],
             config: MediaWorkerConfig::default(),
+            active_capture_backend: CaptureBackend::D3d11,
+            capture_fallback_reason: None,
             video_rtp_port: port,
             audio_rtp_port: None,
         };

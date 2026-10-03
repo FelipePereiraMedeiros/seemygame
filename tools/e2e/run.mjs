@@ -26,7 +26,8 @@ import { summarizeResources } from './harness/resources.mjs';
 import { readDisplayModes, validateWindowPosition } from './harness/displays.mjs';
 import { calibrateCaptureWindow, verifyDeliveredResolution } from './harness/capture-geometry.mjs';
 import { startReverseTunnel } from './harness/ssh-reverse.mjs';
-import { readCaptureBackendEvidence } from './harness/capture-backend.mjs';
+import { readCaptureBackendEvidence, verifyNegotiatedCodec } from './harness/capture-backend.mjs';
+import {classifyStutter} from './harness/stutter-cause.mjs';
 
 ensureDefaultDesktop();
 
@@ -52,11 +53,13 @@ const requestedCodec = option('--codec', 'h264');
 if (!['auto', 'h264', 'av1', 'hevc'].includes(requestedCodec)) throw new Error('Codec nativo inválido');
 const isCompareMode = args.includes('--compare');
 const senderMode=option('--sender','native');
-const captureBackend=option('--capture-backend','d3d11');
-if(!['d3d11','d3d12'].includes(captureBackend))throw new Error('Invalid capture backend');
-if(senderMode==='web'&&captureBackend!=='d3d11')throw new Error('Capture backend applies only to native sender');
+const captureBackend=option('--capture-backend','auto');
+if(!['auto','d3d11','d3d12'].includes(captureBackend))throw new Error('Invalid capture backend');
+if(senderMode==='web'&&captureBackend==='d3d12')throw new Error('Capture backend applies only to native sender');
 if(captureBackend==='d3d12'&&requestedCodec!=='h264')throw new Error('D3D12 experiment requires H264');
 const matchedResolution=args.includes('--matched-resolution');
+const matchedCodec=args.includes('--matched-codec');
+if(matchedCodec&&requestedCodec==='auto')throw new Error('Matched codec requires an explicit codec');
 const encoder=option('--encoder',captureBackend==='d3d12'?'nvenc':'auto');
 if(!['auto','nvenc','mf','cpu'].includes(encoder))throw new Error('Invalid encoder');
 if(captureBackend==='d3d12'&&encoder!=='nvenc')throw new Error('D3D12 experiment requires NVENC');
@@ -84,7 +87,7 @@ const report = {
   measurements: [],
   checks: [],
   replayConditions: { nativePhase: { transmitter: nativeReplay, receiver: viewerReplay } },
-  qualityConditions: { preset, requestedCodec, requestedFps: QUALITY_PROFILES[preset].fps, requestedWidth: QUALITY_PROFILES[preset].width, requestedHeight: QUALITY_PROFILES[preset].height },
+  qualityConditions: { preset, requestedCodec, matchedCodec, matchedResolution, requestedFps: QUALITY_PROFILES[preset].fps, requestedWidth: QUALITY_PROFILES[preset].width, requestedHeight: QUALITY_PROFILES[preset].height },
   instrumentation: {opticalHz, systemMetrics:!args.includes('--no-system-metrics')},
   limitations: [
     'Transmitter, synthetic source and receiver share one physical CPU/GPU; performance does not isolate real two-machine usage.',
@@ -435,6 +438,9 @@ try {
             decodeTimeMs: remoteInbound?.delta?.decodeTimeMs ?? null,
             jitterBufferMs: remoteInbound?.delta?.jitterBufferMs ?? null,
             packetsLost: remoteInbound?.packetsLost ?? 0,
+            packetsLostDelta:remoteInbound?.delta?.rawDeltaPacketsLost??null,
+            nackDelta:remoteInbound?.delta?.rawDeltaNackCount??null,
+            pliDelta:remoteInbound?.delta?.rawDeltaPliCount??null,
             decoderImplementation: remoteInbound?.decoderImplementation ?? null
           },
           presentation: {
@@ -531,27 +537,7 @@ try {
         const isPause = entry.presentation.intervalMaxPauseMs > 150;
         const isFpsDrop = entry.webInbound.decodedFps !== null && entry.webInbound.decodedFps < 30 && entry.presentation.intervalMaxPauseMs > 100;
         if (isPause || isFpsDrop) {
-          let suspectedCause = 'COMPOSITOR_PRESENTATION';
-          let confidence = 'medium';
-          if (entry.webInbound.decodedFps === 0 && entry.presentation.intervalMaxPauseMs > 150) {
-            suspectedCause = 'RECEIVER_STREAM_FREEZE';
-            confidence = 'high';
-          } else if (entry.source.fps && entry.source.fps < 30) {
-            suspectedCause = 'SOURCE_WINDOW_THROTTLING';
-            confidence = 'high';
-          } else if (isNative && entry.bridge.decodedFps && entry.bridge.decodedFps < 30) {
-            suspectedCause = 'NATIVE_CAPTURE_OR_BRIDGE_THROTTLING';
-            confidence = 'high';
-          } else if (entry.outbound.limitation === 'cpu') {
-            suspectedCause = 'STREAMER_CPU_SATURATION';
-            confidence = 'medium';
-          } else if (entry.outbound.limitation === 'bandwidth') {
-            suspectedCause = 'WEBRTC_BANDWIDTH_LIMITATION';
-            confidence = 'medium';
-          } else if (entry.webInbound.jitterBufferMs > 100) {
-            suspectedCause = 'RECEIVER_JITTER_BUFFER_STALL';
-            confidence = 'medium';
-          }
+          const {suspectedCause,confidence}=classifyStutter(entry,isNative);
           stutters.push({
             second: entry.second,
             pauseMs: entry.presentation.intervalMaxPauseMs,
@@ -598,9 +584,11 @@ try {
       }
 
       const resolutionValidation=matchedResolution?verifyDeliveredResolution(timeline,QUALITY_PROFILES[preset].width,QUALITY_PROFILES[preset].height):null;
+      const codecValidation=matchedCodec?verifyNegotiatedCodec(qualitySamples,requestedCodec):null;
       delete report.partialPhase;
       return {
         resolutionValidation,
+        codecValidation,
         steadyWindow:{senderStart:steadyStartedAt,senderEnd:steadyEndedAt,receiverStart:receiverSteadyStart,receiverEnd:receiverSteadyEnd},
         sourceEvidenceFile,
         receiverResources,

@@ -1,6 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { startNativeCapture } from '../js/desktop.js';
+import { normalizeNativeCaptureState } from '../js/desktop/capture.js';
 afterEach(() => { delete window.__TAURI_INTERNALS__; });
+it('expõe o backend efetivamente ativo e a razão do fallback nos eventos IPC', () => {
+  const state = normalizeNativeCaptureState({ capture_backend:'d3d11', capture_fallback_reason:'D3D12 device lost' });
+  expect(state.captureBackend).toBe('d3d11');
+  expect(state.captureFallbackReason).toBe('D3D12 device lost');
+  expect(normalizeNativeCaptureState({ captureBackend:'d3d12' }).captureBackend).toBe('d3d12');
+  expect(normalizeNativeCaptureState({}).captureBackend).toBeNull();
+});
 it('L02: resolução/FPS/bitrate atravessam o adaptador IPC real', async () => {
   const invoke = vi.fn(async () => ({ session_id: 'review' }));
   window.__TAURI_INTERNALS__ = { invoke };

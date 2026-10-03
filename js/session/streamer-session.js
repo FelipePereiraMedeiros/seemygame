@@ -1,4 +1,5 @@
 import { bindCaptureSettings, bindQualityCapabilities, readCaptureSettings } from '../capture/settings.js';
+import { createInitialCodecTransform } from '../streaming/codecs.js';
 import { createQualityController } from '../streaming/adaptation.js';
 import { captureVideoConstraints } from '../streaming/quality.js';
 import { bindStreamingQuality } from '../streaming/settings-controller.js';
@@ -333,7 +334,9 @@ function callViewerWithStream(viewerId, session = streamerState.session) {
 
   const dataConnection = streamerState.connectedViewers.get(viewerId);
   if (streamerState.features?.nativeMedia.broadcastTo(dataConnection)) return null;
-  const call = streamerState.peer.call(viewerId, streamerState.localStream);
+  const call = streamerState.peer.call(viewerId, streamerState.localStream, {
+    sdpTransform:createInitialCodecTransform(()=>readCaptureSettings().videoCodec||'auto')
+  });
   if (!call) return null;
 
   hookPeerConnectionSdp(call.peerConnection);

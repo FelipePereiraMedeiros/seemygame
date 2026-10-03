@@ -10,6 +10,7 @@ const ssh='C:/Windows/System32/OpenSSH/ssh.exe',host=option('--host','notebook')
 const senders=option('--senders','native,web').split(','),receivers=option('--receivers','chrome,tauri').split(','),presets=option('--presets','ultra,balanced').split(',');
 const cases=option('--cases','').split(',').filter(Boolean);
 const matchedResolution=args.includes('--matched-resolution');
+const matchedCodec=args.includes('--matched-codec');
 const bitrateKbps=option('--bitrate-kbps',null);
 if(bitrateKbps!==null&&(!Number.isInteger(Number(bitrateKbps))||Number(bitrateKbps)<256||Number(bitrateKbps)>50000))throw new Error('Invalid bitrate budget');
 if(cases.some(c=>! /^(native|native-d3d12|web):(chrome|tauri):(ultra|balanced)$/.test(c)))throw new Error('Invalid matrix cases (sender:receiver:preset)');
@@ -50,7 +51,7 @@ try {
   // Reverse sender order for the other receiver; create a new GUI/profile for every case.
    console.log(`Matrix case ${sender} -> ${receiver}, ${preset}, ${seconds} intervals`);
    const backend=sender==='native-d3d12'?'d3d12':'d3d11';
-   active=spawn(process.execPath,['tools/e2e/run.mjs','--sender',sender==='web'?'web':'native','--capture-backend',backend,...(sender==='web'?[]:['--encoder','nvenc']),...(matchedResolution?['--matched-resolution']:[]),...(bitrateKbps===null?[]:['--bitrate-kbps',bitrateKbps]),'--exe','src-tauri/target/release/seemygame.exe','--channel','chrome','--preset',preset,'--codec','h264','--seconds',String(seconds),'--viewer-endpoint',ready.controlEndpoint,'--viewer-ssh-host',host,'--source-position','30,30'],{cwd:root,windowsHide:true,stdio:['ignore','pipe','pipe']});
+   active=spawn(process.execPath,['tools/e2e/run.mjs','--sender',sender==='web'?'web':'native','--capture-backend',backend,...(sender==='web'?[]:['--encoder','nvenc']),...(matchedResolution?['--matched-resolution']:[]),...(matchedCodec?['--matched-codec']:[]),...(bitrateKbps===null?[]:['--bitrate-kbps',bitrateKbps]),'--exe','src-tauri/target/release/seemygame.exe','--channel','chrome','--preset',preset,'--codec','h264','--seconds',String(seconds),'--viewer-endpoint',ready.controlEndpoint,'--viewer-ssh-host',host,'--source-position','30,30'],{cwd:root,windowsHide:true,stdio:['ignore','pipe','pipe']});
    let log='';const onData=d=>{const s=d.toString();log+=s;process.stdout.write(redact(s));};active.stdout.on('data',onData);active.stderr.on('data',onData);
    const exited=waitExit(active);let timer;
    const code=await Promise.race([exited,new Promise((_,reject)=>{timer=setTimeout(()=>{active.kill();reject(new Error('Matrix child bounded timeout'));},(seconds+150)*1000);})]).finally(()=>clearTimeout(timer));active=null;

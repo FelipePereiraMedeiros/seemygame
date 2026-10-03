@@ -188,4 +188,171 @@ describe('Ocultação Automática da Barra Inferior e Reações (DiscordUI)', ()
   });
 });
 
+describe('Controles de Áudio no Modal de Tuning da Sala (room.html)', () => {
+  let container;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    container.innerHTML = `
+      <div id="tuning-modal" class="modal-overlay" style="display: none;">
+        <button id="close-tuning-modal-btn">✕</button>
+        <button id="save-tuning-btn">Salvar</button>
+        <select id="tuning-mic-select" class="custom-id-field"></select>
+        <input type="range" id="tuning-mic-volume" min="0" max="200" step="1" value="100">
+        <span id="tuning-mic-volume-val">100%</span>
+        <select id="tuning-speaker-select" class="custom-id-field"></select>
+        <button id="tuning-test-speaker-btn">Testar</button>
+        <div id="tuning-speaker-note"></div>
+        <input type="range" id="tuning-speaker-volume" min="0" max="200" step="1" value="100">
+        <span id="tuning-speaker-volume-val">100%</span>
+      </div>
+    `;
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    if (container && container.parentNode) {
+      container.parentNode.removeChild(container);
+    }
+    vi.restoreAllMocks();
+  });
+
+  it('initTuningAudioDeviceControls popula microfones e saídas e reconcilia IDs obsoletos', async () => {
+    const { initTuningAudioDeviceControls } = await import('../js/app/tuning-controller.js');
+    const { populateDeviceSelect } = await import('../js/audio-devices.js');
+
+    const mockMicrophones = [
+      { deviceId: 'mic-1', label: 'Microfone Realtek', kind: 'audioinput' },
+      { deviceId: 'mic-2', label: 'Headset USB', kind: 'audioinput' }
+    ];
+    const mockSpeakers = [
+      { deviceId: 'spk-1', label: 'Alto-falantes Realtek', kind: 'audiooutput' }
+    ];
+
+    let savedInput = 'stale-mic-id';
+    let savedOutput = 'spk-1';
+
+    const savedAudioPreferenceCalls = [];
+    const context = {
+      isAudioOutputSupported: () => true,
+      getAudioDevices: vi.fn().mockResolvedValue({
+        microphones: mockMicrophones,
+        speakers: mockSpeakers,
+        supportsOutput: true
+      }),
+      populateDeviceSelect,
+      playTestTone: vi.fn().mockResolvedValue(undefined),
+      getSavedAudioPreferences: () => ({ inputId: savedInput, outputId: savedOutput }),
+      saveAudioPreference: (kind, val) => {
+        savedAudioPreferenceCalls.push({ kind, val });
+        if (kind === 'input') savedInput = val;
+        if (kind === 'output') savedOutput = val;
+      },
+      watchDeviceChanges: vi.fn().mockReturnValue(() => {}),
+      voiceManager: {
+        selectedMicId: 'stale-mic-id',
+        selectedSpeakerId: 'spk-1',
+        inputVolume: 100,
+        outputVolume: 100,
+        setInputVolume: vi.fn((v) => v),
+        setOutputVolume: vi.fn((v) => v),
+        setAudioInputDevice: vi.fn().mockResolvedValue(true),
+        setAudioOutputDevice: vi.fn().mockResolvedValue(true),
+        on: vi.fn()
+      }
+    };
+
+    const controls = await initTuningAudioDeviceControls(context);
+    expect(controls).toBeTruthy();
+
+    const micSelect = document.getElementById('tuning-mic-select');
+    const speakerSelect = document.getElementById('tuning-speaker-select');
+
+    // Deve ter populado os selects
+    expect(micSelect.options.length).toBe(3); // default + 2 mics
+    expect(speakerSelect.options.length).toBe(2); // default + 1 spk
+
+    // Como stale-mic-id não existe nos microfones, deve ter limpado e revertido para padrão
+    expect(micSelect.value).toBe('');
+    expect(savedAudioPreferenceCalls).toContainEqual({ kind: 'input', val: '' });
+
+    // Alto-falante válido deve estar selecionado
+    expect(speakerSelect.value).toBe('spk-1');
+
+    controls.destroy();
+  });
+
+  it('room-session setupTuningModal inicializa controles de áudio e salva configurações no voiceManager', async () => {
+    const { createRoomSession } = await import('../js/session/room-session.js');
+
+    const mockVoiceManager = {
+      selectedMicId: '',
+      selectedSpeakerId: '',
+      inputVolume: 100,
+      outputVolume: 100,
+      setInputVolume: vi.fn((v) => v),
+      setOutputVolume: vi.fn((v) => v),
+      setAudioInputDevice: vi.fn().mockResolvedValue(true),
+      setAudioOutputDevice: vi.fn().mockResolvedValue(true),
+      on: vi.fn(),
+      leaveVoice: vi.fn()
+    };
+
+    // Simula navigator.mediaDevices e suporte a setSinkId
+    const origMediaDevices = navigator.mediaDevices;
+    const origSetSinkId = HTMLMediaElement.prototype.setSinkId;
+    HTMLMediaElement.prototype.setSinkId = vi.fn().mockResolvedValue(undefined);
+    navigator.mediaDevices = {
+      enumerateDevices: vi.fn().mockResolvedValue([
+        { deviceId: 'mic-test', label: 'Microfone HyperX', kind: 'audioinput' },
+        { deviceId: 'spk-test', label: 'Fone HyperX', kind: 'audiooutput' }
+      ]),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    };
+
+    try {
+      const room = createRoomSession({ voiceManager: mockVoiceManager });
+      const modal = document.getElementById('tuning-modal');
+
+      room.setupTuningModal();
+
+      // Aguarda microtask para resolução das promises de controles
+      await new Promise((r) => setTimeout(r, 50));
+
+      const micSelect = document.getElementById('tuning-mic-select');
+      const speakerSelect = document.getElementById('tuning-speaker-select');
+      const saveBtn = document.getElementById('save-tuning-btn');
+
+      expect(micSelect.options.length).toBeGreaterThan(1);
+      expect(speakerSelect.options.length).toBeGreaterThan(1);
+
+      // Simula alteração do usuário e clique em Salvar
+      micSelect.value = 'mic-test';
+      speakerSelect.value = 'spk-test';
+
+      modal.style.display = 'flex';
+      saveBtn.click();
+
+      // Aguarda save handler
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(modal.style.display).toBe('none');
+      expect(mockVoiceManager.setAudioInputDevice).toHaveBeenCalledWith('mic-test');
+      expect(mockVoiceManager.setAudioOutputDevice).toHaveBeenCalledWith('spk-test');
+      expect(localStorage.getItem('seemygame_audio_input_id')).toBe('mic-test');
+      expect(localStorage.getItem('seemygame_audio_output_id')).toBe('spk-test');
+    } finally {
+      navigator.mediaDevices = origMediaDevices;
+      if (origSetSinkId) {
+        HTMLMediaElement.prototype.setSinkId = origSetSinkId;
+      } else {
+        delete HTMLMediaElement.prototype.setSinkId;
+      }
+      localStorage.removeItem('seemygame_audio_input_id');
+      localStorage.removeItem('seemygame_audio_output_id');
+    }
+  });
+});
+
 initLegacyBindings();

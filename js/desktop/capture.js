@@ -35,6 +35,8 @@ export function normalizeNativeCaptureState(state = {}) {
         dpi: state.dpi == null ? null : Number(state.dpi),
         videoCodec: state.videoCodec || state.video_codec || null,
         h264Encoder: state.h264Encoder || state.h264_encoder || null,
+        captureBackend: state.captureBackend || state.capture_backend || null,
+        captureFallbackReason: state.captureFallbackReason || state.capture_fallback_reason || null,
         videoRtpPort: state.videoRtpPort == null && state.video_rtp_port == null
             ? null
             : Number(state.videoRtpPort ?? state.video_rtp_port),

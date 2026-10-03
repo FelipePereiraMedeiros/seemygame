@@ -18,7 +18,7 @@ for(const run of matrix.runs){
  const samples=phase.steadyWindow?allSamples.filter(s=>s.timestamp>=phase.steadyWindow.receiverStart?.perf&&s.timestamp<=phase.steadyWindow.receiverEnd?.perf):allSamples;
  const host=phase.resources?.summary,receiver=phase.receiverResources?.summary,last=videos.at(-1);
  rows.push({sender:run.sender,receiver:run.receiver,preset:run.preset,artifact:run.artifact,functionalStatus:r.status,qualification:phase.qualification,
-  senderBrowserVersion:r.senderBrowserVersion,receiverBrowserVersion:r.receiverBrowserVersion,receiverConditions:r.receiverConditions,senderConditions:r.senderConditions,resolutionValidation:phase.resolutionValidation,backendEvidence:r.backendEvidence,
+  senderBrowserVersion:r.senderBrowserVersion,receiverBrowserVersion:r.receiverBrowserVersion,receiverConditions:r.receiverConditions,senderConditions:r.senderConditions,resolutionValidation:phase.resolutionValidation,codecValidation:phase.codecValidation,backendEvidence:r.backendEvidence,
   sourceFpsP50:p(steady.map(s=>s.source.fps)),decodedFpsP50:phase.performance.medianDecodedFps,decodedFpsP10:phase.performance.p10DecodedFps,
   encoderImplementation:[...new Set(steady.map(s=>s.outbound.encoderImplementation).filter(Boolean))],decoderImplementation:[...new Set(samples.map(s=>s.decoderImplementation).filter(Boolean))],
   encodeMsP50:p(steady.map(s=>s.outbound.encodeTimeMs)),decodeMsP50:p(steady.map(s=>s.webInbound.decodeTimeMs)),jitterBufferMsP50:p(steady.map(s=>s.webInbound.jitterBufferMs)),

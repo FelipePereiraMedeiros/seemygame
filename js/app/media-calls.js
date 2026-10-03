@@ -1,4 +1,5 @@
 /** media-calls: commands receive explicit compatibility ports; no page initialization. */
+import { createInitialCodecTransform } from '../streaming/codecs.js';
 export function initiateMediaCallToViewer(compatibilityContext, viewerPeerId) {
   const isNativeActive = Boolean(compatibilityContext.isDesktopApp() && compatibilityContext.activeNativeCaptureProvider?.session?.sessionId);
   if ((!compatibilityContext.localStream && !isNativeActive) || !compatibilityContext.peer) return;
@@ -98,7 +99,9 @@ export function initiateMediaCallToViewer(compatibilityContext, viewerPeerId) {
   }
 
   console.log(`Iniciando chamada com foco em alta fluidez para: ${viewerPeerId}`);
-  const call = compatibilityContext.peer.call(viewerPeerId, compatibilityContext.localStream);
+  const call = compatibilityContext.peer.call(viewerPeerId, compatibilityContext.localStream, {
+    sdpTransform:createInitialCodecTransform(()=>compatibilityContext.videoCodecSelect?.value||'auto')
+  });
   
   if (call) {
     call._direction = 'outgoing';

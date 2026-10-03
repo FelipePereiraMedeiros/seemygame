@@ -28,3 +28,32 @@ export function configureVideoCodecs(transceiver,requested='auto',api=globalThis
  catch(error){try{transceiver.setCodecPreferences([]);}catch(_){}return {...result,applied:false,reason:error.name||'codec-preference-rejected'};}
 }
 
+/** PeerJS starts createOffer inside call(); later transceiver preferences can miss that offer. */
+export function preferVideoCodecInSdp(sdp,requested='auto') {
+ if(!sdp)return sdp;
+ const wanted=codecName(requested)==='auto'?'h264':codecName(requested);
+ const lines=sdp.split(/\r?\n/);
+ for(let i=0;i<lines.length;i++) {
+  if(!lines[i].startsWith('m=video '))continue;
+  let end=i+1;while(end<lines.length&&!lines[end].startsWith('m='))end++;
+  const header=lines[i].split(/\s+/),payloads=header.slice(3),preferred=new Set(),repairs=new Map();
+  for(const line of lines.slice(i+1,end)) {
+   const map=line.match(/^a=rtpmap:(\d+)\s+([^/]+)\//i);
+   if(map&&codecName(map[2])===wanted)preferred.add(map[1]);
+   const apt=line.match(/^a=fmtp:(\d+)\s+.*\bapt=(\d+)\b/i);
+   if(apt)repairs.set(apt[1],apt[2]);
+  }
+  const first=payloads.filter(pt=>preferred.has(pt)||preferred.has(repairs.get(pt)));
+  if(first.length)lines[i]=[...header.slice(0,3),...first,...payloads.filter(pt=>!first.includes(pt))].join(' ');
+  i=end-1;
+ }
+ return lines.join(sdp.includes('\r\n')?'\r\n':'\n');
+}
+export function createInitialCodecTransform(getRequested,api=globalThis) {
+ return sdp=>{
+  const requested=typeof getRequested==='function'?getRequested():getRequested||'auto';
+  const result=selectCodec(requested,getVideoCapabilities(api));
+  return preferVideoCodecInSdp(sdp,result.selected||requested);
+ };
+}
+

@@ -37,6 +37,9 @@ describe('Room media after modularization', () => {
     const { sender, call } = await roomFixture();
     await runtime.startCapture({ audioMode: 'none', bitrateKbps: 4500, fps: 60 });
     expect(runtime.state.peer.call).toHaveBeenCalledTimes(1);
+    const initialTransform=runtime.state.peer.call.mock.calls[0][2].sdpTransform;
+    const initialOffer='m=video 9 UDP/TLS/RTP/SAVPF 96 102\r\na=rtpmap:96 VP8/90000\r\na=rtpmap:102 H264/90000\r\n';
+    expect(initialTransform(initialOffer)).toContain('SAVPF 102 96');
     await vi.waitFor(() => expect(sender.getParameters().encodings[0].maxBitrate).toBe(4500000));
     expect(sender.getParameters().encodings[0]).toMatchObject({ maxBitrate: 4500000, maxFramerate: 60 });
     expect(sender.track.contentHint).toBe('motion');
