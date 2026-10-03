@@ -6,6 +6,7 @@ export function bindSessionMessageHandlers(session, {
   coopController = null,
   chatManager,
   voiceManager,
+  isAuthorizedPeer = () => true,
   getPeer = () => null,
   getLocalPeerId = () => null,
   getDataConnections = () => [],
@@ -24,9 +25,18 @@ export function bindSessionMessageHandlers(session, {
 
   register('CHAT_MESSAGE', (data, sourceConn) => {
     if (!data.message || !chatManager) return;
-    if (chatManager.addMessage(data.message)) {
-      session.eventBus.emit('chat:message-received', data.message);
-      relay(data, sourceConn);
+    const verifiedSenderId = sourceConn?.peer || data.senderPeerId;
+    const message = { ...data.message };
+    if (verifiedSenderId) {
+      message.senderId = verifiedSenderId;
+      if (role === 'streamer') {
+        message.isSystem = false;
+        if (message.role === 'host') message.role = 'viewer';
+      }
+    }
+    if (chatManager.addMessage(message)) {
+      session.eventBus.emit('chat:message-received', message);
+      relay({ ...data, message }, sourceConn);
     }
   }, 'Session chat receive and relay');
 
@@ -132,6 +142,11 @@ export function bindSessionMessageHandlers(session, {
     connectVoiceTo,
     answerVoiceCall(call) {
       if (!call || !voiceManager) return false;
+      if (typeof isAuthorizedPeer === 'function' && !isAuthorizedPeer(call.peer)) {
+        console.warn(`[Voice] Chamada de voz rejeitada de peer não autorizado: ${call.peer}`);
+        try { call.close(); } catch (_) {}
+        return false;
+      }
       const stream = voiceManager.isInVoice ? voiceManager.localStream : null;
       call.answer(stream || undefined);
       bindVoiceCall(call);

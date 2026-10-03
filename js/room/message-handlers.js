@@ -76,14 +76,25 @@ handleRoomMessage(senderPeerId, message, conn) {
         // SEGURANÇA (A02): Validação rigorosa de PIN se configurado no Master
         if (this.isMaster && this.roomPin) {
           const providedPin = message.pin ? String(message.pin).trim() : '';
+          if (!this.pinFailures) this.pinFailures = new Map();
+          const failures = (this.pinFailures.get(senderPeerId) || 0) + 1;
+
           if (providedPin !== this.roomPin) {
-            conn?.send?.({ type: 'ROOM_PIN_REQUIRED', error: 'PIN incorreto para esta sala.' });
-            // Remove qualquer estado pendente ou prévio
+            this.pinFailures.set(senderPeerId, failures);
+            const isExceeded = failures > 5;
+            conn?.send?.({
+              type: 'ROOM_PIN_REQUIRED',
+              error: isExceeded ? 'Excesso de tentativas incorretas de PIN.' : 'PIN incorreto para esta sala.'
+            });
             if (this.pendingConnections.get(senderPeerId) === conn) {
               this.pendingConnections.delete(senderPeerId);
             }
+            if (isExceeded) {
+              try { conn.close(); } catch (_) {}
+            }
             return true;
           }
+          this.pinFailures.delete(senderPeerId);
         }
 
         const cleanName = typeof message.name === 'string' && message.name.trim()
@@ -92,15 +103,14 @@ handleRoomMessage(senderPeerId, message, conn) {
 
         const isGenericName = ['você', 'voce', 'amigo', 'host', 'visitante', 'guest'].includes(cleanName.toLowerCase()) || cleanName.startsWith('Amigo ');
 
-        // Se um usuário com a mesma sessão de aba (F5/relog) ou mesmo nome customizado não-genérico relogou com novo ID, limpa a sessão antiga
+        // Se um usuário com a mesma sessão de aba (F5/relog) relogou com novo ID, limpa a sessão antiga
         for (const [existingPeerId, existingMember] of this.members.entries()) {
           if (existingPeerId === this.myPeerId || existingPeerId === senderPeerId) continue;
 
           const isSameSession = Boolean(message.clientSessionId && existingMember.clientSessionId && existingMember.clientSessionId === message.clientSessionId);
-          const isSameCustomName = Boolean(!isGenericName && cleanName.length >= 3 && existingMember.name?.toLowerCase() === cleanName.toLowerCase());
 
-          if (isSameSession || isSameCustomName) {
-            console.log(`[RoomManager] Relog detectado para "${cleanName}" (${senderPeerId}). Purgando peer fantasma anterior (${existingPeerId}).`);
+          if (isSameSession) {
+            console.log(`[RoomManager] Relog detectado para sessão "${message.clientSessionId}" (${senderPeerId}). Purgando peer fantasma anterior (${existingPeerId}).`);
             this.removeMember(existingPeerId);
             this.broadcast({
               type: 'ROOM_MEMBER_LEFT',

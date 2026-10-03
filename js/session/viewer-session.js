@@ -248,6 +248,20 @@ async function initViewerPeer(session = viewerState.session) {
     });
 
     peer.on('call', (call) => {
+      const callerId = call?.peer;
+      const isAuthorized = Boolean(
+        callerId && (
+          callerId === viewerState.targetHostId ||
+          (watchingHosts.has(callerId) && watchingHosts.get(callerId).conn?.open)
+        )
+      );
+
+      if (!isAuthorized) {
+        console.warn(`[Viewer] Chamada de mídia rejeitada de peer não autorizado: ${callerId}`);
+        try { call.close(); } catch (_) {}
+        return;
+      }
+
       if (call.metadata?.type === 'VOICE_CHAT') {
         viewerState.messageHandlers?.answerVoiceCall(call);
       } else {
@@ -274,11 +288,21 @@ function handleIncomingStreamCall(call, session = viewerState.session) {
 
   call.on('stream', (remoteStream) => {
     viewerState.remoteStream = remoteStream;
+    const onCoopClick = (targetId) => {
+      const conn = watchingHosts.get(targetId)?.conn || viewerState.activeConn;
+      const state = getCoopState();
+      if (state.isPlayer2 || state.pendingApproval) {
+        releaseCoopControl(targetId, conn);
+      } else {
+        requestCoopControl(targetId, conn);
+      }
+    };
     addOrUpdateVideoCard({ audioScope: viewerState.session?.audioScope,
       peerId: hostId,
       stream: remoteStream,
       label: `Ao Vivo: ${hostId.slice(0, 8)}`,
-      isLocal: false
+      isLocal: false,
+      onCoopClick
     });
     hideCardLoading(hostId);
 
