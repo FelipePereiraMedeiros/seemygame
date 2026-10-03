@@ -12,3 +12,5 @@ __pycache__/
 *.pyc
 .agents/
 *.mp4
+!css/assets/*.mp4
+

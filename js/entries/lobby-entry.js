@@ -16,7 +16,9 @@ import {
 import { 
   isDesktopApp, 
   isAlwaysOnTop, 
-  toggleAlwaysOnTop 
+  toggleAlwaysOnTop,
+  shouldPlayDesktopIntro,
+  initDesktopIntro
 } from '../desktop.js';
 import { 
   getAudioDevices, 
@@ -175,12 +177,37 @@ export function initLobbyApp(options = {}) {
   // Integração com Always-on-Top caso esteja rodando no Desktop Tauri
   initDesktopAlwaysOnTop();
 
+  // Abertura cinematográfica para Desktop
+  let introController = null;
+  const replayIntroBtn = document.getElementById('desktop-intro-btn');
+  const searchParams = new URLSearchParams(window.location?.search || '');
+  const isPreview = searchParams.get('intro') === '1' || searchParams.get('previewIntro') === '1';
+
+  if (replayIntroBtn && (isDesktopApp() || isPreview)) {
+    replayIntroBtn.style.display = 'inline-flex';
+  }
+
+  if (shouldPlayDesktopIntro(searchParams)) {
+    introController = initDesktopIntro({
+      replayBtn: replayIntroBtn
+    });
+  } else if (replayIntroBtn && (isDesktopApp() || isPreview)) {
+    session.addEventListener(replayIntroBtn, 'click', () => {
+      introController = initDesktopIntro({
+        replayBtn: replayIntroBtn
+      });
+    });
+  }
+
   return {
     active: true,
     session,
     dispose: () => {
       session.dispose();
       document.removeEventListener('keydown', handleTermsKeyDown);
+      if (introController?.dispose) {
+        introController.dispose();
+      }
     },
     joinRoom: handleJoinRoom,
     generateCode: generateFriendlyRoomCode
