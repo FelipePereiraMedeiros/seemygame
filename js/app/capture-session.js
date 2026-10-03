@@ -53,6 +53,7 @@ export async function startLocalStream(compatibilityContext, options = {}) {
         audioMode: wantSystemAudio ? effectiveAudioMode : 'none',
         videoCodec: chosenCodec,
         h264Encoder: chosenEncoder,
+        captureBackend: document.getElementById('capture-backend-select')?.value || options.captureBackend || null,
         showCursor: chosenCursor,
         width: compatibilityContext.selectedProfile.width,
         height: compatibilityContext.selectedProfile.height,

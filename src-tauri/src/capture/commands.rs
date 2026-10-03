@@ -67,6 +67,7 @@ pub fn start_native_capture(
     audio_mode: Option<String>,
     video_codec: Option<String>,
     h264_encoder: Option<String>,
+    capture_backend: Option<String>,
     show_cursor: Option<bool>,
     width: Option<u32>,
     height: Option<u32>,
@@ -161,6 +162,12 @@ pub fn start_native_capture(
             Ok(config) => config,
             Err(error) => return fail_start(&app, &starting_state, &error),
         };
+    if let Some(backend) = capture_backend.as_deref() {
+        config.capture_backend = match media::CaptureBackend::parse(backend) {
+            Ok(value) => value,
+            Err(error) => return fail_start(&app, &starting_state, &error),
+        };
+    }
     if let Some(enc) = h264_encoder.as_deref() {
         let trimmed = enc.trim();
         if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("auto") {
@@ -352,6 +359,7 @@ pub fn reconfigure_native_capture(
     audio_mode: Option<String>,
     video_codec: Option<String>,
     h264_encoder: Option<String>,
+    capture_backend: Option<String>,
     show_cursor: Option<bool>,
     width: Option<u32>,
     height: Option<u32>,
@@ -370,6 +378,13 @@ pub fn reconfigure_native_capture(
     }
     if session.state.state != "live" || session.worker.is_none() {
         return Err("A captura nativa ainda não está ativa".to_string());
+    }
+    // Validate before taking ownership of the live worker; changing the API is a next-start setting.
+    if let Some(value) = capture_backend.as_deref() {
+        let requested = media::CaptureBackend::parse(value)?;
+        if session.worker.as_ref().is_some_and(|worker| worker.config.capture_backend != requested) {
+            return Err("A troca de API de captura requer reiniciar a transmissão.".to_string());
+        }
     }
 
     let current_worker = session.worker.take().expect("worker present");

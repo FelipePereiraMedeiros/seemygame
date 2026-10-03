@@ -415,31 +415,85 @@
           <input type="range" id="tuning-speaker-volume" min="0" max="200" step="1" value="100" style="width: 100%;">
         </div>
 
-        <div>
-          <label for="video-codec-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Codec de Vídeo:</label>
-          <select id="video-codec-select" class="custom-id-field">
-            <option value="auto" selected>Automático (compatibilidade primeiro)</option>
-            <option value="vp8">VP8</option>
-            <option value="vp9">VP9</option>
-            <option value="h264">H.264 / AVC (Padrão e Máxima Compatibilidade)</option>
-            <option value="av1">AV1 (depende do encoder e do receptor)</option>
-            <option value="hevc">HEVC / H.265 (Alta Eficiência)</option>
-          </select>
-          <div id="video-codec-note" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;"></div>
-        </div>
+        <!-- smg:partial templates/streaming-options/default.html -->
+<section class="streaming-options" aria-label="Codec, encoder e API de captura">
+  <div class="streaming-options-heading">
+    <h3>Como seu vídeo é transmitido</h3>
+    <p>O codec define o formato. O encoder comprime. A API captura a imagem.</p>
+  </div>
+  <div class="streaming-option">
+    <div class="streaming-option-label">
+      <label for="video-codec-select">Codec do vídeo <span>Formato</span></label>
+      <button type="button" class="streaming-help-button" data-streaming-help="codec-help" aria-label="Entender os codecs de vídeo" aria-describedby="codec-help" aria-expanded="false">?</button>
+    </div>
+    <select id="video-codec-select" class="custom-id-field" aria-describedby="video-codec-note">
+      <option value="auto" selected>Automático — compatibilidade primeiro</option>
+      <option value="h264">H.264 / AVC — ampla compatibilidade</option>
+      <option value="hevc">H.265 / HEVC — experimental</option>
+      <option value="av1">AV1 — depende do encoder e do receptor</option>
+      <option value="vp8">VP8 — opção para navegador</option>
+      <option value="vp9">VP9 — opção para navegador</option>
+    </select>
+    <p id="video-codec-note" class="streaming-option-note"></p>
+    <div id="codec-help" class="streaming-option-tooltip" role="tooltip" popover="manual" hidden>
+      <strong>Codec: o formato do vídeo</strong>
+      <p>Quem transmite comprime nesse formato; quem assiste precisa conseguir decodificá-lo.</p>
+      <dl>
+        <dt>H.264 / AVC</dt><dd>Ampla compatibilidade. É o caminho padrão de transmissão nativa atualmente.</dd>
+        <dt>H.265 / HEVC</dt><dd>Pode reduzir banda para uma qualidade semelhante, mas o resultado depende do encoder e da cena. A prévia local e o receptor precisam de suporte. Ainda experimental neste app.</dd>
+        <dt>AV1</dt><dd>Foco em eficiência de compressão. O app usa SVT-AV1 por CPU; isso pode exigir bastante processamento.</dd>
+        <dt>VP8 / VP9</dt><dd>Alternativas WebRTC do navegador. Não fazem parte do pipeline de captura nativa atual.</dd>
+      </dl>
+    </div>
+  </div>
+  <div id="h264-encoder-group" class="streaming-option">
+    <div class="streaming-option-label">
+      <label for="h264-encoder-select">Encoder <span>Quem comprime</span></label>
+      <button type="button" class="streaming-help-button" data-streaming-help="encoder-help" aria-label="Entender os encoders" aria-describedby="encoder-help" aria-expanded="false">?</button>
+    </div>
+    <select id="h264-encoder-select" class="custom-id-field" aria-describedby="h264-encoder-note">
+      <option value="auto" selected>Automático — escolhe um encoder disponível</option>
+      <option value="nvenc">NVIDIA NVENC — hardware dedicado</option>
+      <option value="mf">Media Foundation — hardware via Windows</option>
+      <option value="cpu">CPU — software</option>
+    </select>
+    <p id="h264-encoder-note" class="streaming-option-note"></p>
+    <div id="encoder-help" class="streaming-option-tooltip" role="tooltip" popover="manual" hidden>
+      <strong>Encoder: quem comprime os frames</strong>
+      <p>NVENC não é um codec: o hardware NVIDIA pode produzir formatos como H.264 ou HEVC. As combinações selecionáveis dependem da implementação do app.</p>
+      <dl>
+        <dt>Automático</dt><dd>Em H.264, prefere NVENC, depois Media Foundation e depois CPU, conforme disponibilidade.</dd>
+        <dt>NVIDIA NVENC</dt><dd>Usa o encoder dedicado da GPU NVIDIA. A seleção direta no app está integrada para H.264; HEVC/NVENC ainda não está integrado.</dd>
+        <dt>Media Foundation</dt><dd>Interface do Windows para encoders de hardware, inclusive NVIDIA, Intel e AMD. Não é um codec nem uma marca de GPU.</dd>
+        <dt>CPU</dt><dd>Usa x264 em H.264 ou SVT-AV1 em AV1. Pode aliviar o encode na GPU, mas aumenta a carga de CPU e a captura ainda usa recursos gráficos.</dd>
+      </dl>
+    </div>
+  </div>
+  <div id="capture-backend-group" class="streaming-option">
+    <div class="streaming-option-label">
+      <label for="capture-backend-select">API de captura <span>Caminho gráfico</span></label>
+      <button type="button" class="streaming-help-button" data-streaming-help="capture-api-help" aria-label="Entender as APIs de captura" aria-describedby="capture-api-help" aria-expanded="false">?</button>
+    </div>
+    <select id="capture-backend-select" class="custom-id-field" aria-describedby="capture-backend-note">
+      <option value="auto" selected>Automática — D3D12 quando compatível</option>
+      <option value="d3d12">Direct3D 12 — H.264 + NVENC</option>
+      <option value="d3d11">Direct3D 11 — caminho compatível</option>
+    </select>
+    <p id="capture-backend-note" class="streaming-option-note"></p>
+    <div id="capture-api-help" class="streaming-option-tooltip" role="tooltip" popover="manual" hidden>
+      <strong>API: como a imagem chega ao encoder</strong>
+      <p>Direct3D 11 e 12 são APIs gráficas, não codecs nem encoders. As janelas são capturadas por Windows Graphics Capture (WGC).</p>
+      <dl>
+        <dt>Automática</dt><dd>Prefere D3D12 com H.264/NVENC e plugins compatíveis. Se esse caminho falhar, pode retornar a D3D11.</dd>
+        <dt>Direct3D 12</dt><dd>Seleciona explicitamente captura e conversão D3D12. No pipeline atual, entrega os frames ao encoder NVENC via memória D3D11. Exige H.264/NVENC e não faz fallback automático.</dd>
+        <dt>Direct3D 11</dt><dd>Caminho disponível para Media Foundation, CPU e codecs como HEVC e AV1. HEVC com captura D3D12 é tecnicamente possível, mas ainda não foi integrado no app.</dd>
+      </dl>
+    </div>
+  </div>
+  <p class="streaming-options-footer">O diagnóstico confirma o codec, encoder e caminho realmente ativos. Alterações de codec, encoder ou API passam a valer ao reiniciar a transmissão.</p>
+</section>
 
-        <div id="h264-encoder-group">
-          <label for="h264-encoder-select" style="display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;">Acelerador / Encoder H.264:</label>
-          <select id="h264-encoder-select" class="custom-id-field">
-            <option value="auto" selected>🎮 Automático (NVENC / Media Foundation)</option>
-            <option value="cpu">🧠 CPU Software (x264enc - Recomendado se GPU em 100%)</option>
-            <option value="nvenc">🚀 NVIDIA NVENC (Hardware Dedicado)</option>
-            <option value="mf">🖥️ Media Foundation (Hardware Intel / AMD / Windows)</option>
-          </select>
-          <div id="h264-encoder-note" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-            A aceleração por CPU alivia a GPU caso o jogo esteja exigindo 100% de processamento gráfico.
-          </div>
-        </div>
+<!-- smg:end -->
 
         <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
           <input type="checkbox" id="capture-cursor-toggle" checked style="accent-color: var(--accent-purple); width: 16px; height: 16px; cursor: pointer;">
