@@ -204,5 +204,52 @@ describe('Módulo: audio-devices.js (Gerenciamento de Dispositivos de Áudio)', 
       globalThis.webkitAudioContext = origWebkitAudioContext;
       globalThis.Audio = origAudio;
     });
+
+    it('deve reproduzir em ctx.destination como fallback se setSinkId falhar', async () => {
+      const origAudioContext = globalThis.AudioContext;
+      const origWebkitAudioContext = globalThis.webkitAudioContext;
+      const origAudio = globalThis.Audio;
+
+      const mockGain = {
+        gain: { setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+        connect: vi.fn(),
+      };
+      const mockOsc = {
+        type: 'sine',
+        frequency: { setValueAtTime: vi.fn() },
+        connect: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+      };
+      const mockAudioCtx = {
+        currentTime: 0,
+        state: 'running',
+        createOscillator: vi.fn(() => mockOsc),
+        createGain: vi.fn(() => mockGain),
+        createMediaStreamDestination: vi.fn(() => ({ stream: {} })),
+        destination: { id: 'default-speakers' },
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+
+      globalThis.AudioContext = vi.fn(function() { return mockAudioCtx; });
+      globalThis.webkitAudioContext = vi.fn(function() { return mockAudioCtx; });
+
+      // Simula setSinkId rejeitando (dispositivo desconectado ou inválido)
+      globalThis.Audio = vi.fn(function () {
+        return {
+          play: vi.fn().mockResolvedValue(undefined),
+          pause: vi.fn(),
+          setSinkId: vi.fn().mockRejectedValue(new Error('Device not found')),
+          srcObject: null,
+        };
+      });
+
+      await expect(playTestTone('stale-speaker-id')).resolves.not.toThrow();
+      expect(mockGain.connect).toHaveBeenCalledWith(mockAudioCtx.destination);
+
+      globalThis.AudioContext = origAudioContext;
+      globalThis.webkitAudioContext = origWebkitAudioContext;
+      globalThis.Audio = origAudio;
+    });
   });
 });

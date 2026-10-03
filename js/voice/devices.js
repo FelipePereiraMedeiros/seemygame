@@ -24,7 +24,7 @@ async setAudioInputDevice(deviceId) {
         autoGainControl: true,
       };
       if (this.selectedMicId) {
-        audioConstraints.deviceId = { exact: this.selectedMicId };
+        audioConstraints.deviceId = { ideal: this.selectedMicId };
       }
 
       let newStream;
@@ -34,8 +34,16 @@ async setAudioInputDevice(deviceId) {
           video: false,
         });
       } catch (e) {
+        console.warn('[Voice] Microfone falhou, voltando para o padrão:', e);
         if (this.selectedMicId) {
-          console.warn('[Voice] Microfone falhou, voltando para o padrão:', e);
+          this.selectedMicId = '';
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.removeItem('seemygame_audio_input_id');
+            }
+          } catch (_) {}
+        }
+        try {
           newStream = await navigator.mediaDevices.getUserMedia({
             audio: {
               echoCancellation: true,
@@ -44,8 +52,12 @@ async setAudioInputDevice(deviceId) {
             },
             video: false,
           });
-        } else {
-          throw e;
+        } catch (stdErr) {
+          console.warn('[Voice] Captura com cancelamento de ruído falhou na troca de dispositivo, usando captura pura:', stdErr);
+          newStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+          });
         }
       }
 

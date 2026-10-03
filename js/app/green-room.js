@@ -137,14 +137,14 @@ export async function initGreenRoomLobby(compatibilityContext) {
     stopMicPreview();
     let acquiredStream;
 
-    const savedPrefs = compatibilityContext.getSavedAudioPreferences();
+    const savedPrefs = compatibilityContext.getSavedAudioPreferences?.() || {};
     const targetDeviceId = deviceId !== null ? deviceId : (savedPrefs.inputId || compatibilityContext.voiceManager?.selectedMicId || '');
 
     const audioConstraints = {
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
-      ...(targetDeviceId ? { deviceId: { exact: targetDeviceId } } : {})
+      ...(targetDeviceId ? { deviceId: { ideal: targetDeviceId } } : {})
     };
 
     if (micStatus && !isMicMuted) {
@@ -157,21 +157,31 @@ export async function initGreenRoomLobby(compatibilityContext) {
         try {
           acquiredStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
         } catch (deviceErr) {
+          console.warn('[GreenRoom] Dispositivo preferencial falhou, tentando padrão:', deviceErr);
           if (targetDeviceId) {
-            console.warn('[GreenRoom] Dispositivo preferencial falhou, tentando padrão:', deviceErr);
+            compatibilityContext.saveAudioPreference?.('input', '');
+            if (compatibilityContext.voiceManager) {
+              compatibilityContext.voiceManager.selectedMicId = '';
+            }
+          }
+          try {
             acquiredStream = await navigator.mediaDevices.getUserMedia({
               audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
               video: false
             });
-          } else {
-            throw deviceErr;
+          } catch (stdErr) {
+            console.warn('[GreenRoom] Captura com cancelamento de ruído falhou, usando captura pura (audio: true):', stdErr);
+            acquiredStream = await navigator.mediaDevices.getUserMedia({
+              audio: true,
+              video: false
+            });
           }
         }
       }
     } catch (err) {
       console.warn('[GreenRoom] Falha ao acessar microfone:', err);
       if (micStatus) {
-        micStatus.textContent = '⚠️ Microfone não permitido ou indisponível. Verifique as permissões do navegador.';
+        micStatus.textContent = '⚠️ Microfone não permitido ou indisponível. Verifique as permissões do sistema/navegador.';
         micStatus.style.color = '#f87171';
       }
       return;
@@ -259,9 +269,21 @@ export async function initGreenRoomLobby(compatibilityContext) {
     try {
       const { microphones, speakers } = await compatibilityContext.getAudioDevices(false);
       if (isCleanedUp) return;
-      const prefs = compatibilityContext.getSavedAudioPreferences();
-      const currentMicId = micSelect?.value || prefs.inputId || compatibilityContext.voiceManager?.selectedMicId || '';
-      const currentSpeakerId = speakerSelect?.value || prefs.outputId || compatibilityContext.voiceManager?.selectedSpeakerId || '';
+      const prefs = compatibilityContext.getSavedAudioPreferences?.() || {};
+      let currentMicId = micSelect?.value || prefs.inputId || compatibilityContext.voiceManager?.selectedMicId || '';
+      let currentSpeakerId = speakerSelect?.value || prefs.outputId || compatibilityContext.voiceManager?.selectedSpeakerId || '';
+
+      // Reconciliação: se o ID salvo não existe mais nos dispositivos conectados, limpa a preferência obsoleta
+      if (currentMicId && microphones.length > 0 && !microphones.some(m => m.deviceId === currentMicId)) {
+        compatibilityContext.saveAudioPreference?.('input', '');
+        if (compatibilityContext.voiceManager) compatibilityContext.voiceManager.selectedMicId = '';
+        currentMicId = '';
+      }
+      if (currentSpeakerId && speakers.length > 0 && !speakers.some(s => s.deviceId === currentSpeakerId)) {
+        compatibilityContext.saveAudioPreference?.('output', '');
+        if (compatibilityContext.voiceManager) compatibilityContext.voiceManager.selectedSpeakerId = '';
+        currentSpeakerId = '';
+      }
 
       if (micSelect) {
         compatibilityContext.populateDeviceSelect(micSelect, microphones, currentMicId, 'Microfone Padrão do Sistema');

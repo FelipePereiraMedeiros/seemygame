@@ -189,10 +189,23 @@ export async function playTestTone(sinkId = '') {
       gain.connect(dest);
       audioElem = new Audio();
       audioElem.srcObject = dest.stream;
+      let setSinkSuccess = true;
       if (typeof audioElem.setSinkId === 'function') {
-        await audioElem.setSinkId(sinkId).catch(() => {});
+        try {
+          await audioElem.setSinkId(sinkId);
+        } catch (sinkErr) {
+          console.warn('[AudioDevices] Falha ao definir sinkId no áudio de teste:', sinkErr);
+          setSinkSuccess = false;
+        }
       }
-      await audioElem.play().catch(() => {});
+      if (setSinkSuccess) {
+        await audioElem.play().catch((playErr) => {
+          console.warn('[AudioDevices] Falha ao reproduzir áudio com sinkId:', playErr);
+          gain.connect(ctx.destination);
+        });
+      } else {
+        gain.connect(ctx.destination);
+      }
     } catch (e) {
       gain.connect(ctx.destination);
     }

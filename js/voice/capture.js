@@ -26,7 +26,7 @@ async joinVoice({ peerId, name = 'Você', role = 'host', customStream = null, in
           autoGainControl: true,
         };
         if (this.selectedMicId) {
-          audioConstraints.deviceId = { exact: this.selectedMicId };
+          audioConstraints.deviceId = { ideal: this.selectedMicId };
         }
 
         try {
@@ -39,9 +39,18 @@ async joinVoice({ peerId, name = 'Você', role = 'host', customStream = null, in
           const processed = this.setupLocalAudioProcessing(userStream);
           this.localStream = processed || userStream;
         } catch (deviceErr) {
+          console.warn('[Voice] Microfone preferencial indisponível, usando padrão:', deviceErr);
           if (this.selectedMicId) {
-            console.warn('[Voice] Microfone preferencial indisponível, usando padrão:', deviceErr);
-            const userStream = await navigator.mediaDevices.getUserMedia({
+            this.selectedMicId = '';
+            try {
+              if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem('seemygame_audio_input_id');
+              }
+            } catch (_) {}
+          }
+          let userStream;
+          try {
+            userStream = await navigator.mediaDevices.getUserMedia({
               audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
@@ -49,13 +58,17 @@ async joinVoice({ peerId, name = 'Você', role = 'host', customStream = null, in
               },
               video: false,
             });
-            if (generation !== this.captureGeneration) { userStream.getTracks().forEach(track => track.stop()); return null; }
-          this.rawLocalStream = userStream;
-            const processed = this.setupLocalAudioProcessing(userStream);
-            this.localStream = processed || userStream;
-          } else {
-            throw deviceErr;
+          } catch (stdErr) {
+            console.warn('[Voice] Captura com cancelamento de ruído falhou, usando captura pura (audio: true):', stdErr);
+            userStream = await navigator.mediaDevices.getUserMedia({
+              audio: true,
+              video: false,
+            });
           }
+          if (generation !== this.captureGeneration) { userStream.getTracks().forEach(track => track.stop()); return null; }
+          this.rawLocalStream = userStream;
+          const processed = this.setupLocalAudioProcessing(userStream);
+          this.localStream = processed || userStream;
         }
       } else {
         throw new Error('getUserMedia não suportado neste ambiente');

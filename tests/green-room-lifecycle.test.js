@@ -44,4 +44,25 @@ describe('Green Room: lifecycle after modularization', () => {
     document.getElementById('green-room-join-btn').click();
     expect(context.onProceed).toHaveBeenCalledOnce();
   });
+
+  it('recupera com fallback gracioso quando o dispositivo preferencial falha com OverconstrainedError', async () => {
+    const fallbackTrack = { stop: vi.fn(), enabled: true };
+    const overconstrainedErr = new DOMException('Device not found', 'OverconstrainedError');
+
+    // Primeira chamada rejeita com OverconstrainedError; segunda chamada (fallback) sucede
+    const getUserMediaSpy = vi.spyOn(navigator.mediaDevices, 'getUserMedia')
+      .mockRejectedValueOnce(overconstrainedErr)
+      .mockResolvedValueOnce({ getTracks: () => [fallbackTrack], getAudioTracks: () => [fallbackTrack] });
+
+    const context = ports();
+    context.getSavedAudioPreferences = () => ({ inputId: 'stale-broken-device-id' });
+
+    await initGreenRoomLobby(context);
+    await flush();
+
+    expect(getUserMediaSpy).toHaveBeenCalledTimes(2);
+    // Deve limpar a preferência de microfone inválida
+    expect(context.saveAudioPreference).toHaveBeenCalledWith('input', '');
+  });
 });
+
