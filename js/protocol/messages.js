@@ -3,6 +3,8 @@
  * Define contratos canônicos e envelopes de transporte para mensageria P2P.
  */
 
+import { PinAttemptLimiter } from './pin-attempt-limiter.js';
+
 export const PROTOCOL_TYPES = Object.freeze({
   // Admissão e Autenticação
   ADMISSION: {
@@ -131,18 +133,16 @@ export class AdmissionGate {
     this.roomPin = roomPin ? String(roomPin).trim() : null;
     this.roomKey = roomKey ? String(roomKey).trim() : null;
     this.authenticatedPeers = new Set();
-    this.failedAttempts = new Map();
+    this.pinAttemptLimiter = new PinAttemptLimiter();
+    this.failedAttempts = this.pinAttemptLimiter.failedAttempts;
   }
 
   recordFailedAttempt(peerId) {
-    if (!peerId) return 1;
-    const count = (this.failedAttempts.get(peerId) || 0) + 1;
-    this.failedAttempts.set(peerId, count);
-    return count;
+    return this.pinAttemptLimiter.recordFailedAttempt(peerId);
   }
 
   isRateLimited(peerId) {
-    return (this.failedAttempts.get(peerId) || 0) >= 5;
+    return this.pinAttemptLimiter.isRateLimited(peerId);
   }
 
   /**
@@ -152,7 +152,7 @@ export class AdmissionGate {
   authenticate(peerId) {
     if (peerId) {
       this.authenticatedPeers.add(peerId);
-      this.failedAttempts.delete(peerId);
+      this.pinAttemptLimiter.resetPeer(peerId);
     }
   }
 
@@ -163,7 +163,6 @@ export class AdmissionGate {
   revoke(peerId) {
     if (peerId) {
       this.authenticatedPeers.delete(peerId);
-      this.failedAttempts.delete(peerId);
     }
   }
 
@@ -199,5 +198,6 @@ export class AdmissionGate {
 
   clear() {
     this.authenticatedPeers.clear();
+    this.pinAttemptLimiter.clear();
   }
 }
