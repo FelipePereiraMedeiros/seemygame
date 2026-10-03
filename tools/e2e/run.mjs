@@ -27,6 +27,9 @@ import { readDisplayModes, validateWindowPosition } from './harness/displays.mjs
 import { calibrateCaptureWindow, verifyDeliveredResolution } from './harness/capture-geometry.mjs';
 import { startReverseTunnel } from './harness/ssh-reverse.mjs';
 import { readCaptureBackendEvidence, verifyNegotiatedCodec } from './harness/capture-backend.mjs';
+import { terminateOwnedMediaWorker } from './harness/worker-failure.mjs';
+import { installNativeWithoutPreview } from './harness/no-preview.mjs';
+import { installNativeReceiverPayloads } from './harness/receiver-payloads.mjs';
 import {classifyStutter} from './harness/stutter-cause.mjs';
 
 ensureDefaultDesktop();
@@ -54,6 +57,12 @@ if (!['auto', 'h264', 'av1', 'hevc'].includes(requestedCodec)) throw new Error('
 const isCompareMode = args.includes('--compare');
 const senderMode=option('--sender','native');
 const captureBackend=option('--capture-backend','auto');
+const experimentalHevcReceive=args.includes('--enable-hevc-receive');
+const nativeWithoutPreview=args.includes('--native-without-preview');
+if(nativeWithoutPreview&&senderMode!=='native')throw new Error('No-preview diagnostic requires native sender');
+if(nativeWithoutPreview&&requestedCodec==='auto')throw new Error('No-preview diagnostic requires an explicit codec');
+const exerciseCaptureFallback=args.includes('--exercise-capture-fallback');
+if(exerciseCaptureFallback&&(senderMode!=='native'||captureBackend!=='auto'))throw new Error('Fallback fault injection requires native sender with automatic backend');
 if(!['auto','d3d11','d3d12'].includes(captureBackend))throw new Error('Invalid capture backend');
 if(senderMode==='web'&&captureBackend==='d3d12')throw new Error('Capture backend applies only to native sender');
 if(captureBackend==='d3d12'&&requestedCodec!=='h264')throw new Error('D3D12 experiment requires H264');
@@ -211,7 +220,7 @@ try {
       ...process.env,
       SEEMYGAME_NATIVE_CAPTURE_BACKEND: captureBackend,
       WEBVIEW2_USER_DATA_FOLDER: path.join(output, 'webview-profile'),
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1 --use-fake-device-for-media-stream --use-fake-ui-for-media-stream --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion --autoplay-policy=no-user-gesture-required`
+      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1 --use-fake-device-for-media-stream --use-fake-ui-for-media-stream --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion --autoplay-policy=no-user-gesture-required${experimentalHevcReceive?' --enable-features=WebRtcAllowH265Receive':''}`
     };
     if (args.includes('--cold-gstreamer-registry')) {
       env.GST_REGISTRY_1_0 = path.join(output, 'gst-registry.bin');
@@ -230,6 +239,8 @@ try {
       }
       if (!nativeBrowser) throw new Error('WebView2 CDP indisponível; confira runtime e executável');
       const context = nativeBrowser.contexts()[0]; await isolatedInit(context);
+      report.senderBrowserVersion=nativeBrowser.version();
+      report.experimentalHevcReceive=experimentalHevcReceive;
       hostPage = context.pages()[0] || await context.newPage();
       // The shipping CSP intentionally rejects arbitrary localhost signaling ports.
       // Scope the bypass to this isolated E2E WebView; do not relax application CSP.
@@ -633,13 +644,22 @@ try {
 
     const executeNativePhase = async () => {
       console.log(`\n--- Executando Fase: Captura Nativa (${captureBackend} / WGC) ---`);
+      if(nativeWithoutPreview){
+        await hostPage.evaluate(installNativeWithoutPreview);
+        await viewerPage.evaluate(installNativeReceiverPayloads,{codec:requestedCodec});
+        report.nativeWithoutPreview=true;
+        report.limitations.push('Diagnostic adapter bypasses local WebView2 preview and its codec fallback, and normalizes the receiver offer to the requested codec with video payload types 96..127. Real native worker sends encoded RTP directly to the remote receiver; all compared codecs must use this same adapter. Not a production preview/compatibility benchmark.');
+      }
       await hostPage.evaluate(async enabled => {
         (await import('/js/entries/room-entry.js')).roomState.features.clipping.recorder.setPreferences({ enabled, recordLocal: enabled });
       }, nativeReplay);
       await record('select native synthetic window and transmit', async () => {
+        const readCapabilities=async()=>({send:RTCRtpSender.getCapabilities('video'),receive:RTCRtpReceiver.getCapabilities('video')});
+        report.codecCapabilities={host:await hostPage.evaluate(readCapabilities),viewer:await viewerPage.evaluate(readCapabilities)};
         await hostPage.locator('#audio-mode-select').selectOption('none', { force: true });
         await hostPage.locator('#quality-preset').selectOption(preset, { force: true }).catch(() => {});
         await hostPage.locator('#video-codec-select').selectOption(requestedCodec, { force: true });
+        if (await hostPage.locator('#capture-backend-select').count()) await hostPage.locator('#capture-backend-select').selectOption(captureBackend, { force: true });
         await hostPage.locator('#h264-encoder-select').selectOption(encoder,{force:true});
         await hostPage.locator('#bitrate-slider').evaluate((el,value)=>{el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));},bitrateKbps);
         await hostPage.locator('#dock-stream-btn').click({ force: true });
@@ -676,8 +696,10 @@ try {
           await sleep(1000);
         }
         if (!ready) throw new Error('Espectador não reproduziu vídeo do host em 45s; veja measurements e native-debug.log');
+        report.videoNegotiation=await viewerPage.evaluate(()=>window.__smgPeers.map(pc=>({state:pc.connectionState,remaps:pc.__smgPayloadRemaps??null,offer:pc.localDescription?.sdp.split(/\r?\n/).filter(line=>/^m=video |^a=(rtpmap|fmtp|rtcp-fb):/.test(line))??[]})));
         report.nativeState = await hostPage.evaluate(async () => (await import('/js/desktop.js')).getNativeCaptureState());
         if (!report.nativeState.sessionId) throw new Error('Vídeo sem sessão nativa ativa');
+        if(matchedCodec&&report.nativeState.videoCodec!==requestedCodec)throw new Error(`Native codec fallback before benchmark: requested ${requestedCodec}, worker ${report.nativeState.videoCodec}`);
         report.nativeTransport = await hostPage.evaluate(async () => {
           const state = (await import('/js/entries/room-entry.js')).roomState;
           return { browserMediaCalls: state.screenCalls.size, directNativePeers: state.features.nativeMedia.senders.size };
@@ -685,6 +707,28 @@ try {
         if (report.nativeTransport.browserMediaCalls !== 0 || report.nativeTransport.directNativePeers !== 1)
           throw new Error('A fase nativa deve usar envio direto GStreamer, sem recodificação no navegador');
         await awaitMatchedReceiver(viewerPage,hostId,'native');
+      });
+
+      if(exerciseCaptureFallback) await record('recover owned D3D12 worker failure using D3D11 without renegotiating viewer',async()=>{
+        const before=await hostPage.evaluate(async()=>(await import('/js/desktop.js')).getNativeCaptureState());
+        if(before.captureBackend!=='d3d12')throw new Error('Fallback test requires D3D12 to be active first');
+        const injected=terminateOwnedMediaWorker(desktop.pid),started=injected.killedAtMs;
+        await waitApp(hostPage,async()=>{
+          const state=await (await import('/js/desktop.js')).getNativeCaptureState();
+          return state.state==='live'&&state.captureBackend==='d3d11'&&!!state.captureFallbackReason;
+        },null,15000);
+        // Observe progress after the fallback state; frames produced before fault injection
+        // must not satisfy the recovery assertion.
+        const framesAfterSwitch=await viewerPage.evaluate(id=>document.getElementById(`card-${id}`)?.querySelector('video')?.getVideoPlaybackQuality().totalVideoFrames??0,hostId);
+        await viewerPage.waitForFunction(({id,frames})=>{
+          const video=document.getElementById(`card-${id}`)?.querySelector('video');
+          return video?.readyState>=2&&video.getVideoPlaybackQuality().totalVideoFrames>frames+6;
+        },{id:hostId,frames:framesAfterSwitch},{timeout:15000});
+        const after=await hostPage.evaluate(async()=>(await import('/js/desktop.js')).getNativeCaptureState());
+        if(after.sessionId!==before.sessionId)throw new Error('Fallback unexpectedly replaced capture session');
+        if(after.videoRtpPort!==before.videoRtpPort||after.audioRtpPort!==before.audioRtpPort||after.videoCodec!==before.videoCodec||after.h264Encoder!==before.h264Encoder)throw new Error('Fallback changed transport ports or codec');
+        report.captureFallback={passed:true,injected,recoveryMs:Date.now()-started,before,after};
+        report.nativeState=after;
       });
 
       const res = await record('sample native bridge, outbound and remote receiver', async () => {

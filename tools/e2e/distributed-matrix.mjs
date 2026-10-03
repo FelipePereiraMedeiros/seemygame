@@ -11,14 +11,22 @@ const senders=option('--senders','native,web').split(','),receivers=option('--re
 const cases=option('--cases','').split(',').filter(Boolean);
 const matchedResolution=args.includes('--matched-resolution');
 const matchedCodec=args.includes('--matched-codec');
+const experimentalHevcReceive=args.includes('--enable-hevc-receive');
+const nativeWithoutPreview=args.includes('--native-without-preview');
+const exerciseCaptureFallback=args.includes('--exercise-capture-fallback');
+const senderExe=option('--exe','src-tauri/target/release/seemygame.exe');
+const codec=option('--codec','h264').toLowerCase().replace(/^h265$/,'hevc');
+const encoderOverride=option('--encoder',null);
+if(!['h264','hevc','av1'].includes(codec)||encoderOverride!==null&&!['auto','nvenc','mf','cpu'].includes(encoderOverride))throw new Error('Invalid codec or encoder');
+if(senders.includes('native-d3d12')&&(codec!=='h264'||encoderOverride!==null&&encoderOverride!=='nvenc'))throw new Error('Forced D3D12 requires H264/NVENC');
 const bitrateKbps=option('--bitrate-kbps',null);
 if(bitrateKbps!==null&&(!Number.isInteger(Number(bitrateKbps))||Number(bitrateKbps)<256||Number(bitrateKbps)>50000))throw new Error('Invalid bitrate budget');
-if(cases.some(c=>! /^(native|native-d3d12|web):(chrome|tauri):(ultra|balanced)$/.test(c)))throw new Error('Invalid matrix cases (sender:receiver:preset)');
-if(!/^[a-zA-Z0-9][a-zA-Z0-9_.@-]*$/.test(host)||!senders.length||senders.some(s=>!['native','native-d3d12','web'].includes(s))||!receivers.length||receivers.some(s=>!['chrome','tauri'].includes(s))||!presets.length||presets.some(s=>!['ultra','balanced'].includes(s))||!Number.isInteger(seconds)||seconds<5||seconds>180)throw new Error('Invalid matrix arguments');
+if(cases.some(c=>! /^(native|native-auto|native-d3d12|web):(chrome|tauri):(ultra|balanced)$/.test(c)))throw new Error('Invalid matrix cases (sender:receiver:preset)');
+if(!/^[a-zA-Z0-9][a-zA-Z0-9_.@-]*$/.test(host)||!senders.length||senders.some(s=>!['native','native-auto','native-d3d12','web'].includes(s))||!receivers.length||receivers.some(s=>!['chrome','tauri'].includes(s))||!presets.length||presets.some(s=>!['ultra','balanced'].includes(s))||!Number.isInteger(seconds)||seconds<5||seconds>180)throw new Error('Invalid matrix arguments');
 const remoteRoot='C:/Users/Diogo/SeeMyGame',remoteExe=remoteRoot+'/output/remote-matrix/runtime-2026-10-02/receiver.exe';
 const id='matrix-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+randomBytes(3).toString('hex');
 const output=path.join(root,'output/playwright',id);await mkdir(output,{recursive:true});
-const report={id,status:'running',scope:'two machines, interactive notebook receiver, fresh receiver profile per case, synthetic window capture; not game stress or optical latency',seconds,presets,senders,receivers,cases,matchedResolution,bitrateKbps,runs:[],cleanup:[],helperHashes:{}};
+const report={id,status:'running',scope:'two machines, interactive notebook receiver, fresh receiver profile per case, synthetic window capture; not game stress or optical latency',seconds,presets,senders,receivers,cases,codec,encoderOverride,matchedCodec,matchedResolution,bitrateKbps,runs:[],cleanup:[],helperHashes:{}};
 for(const file of ['tools/e2e/distributed-matrix.mjs','tools/e2e/viewer-task.ps1','tools/e2e/viewer-agent.mjs','tools/e2e/harness/remote-viewer.mjs'])report.helperHashes[file]=createHash('sha256').update(await readFile(path.join(root,file))).digest('hex');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const shellQuote=s=>"'"+s.replaceAll("'","''")+"'";
@@ -50,15 +58,16 @@ try {
   console.log(`Receiver ${receiver} in notebook session ${metadata.session.processSessionId}.`);
   // Reverse sender order for the other receiver; create a new GUI/profile for every case.
    console.log(`Matrix case ${sender} -> ${receiver}, ${preset}, ${seconds} intervals`);
-   const backend=sender==='native-d3d12'?'d3d12':'d3d11';
-   active=spawn(process.execPath,['tools/e2e/run.mjs','--sender',sender==='web'?'web':'native','--capture-backend',backend,...(sender==='web'?[]:['--encoder','nvenc']),...(matchedResolution?['--matched-resolution']:[]),...(matchedCodec?['--matched-codec']:[]),...(bitrateKbps===null?[]:['--bitrate-kbps',bitrateKbps]),'--exe','src-tauri/target/release/seemygame.exe','--channel','chrome','--preset',preset,'--codec','h264','--seconds',String(seconds),'--viewer-endpoint',ready.controlEndpoint,'--viewer-ssh-host',host,'--source-position','30,30'],{cwd:root,windowsHide:true,stdio:['ignore','pipe','pipe']});
+   const backend=sender==='native-d3d12'?'d3d12':sender==='native-auto'?'auto':'d3d11';
+   const selectedEncoder=encoderOverride??(sender==='native-d3d12'||sender==='native'&&codec==='h264'?'nvenc':'auto');
+   active=spawn(process.execPath,['tools/e2e/run.mjs','--sender',sender==='web'?'web':'native','--capture-backend',backend,...(sender==='web'?[]:['--encoder',selectedEncoder]),...(nativeWithoutPreview?['--native-without-preview']:[]),...(experimentalHevcReceive?['--enable-hevc-receive']:[]),...(exerciseCaptureFallback?['--exercise-capture-fallback']:[]),...(matchedResolution?['--matched-resolution']:[]),...(matchedCodec?['--matched-codec']:[]),...(bitrateKbps===null?[]:['--bitrate-kbps',bitrateKbps]),'--exe',senderExe,'--channel','chrome','--preset',preset,'--codec',codec,'--seconds',String(seconds),'--viewer-endpoint',ready.controlEndpoint,'--viewer-ssh-host',host,'--source-position','30,30'],{cwd:root,windowsHide:true,stdio:['ignore','pipe','pipe']});
    let log='';const onData=d=>{const s=d.toString();log+=s;process.stdout.write(redact(s));};active.stdout.on('data',onData);active.stderr.on('data',onData);
    const exited=waitExit(active);let timer;
    const code=await Promise.race([exited,new Promise((_,reject)=>{timer=setTimeout(()=>{active.kill();reject(new Error('Matrix child bounded timeout'));},(seconds+150)*1000);})]).finally(()=>clearTimeout(timer));active=null;
    await writeFile(path.join(output,`${preset}-${sender}-${receiver}.log`),redact(log));
    const artifact=log.match(/E2E \w+: (.+report\.json)/)?.[1]?.trim();if(!artifact)throw new Error('No child E2E artifact');
    const result=JSON.parse(await readFile(artifact)),phase=sender==='web'?result.web:result.native;
-   report.runs.push({sender,receiver,preset,artifact,exitCode:code,status:result.status,verdict:result.verdict,receiverConditions:result.receiverConditions,performance:phase?.performance?{medianDecodedFps:phase.performance.medianDecodedFps,p10DecodedFps:phase.performance.p10DecodedFps}:null,qualification:phase?.qualification,diagnostics:phase?.diagnostics,receiverResources:phase?.receiverResources?.summary,error:result.error});
+   report.runs.push({sender,receiver,preset,codec,encoder:selectedEncoder,artifact,exitCode:code,status:result.status,verdict:result.verdict,receiverConditions:result.receiverConditions,performance:phase?.performance?{medianDecodedFps:phase.performance.medianDecodedFps,p10DecodedFps:phase.performance.p10DecodedFps}:null,qualification:phase?.qualification,diagnostics:phase?.diagnostics,receiverResources:phase?.receiverResources?.summary,error:result.error});
    await writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2));
    if(code!==0||result.receiverConditions?.sameMachine!==false||!(phase?.receiverResources?.summary.sampleCount>0)){
      report.caseFailures=(report.caseFailures||0)+1;

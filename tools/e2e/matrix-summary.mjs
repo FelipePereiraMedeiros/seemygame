@@ -17,9 +17,11 @@ for(const run of matrix.runs){
  const allSamples=(phase.productionDiagnostic.receiver?.streams||[]).flatMap(s=>s.samples),sender=(phase.productionDiagnostic.sender?.streams||[]).flatMap(s=>s.samples);
  const samples=phase.steadyWindow?allSamples.filter(s=>s.timestamp>=phase.steadyWindow.receiverStart?.perf&&s.timestamp<=phase.steadyWindow.receiverEnd?.perf):allSamples;
  const host=phase.resources?.summary,receiver=phase.receiverResources?.summary,last=videos.at(-1);
- rows.push({sender:run.sender,receiver:run.receiver,preset:run.preset,artifact:run.artifact,functionalStatus:r.status,qualification:phase.qualification,
+ rows.push({sender:run.sender,receiver:run.receiver,preset:run.preset,requestedCodec:run.codec??r.qualityConditions?.requestedCodec,requestedEncoder:run.encoder??r.senderConditions?.requestedEncoder,workerEncoder:[...new Set((r.backendEvidence?.pipelineLines||[]).flatMap(line=>line.match(/\b(?:nvd3d11h264enc|mfh264enc|mfh265enc|x264enc|svtav1enc)\b/g)||[]))],nativeState:r.nativeState,artifact:run.artifact,functionalStatus:r.status,qualification:phase.qualification,
   senderBrowserVersion:r.senderBrowserVersion,receiverBrowserVersion:r.receiverBrowserVersion,receiverConditions:r.receiverConditions,senderConditions:r.senderConditions,resolutionValidation:phase.resolutionValidation,codecValidation:phase.codecValidation,backendEvidence:r.backendEvidence,
+  label:run.label,repetition:run.repetition,
   sourceFpsP50:p(steady.map(s=>s.source.fps)),decodedFpsP50:phase.performance.medianDecodedFps,decodedFpsP10:phase.performance.p10DecodedFps,
+  presentedFpsP50:p(samples.map(s=>s.presentedFps)),decodeMsP95:p(steady.map(s=>s.webInbound.decodeTimeMs),.95),jitterBufferMsP95:p(steady.map(s=>s.webInbound.jitterBufferMs),.95),
   encoderImplementation:[...new Set(steady.map(s=>s.outbound.encoderImplementation).filter(Boolean))],decoderImplementation:[...new Set(samples.map(s=>s.decoderImplementation).filter(Boolean))],
   encodeMsP50:p(steady.map(s=>s.outbound.encodeTimeMs)),decodeMsP50:p(steady.map(s=>s.webInbound.decodeTimeMs)),jitterBufferMsP50:p(steady.map(s=>s.webInbound.jitterBufferMs)),
   nativeRtpFpsP50:p(sender.map(s=>s.producedFps)),nativePreviewFpsP50:p(steady.map(s=>s.bridge.decodedFps)),codec:[...new Set(samples.map(s=>s.codec).filter(Boolean))],deliveredResolutions:phase.deliveredResolutions,
