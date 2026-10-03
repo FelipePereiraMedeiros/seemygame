@@ -104,10 +104,10 @@ setBackgroundMode(mode) {
     this.render();
   }
 
-  saveUndoState() {
-    this.undoStack.push([...this.elements.map(e => ({ ...e }))]);
+  saveUndoState(snapshot = this.elements.map(e => ({ ...e }))) {
+    this.undoStack.push(snapshot);
     if (this.undoStack.length > 50) {
-      this.undoStack.shift();
+      this.undoStack.splice(0, this.undoStack.length - 50);
     }
   }
 
