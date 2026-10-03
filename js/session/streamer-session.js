@@ -144,7 +144,7 @@ function getStreamerPin() {
   return null;
 }
 
-async function initStreamerPeer(customId = null, session = streamerState.session) {
+async function initStreamerPeer(customId = null, session = streamerState.session, { forceRandom = false } = {}) {
   if (typeof Peer === 'undefined') {
     throw new Error('PeerJS não está carregado no escopo global.');
   }
@@ -154,7 +154,7 @@ async function initStreamerPeer(customId = null, session = streamerState.session
   const config = getPeerConfig();
 
   return new Promise((resolve, reject) => {
-    const idToUse = customId || streamerState.customId;
+    const idToUse = forceRandom ? null : (customId || streamerState.customId);
     const peer = idToUse ? new Peer(idToUse, config) : new Peer(config);
     streamerState.peer = peer;
     session?.registerCleanup(() => peer.destroy());
@@ -176,6 +176,8 @@ async function initStreamerPeer(customId = null, session = streamerState.session
     peer.on('call', (call) => {
       if (call.metadata?.type === 'VOICE_CHAT' && streamerState.admissionGate.isAuthenticated(call.peer)) {
         streamerState.messageHandlers?.answerVoiceCall(call);
+      } else {
+        try { call.close(); } catch (_) {}
       }
     });
 
@@ -183,7 +185,9 @@ async function initStreamerPeer(customId = null, session = streamerState.session
       console.error('[Streamer] Erro no Peer:', err);
       if (err.type === 'unavailable-id') {
         showToast('ID customizado já em uso. Tentando ID aleatório...', 'warning');
-        initStreamerPeer(null, session).then(resolve).catch(reject);
+        streamerState.customId = null;
+        try { peer.destroy(); } catch (_) {}
+        initStreamerPeer(null, session, { forceRandom: true }).then(resolve).catch(reject);
       } else {
         reject(err);
       }
@@ -224,6 +228,15 @@ function handleViewerConnection(conn, session = streamerState.session) {
     if (data.type === PROTOCOL_TYPES.MEDIA.REQUEST_STREAM || data.type === PROTOCOL_TYPES.ADMISSION.VIEWER_HELLO) {
       getStreamerPin();
       if (streamerState.admissionGate.roomPin) {
+        if (streamerState.admissionGate.isRateLimited(viewerId)) {
+          sendSessionMessage(streamerState.session, conn, {
+            type: PROTOCOL_TYPES.ADMISSION.PIN_REQUIRED,
+            error: 'Excesso de tentativas incorretas. Conexão bloqueada.'
+          });
+          try { conn.close(); } catch (_) {}
+          return;
+        }
+
         const isValid = streamerState.admissionGate.validateAuthAttempt({ pin: data.pin });
         if (isValid) {
           streamerState.admissionGate.authenticate(viewerId);
@@ -237,10 +250,14 @@ function handleViewerConnection(conn, session = streamerState.session) {
           }
           showToast(`Amigo (${viewerId.slice(0, 6)}) autenticou com PIN.`, 'success');
         } else {
+          const attempts = streamerState.admissionGate.recordFailedAttempt(viewerId);
           sendSessionMessage(streamerState.session, conn, {
             type: PROTOCOL_TYPES.ADMISSION.PIN_REQUIRED,
-            error: 'PIN incorreto. Tente novamente.'
+            error: attempts >= 5 ? 'Excesso de tentativas incorretas.' : 'PIN incorreto. Tente novamente.'
           });
+          if (attempts >= 5) {
+            try { conn.close(); } catch (_) {}
+          }
         }
         return;
       } else {
@@ -273,7 +290,11 @@ function handleViewerConnection(conn, session = streamerState.session) {
     streamerState.connectedViewers.delete(viewerId);
     streamerState.admissionGate.revoke(viewerId);
     session?.eventBus.emit('streamer:viewerDisconnected', { peerId: viewerId });
-    streamerState.activeCalls.delete(viewerId);
+    const existingCall = streamerState.activeCalls.get(viewerId);
+    if (existingCall) {
+      try { existingCall.close(); } catch (_) {}
+      streamerState.activeCalls.delete(viewerId);
+    }
     updateViewerCount();
     console.log(`[Streamer] Espectador desconectado: ${viewerId}`);
   });
@@ -296,6 +317,18 @@ function callViewerWithStream(viewerId, session = streamerState.session) {
   if (!streamerState.admissionGate.isAuthenticated(viewerId)) {
     console.warn(`[Streamer] Chamada de mídia bloqueada: peer ${viewerId} não autenticado.`);
     return null;
+  }
+
+  const existingCall = streamerState.activeCalls.get(viewerId);
+  if (existingCall && !existingCall.closed) {
+    const pcState = existingCall.peerConnection?.connectionState;
+    const isAlive = existingCall.open || pcState === 'connected' || pcState === 'connecting' || !pcState;
+    if (isAlive) {
+      console.log(`[Streamer] Chamada de mídia já ativa/em negociação com ${viewerId}, ignorando chamada redundante.`);
+      return existingCall;
+    }
+    try { existingCall.close(); } catch (_) {}
+    streamerState.activeCalls.delete(viewerId);
   }
 
   const dataConnection = streamerState.connectedViewers.get(viewerId);
@@ -354,6 +387,9 @@ async function startCapture(sourceId = null, captureOptions = {}, session = stre
 
     if (session?.isDisposed || epoch !== streamerState.captureEpoch) { stream?.getTracks().forEach(track => track.stop()); await streamerState.captureProvider?.stop(); return null; }
     streamerState.localStream = stream;
+    stream?.getVideoTracks?.()?.forEach((track) => {
+      track.addEventListener('ended', () => stopCapture(session), { once: true });
+    });
 
     // Transmite a todos os espectadores conectados e autenticados
     for (const viewerId of streamerState.connectedViewers.keys()) {

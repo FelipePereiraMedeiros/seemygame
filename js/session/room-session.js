@@ -259,14 +259,26 @@ async function setupRoomSession(peerId, session = roomState.session) {
     }
   });
 
+  const connectingMeshPeers = new Set();
   const connectMeshMembers = () => {
     if (!roomState.peer || roomState.peer.destroyed || !rm.isInRoom || rm.isMaster) return;
     for (const member of rm.members.values()) {
       if (member.peerId === rm.myPeerId || member.peerId === rm.masterPeerId || member.isMaster) continue;
       if (rm.myPeerId.localeCompare(member.peerId) >= 0) continue;
+      if (connectingMeshPeers.has(member.peerId)) continue;
       if (rm.meshConnections.has(member.peerId) || rm.pendingConnections.has(member.peerId)) continue;
+
+      connectingMeshPeers.add(member.peerId);
       const conn = roomState.peer.connect(member.peerId, { reliable: true, metadata: { type: 'ROOM_MESH', roomId } });
-      if (conn) attachRoomDataConnection(conn, rm, session, { authenticateMember: true });
+      if (conn) {
+        const cleanup = () => connectingMeshPeers.delete(member.peerId);
+        conn.once('open', cleanup);
+        conn.once('close', cleanup);
+        conn.once('error', cleanup);
+        attachRoomDataConnection(conn, rm, session, { authenticateMember: true });
+      } else {
+        connectingMeshPeers.delete(member.peerId);
+      }
     }
   };
   rm.on('membersUpdated', connectMeshMembers);
@@ -515,8 +527,9 @@ async function joinRoomVoice(rm, session) {
     rm.broadcast({ type: 'VOICE_SIGNAL', action: 'VOICE_JOINED', peerId: rm.myPeerId, name: rm.userName, role: rm.isMaster ? 'host' : 'member' });
     for (const [memberId, conn] of rm.meshConnections) {
       if (!conn.open || !rm.isPeerAuthorized(memberId) || rm.myPeerId.localeCompare(memberId) >= 0) continue;
+      const handlers = session?.messageHandlers || roomState.messageHandlers;
       const call = roomState.peer?.call(memberId, stream, { metadata: { type: 'VOICE_CHAT', name: rm.userName, role: rm.isMaster ? 'host' : 'member' } });
-      session?.messageHandlers?.bindVoiceCall(call);
+      handlers?.bindVoiceCall(call);
     }
   } catch (error) {
     showToast('Não foi possível acessar o microfone.', 'error');
@@ -524,8 +537,9 @@ async function joinRoomVoice(rm, session) {
 }
 
 function leaveRoomVoice(rm, session) {
-  session?.messageHandlers?.activeVoiceCalls.forEach((call) => { try { call.close(); } catch (_) {} });
-  session?.messageHandlers?.activeVoiceCalls.clear();
+  const handlers = session?.messageHandlers || roomState.messageHandlers;
+  handlers?.activeVoiceCalls.forEach((call) => { try { call.close(); } catch (_) {} });
+  handlers?.activeVoiceCalls.clear();
   voiceManager.leaveVoice();
   rm.broadcast({ type: 'VOICE_SIGNAL', action: 'LEAVE', peerId: rm.myPeerId });
 }
@@ -539,11 +553,11 @@ async function startRoomCapture(rm, session, captureOptions = {}) {
   roomState.isStartingStream = true;
   captureOptions = { ...readCaptureSettings(), ...captureOptions };
   const epoch = roomState.captureEpoch = (roomState.captureEpoch || 0) + 1;
+  let stream = null;
   try {
-    let stream;
     if (captureOptions.sourceId) {
       bindCaptureSettings(session, () => roomState.captureProvider, showToast);
-  installNativeCaptureBridge();
+      installNativeCaptureBridge();
       const provider = new NativeCaptureProvider();
       provider.uiAudioMode = captureOptions.audioMode;
       roomState.captureProvider = provider;
@@ -568,6 +582,13 @@ async function startRoomCapture(rm, session, captureOptions = {}) {
     session?.eventBus.emit('stream:started', { stream, sourceId: 'local-me' });
   } catch (error) {
     console.error('[Room] Falha ao iniciar captura:', error);
+    if (stream) {
+      try { stream.getTracks().forEach(track => track.stop()); } catch (_) {}
+    }
+    if (roomState.captureProvider) {
+      try { roomState.captureProvider.stop(); } catch (_) {}
+      roomState.captureProvider = null;
+    }
     showToast('Não foi possível iniciar o compartilhamento.', 'error');
   } finally { roomState.isStartingStream = false; }
 }
@@ -720,7 +741,9 @@ async function initRoomApp(options = {}) {
     broadcast: (data, excludePeerId) => roomState.roomManager?.broadcast(data, excludePeerId)
   });
   roomState.messageHandlers = messageHandlers;
-  session.registerCleanup(() => {
+  if (session) session.messageHandlers = messageHandlers;
+  session?.registerCleanup(() => {
+    if (session?.messageHandlers === messageHandlers) session.messageHandlers = null;
     if (roomState.messageHandlers === messageHandlers) roomState.messageHandlers = null;
     if (roomState.features === features) roomState.features = null;
     if (roomState.requestRoomJoin) roomState.requestRoomJoin = null;
@@ -771,6 +794,8 @@ async function initRoomApp(options = {}) {
     },
     startCapture: options => startRoomCapture(roomState.roomManager, session, options),
     stopCapture: () => stopRoomCapture(roomState.roomManager, session),
+    joinVoice: () => joinRoomVoice(roomState.roomManager, session),
+    leaveVoice: () => leaveRoomVoice(roomState.roomManager, session),
     state: roomState,
     getRoomInfo: getRoomInfoFromUrl
   };
@@ -800,6 +825,8 @@ initGreenRoomLobby,
 setupRoomSession,
 initRoomPeer,
 setupTuningModal,
+joinRoomVoice,
+leaveRoomVoice,
 initRoomApp
 };
 }

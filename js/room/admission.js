@@ -20,10 +20,8 @@ registerConnection(peerId, conn, initialInfo = {}) {
       return true;
     }
 
-    // Every room connection starts pending. Public rooms still need the room
-    // admission handshake; otherwise a peer could connect directly to a
-    // guest and bypass the coordinator's membership list.
-    if (!this.authenticatedPeers.has(peerId)) {
+    // Every room connection starts pending until open/authenticated.
+    if (!this.authenticatedPeers.has(peerId) || !conn.open) {
       if (!this.pendingConnections.has(peerId) && this.pendingConnections.size >= MAX_PENDING_ROOM_CONNECTIONS) return false;
       this.pendingConnections.set(peerId, conn);
       return true;
@@ -32,7 +30,7 @@ registerConnection(peerId, conn, initialInfo = {}) {
     return this.promoteConnection(peerId, conn, initialInfo);
   }
 
-promoteConnection(peerId, conn, initialInfo = {}) {
+  promoteConnection(peerId, conn, initialInfo = {}) {
     if (!isValidPeerId(peerId) || peerId === this.myPeerId || !conn) return false;
     if (!this.members.has(peerId) && this.members.size >= MAX_ROOM_MEMBERS) return false;
 
@@ -64,23 +62,30 @@ promoteConnection(peerId, conn, initialInfo = {}) {
     } else {
       const existing = this.members.get(peerId);
       existing.lastSeen = Date.now();
-      if (initialInfo.name && initialInfo.name.trim()) {
+      let changed = false;
+      if (initialInfo.name && initialInfo.name.trim() && existing.name !== initialInfo.name) {
         existing.name = sanitizeText(initialInfo.name).slice(0, 30);
+        changed = true;
       }
-      if (initialInfo.clientSessionId) {
+      if (initialInfo.clientSessionId && existing.clientSessionId !== initialInfo.clientSessionId) {
         existing.clientSessionId = initialInfo.clientSessionId;
+        changed = true;
       }
-      if (typeof initialInfo.isStreaming === 'boolean') {
+      if (typeof initialInfo.isStreaming === 'boolean' && existing.isStreaming !== initialInfo.isStreaming) {
         existing.isStreaming = initialInfo.isStreaming;
+        changed = true;
       }
-      if (initialInfo.streamDetails) {
+      if (initialInfo.streamDetails && existing.streamDetails !== initialInfo.streamDetails) {
         existing.streamDetails = initialInfo.streamDetails;
+        changed = true;
       }
-      this.emit('membersUpdated', this.getMembersList());
-      if (existing.isStreaming) {
-        this.emit('streamPublished', { peerId: existing.peerId, details: existing.streamDetails, member: existing });
+      if (changed) {
+        this.emit('membersUpdated', this.getMembersList());
+        if (existing.isStreaming) {
+          this.emit('streamPublished', { peerId: existing.peerId, details: existing.streamDetails, member: existing });
+        }
+        this.notifyState();
       }
-      this.notifyState();
     }
     return true;
   }
