@@ -62,21 +62,24 @@ export class RelayManager {
 
     const rtt = Number(telemetry.rtt) || 50;
     const packetLoss = Number(telemetry.packetLoss) || 0;
+    const isLan = Boolean(telemetry.isLan || (telemetry.rtt !== undefined && Number(telemetry.rtt) <= 5));
 
     // Se já existia, atualiza telemetria
     if (this.nodes.has(peerId)) {
       const existing = this.nodes.get(peerId);
       existing.rtt = rtt;
       existing.packetLoss = packetLoss;
+      if (typeof telemetry.isLan === 'boolean') existing.isLan = telemetry.isLan;
       return { role: existing.role, parentPeerId: existing.parentPeerId };
     }
 
     const directNodes = this.getDirectNodes();
+    const directWanNodes = directNodes.filter(n => !n.isLan);
     let role = 'direct';
     let parentPeerId = this.originPeerId;
 
-    if (directNodes.length < this.maxDirectViewers) {
-      // Vaga direta disponível no Streamer
+    if (isLan || directWanNodes.length < this.maxDirectViewers) {
+      // Vaga direta disponível no Streamer (nós LAN sempre têm acesso direto sem consumir vagas de upload WAN)
       role = 'direct';
       parentPeerId = this.originPeerId;
       if (this.originPeerId && this.nodes.has(this.originPeerId)) {
@@ -104,7 +107,8 @@ export class RelayManager {
       parentPeerId,
       children: new Set(),
       rtt,
-      packetLoss
+      packetLoss,
+      isLan
     };
 
     this.nodes.set(peerId, node);
@@ -186,6 +190,8 @@ export class RelayManager {
     if (!node) return;
     if (typeof metrics.rtt === 'number') node.rtt = metrics.rtt;
     if (typeof metrics.packetLoss === 'number') node.packetLoss = metrics.packetLoss;
+    if (typeof metrics.isLan === 'boolean') node.isLan = metrics.isLan;
+    else if (typeof metrics.rtt === 'number' && metrics.rtt <= 5) node.isLan = true;
   }
 
   /**

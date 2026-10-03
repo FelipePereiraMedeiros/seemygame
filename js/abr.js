@@ -25,6 +25,7 @@ export class AdaptiveBitrateController {
         currentBitrateBps: target,
         minBitrateBps: this._minBitrateBps,
         isEnabled: enabled,
+        isLan: false,
         consecutiveBadSamples: 0,
         consecutiveGoodSamples: 0
       });
@@ -61,8 +62,9 @@ export class AdaptiveBitrateController {
   setTargetBitrate(bps, peerId = 'global') {
     const state = this._ensureState(peerId);
     const val = Number(bps) || 7500000;
+    const oldTarget = state.targetBitrateBps;
     state.targetBitrateBps = Math.max(state.minBitrateBps, Math.min(50000000, val));
-    if (state.currentBitrateBps > state.targetBitrateBps || !state.isEnabled) {
+    if (state.currentBitrateBps === oldTarget || state.currentBitrateBps > state.targetBitrateBps || !state.isEnabled) {
       state.currentBitrateBps = state.targetBitrateBps;
     }
   }
@@ -98,28 +100,34 @@ export class AdaptiveBitrateController {
    * @param {number} [baseTargetBps=8000000]
    * @returns {number}
    */
-  static calculateMeshGuardCap(viewerCount, baseTargetBps = 8000000) {
-    const count = Math.max(1, Number(viewerCount) || 1);
+  static calculateMeshGuardCap(viewerCount, baseTargetBps = 8000000, lanViewerCount = 0) {
+    const total = Math.max(1, Number(viewerCount) || 1);
     const base = Number(baseTargetBps) || 8000000;
-    if (count <= 1) return base;
-    if (count === 2) return Math.min(base, 6000000);
-    if (count === 3) return Math.min(base, 4000000);
-    // 4 ou mais espectadores: divide teto conjunto de 12 Mbps pela quantidade, preservando piso de 1.5 Mbps
-    return Math.max(1500000, Math.floor(12000000 / count));
+    const wanCount = Math.max(1, total - Math.max(0, Number(lanViewerCount) || 0));
+    if (wanCount <= 1) return base;
+    if (wanCount === 2) return Math.min(base, 6000000);
+    if (wanCount === 3) return Math.min(base, 4000000);
+    // 4 ou mais espectadores WAN: divide teto conjunto de 12 Mbps pela quantidade, preservando piso de 1.5 Mbps
+    return Math.max(1500000, Math.floor(12000000 / wanCount));
   }
 
   /**
    * Aplica o teto do Mesh Guard a todos os espectadores ativos.
    * @param {number} viewerCount
    * @param {number} [baseTargetBps=null]
+   * @param {number} [lanViewerCount=0]
    * @returns {number} novo teto em bps
    */
-  applyMeshGuard(viewerCount, baseTargetBps = null) {
+  applyMeshGuard(viewerCount, baseTargetBps = null, lanViewerCount = 0) {
     const count = Math.max(1, Number(viewerCount) || 1);
     const base = baseTargetBps || this._initialTargetBitrateBps;
-    const cap = AdaptiveBitrateController.calculateMeshGuardCap(count, base);
+    const cap = AdaptiveBitrateController.calculateMeshGuardCap(count, base, lanViewerCount);
 
     for (const [peerId, state] of this._states.entries()) {
+      if (state.isLan) {
+        // Pares na rede local (LAN) não compartilham o canal de upload residencial da WAN
+        continue;
+      }
       state.targetBitrateBps = cap;
       if (state.currentBitrateBps > cap) {
         state.currentBitrateBps = cap;
@@ -131,7 +139,7 @@ export class AdaptiveBitrateController {
 
   /**
    * Processa uma amostra de telemetria WebRTC
-   * @param {Object} sample { packetLossRate: number, rttMs: number, qualityLimitationReason?: string, encodeTimeMs?: number }
+   * @param {Object} sample { packetLossRate: number, rttMs: number, qualityLimitationReason?: string, encodeTimeMs?: number, isLan?: boolean }
    * @returns {number} currentBitrateBps
    */
   processSample(sample = {}, peerId = 'global') {
@@ -155,6 +163,12 @@ export class AdaptiveBitrateController {
       return state.currentBitrateBps;
     }
 
+    const isLan = Boolean(sample.isLan || (rttValid && rawRtt <= 5 && !sample.isRelay));
+    if (isLan) {
+      state.isLan = true;
+      state.minBitrateBps = Math.max(this._minBitrateBps, Math.min(state.targetBitrateBps, Math.round(state.targetBitrateBps * 0.4)));
+    }
+
     const loss = lossValid ? rawLoss : 0;
     const rtt = rttValid ? rawRtt : 0;
     const encodeTime = encodeTimeValid ? rawEncodeTime : 0;
@@ -172,6 +186,8 @@ export class AdaptiveBitrateController {
     // Condição de estabilidade e sobra de banda: requer métricas válidas e ausência de saturação
     const isGoodNetwork = !isDegraded && lossValid && rttValid && (loss < 0.01) && (rtt < 90) && (!encodeTimeValid || encodeTime <= budget * .9);
 
+    const samplesRequired = (isLan || state.isLan) ? 1 : this.goodSamplesRequiredForRecovery;
+
     if (isDegraded) {
       state.consecutiveBadSamples++;
       state.consecutiveGoodSamples = 0;
@@ -188,10 +204,11 @@ export class AdaptiveBitrateController {
       state.consecutiveBadSamples = 0;
       state.consecutiveGoodSamples++;
 
-      if (state.consecutiveGoodSamples >= this.goodSamplesRequiredForRecovery) {
+      if (state.consecutiveGoodSamples >= samplesRequired) {
         state.consecutiveGoodSamples = 0;
-        // Recuperação gradual de 15%
-        const increased = Math.min(state.targetBitrateBps, Math.round(state.currentBitrateBps * 1.15));
+        // Recuperação: 25% na LAN, 15% na WAN
+        const factor = (isLan || state.isLan) ? 1.25 : 1.15;
+        const increased = Math.min(state.targetBitrateBps, Math.round(state.currentBitrateBps * factor));
         if (increased !== state.currentBitrateBps) {
           state.currentBitrateBps = increased;
           this._emitBitrateChange(state, peerId);
