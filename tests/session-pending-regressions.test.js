@@ -41,10 +41,13 @@ describe('Regressões das pendências da verificação de modularização', () =
     const viewerEntry = await import('../js/entries/viewer-entry.js');
     const app = await viewerEntry.initViewerApp({ targetStreamerId: null });
     const id = `received_${Date.now()}`;
+    const hostConnection = { peer: 'remote-host', open: true };
+    app.state.targetHostId = hostConnection.peer;
+    app.state.activeConn = hostConnection;
     const result = app.session.dispatcher.dispatch({
       type: 'CHAT_MESSAGE',
       message: { id, senderId: 'remote-host', senderName: 'Host', role: 'host', channel: 'geral', text: 'mensagem recebida' }
-    });
+    }, hostConnection);
     expect(result.handled).toBe(true);
     expect(app.session.services.chatManager.getMessages('geral').some((message) => message.id === id)).toBe(true);
     app.dispose();
