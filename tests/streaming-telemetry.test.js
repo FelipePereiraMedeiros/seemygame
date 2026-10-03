@@ -43,17 +43,28 @@ describe('Production telemetry accuracy',()=>{
   let time=0,callback;const cancel=vi.fn(),video={requestVideoFrameCallback:vi.fn(fn=>{callback=fn;return 1;}),cancelVideoFrameCallback:cancel};
   const observer=observePresentation(video,()=>time);
   callback(0,{presentedFrames:1,expectedDisplayTime:0});time=100;callback(100,{presentedFrames:7,expectedDisplayTime:100});time=200;
-  const result=observer.sample();expect(result.presentedFps).toBe(35);expect(result.missedCallbacks).toBe(5);expect(result.maxPauseMs).toBe(100);observer.dispose();expect(cancel).toHaveBeenCalledWith(1);
+  const result=observer.sample();expect(result.presentedFps).toBe(35);expect(result.missedCallbacks).toBe(5);expect(result.maxPauseMs).toBeNull();expect(result.frametimeP95Ms).toBeNull();expect(result.callbackMaxGapMs).toBe(100);expect(result.presentationEvidence).toBe('callback-only');observer.dispose();expect(cancel).toHaveBeenCalledWith(1);
  });
- it('reports a stalled video even when no new callback arrives',()=>{
+ it('reports callback silence without certifying a stalled compositor',()=>{
   let time=0,callback;const o=observePresentation({requestVideoFrameCallback:fn=>{callback=fn;return 1;}},()=>time);
-  callback(0,{presentedFrames:1,expectedDisplayTime:0});time=800;expect(o.sample().maxPauseMs).toBe(800);o.dispose();
+  callback(0,{presentedFrames:1,expectedDisplayTime:0});time=800;const result=o.sample();expect(result.callbackSilenceMs).toBe(800);expect(result.maxPauseMs).toBeNull();o.dispose();
  });
  it('does not report a startup zero before the first presentation callback',()=>{
   let time=0,callback;const o=observePresentation({requestVideoFrameCallback:fn=>{callback=fn;return 1;}},()=>time);
   time=10;expect(o.sample().presentedFps).toBeNull();
   callback(20,{presentedFrames:1,expectedDisplayTime:20});time=1010;expect(o.sample().presentedFps).toBe(1);
-  time=2010;expect(o.sample().presentedFps).toBe(0);expect(o.sample().maxPauseMs).toBe(1990);o.dispose();
+  time=2010;expect(o.sample().presentedFps).toBe(0);expect(o.sample().callbackSilenceMs).toBe(1990);o.dispose();
+ });
+ it('measures a long interval only when consecutive compositor frames confirm it',()=>{
+  let time=0,callback;const o=observePresentation({requestVideoFrameCallback:fn=>{callback=fn;return 1;}},()=>time);
+  callback(0,{presentedFrames:40,expectedDisplayTime:0});time=300;callback(300,{presentedFrames:41,expectedDisplayTime:300});
+  expect(o.sample()).toMatchObject({maxPauseMs:300,frametimeP95Ms:300,consecutiveFrameIntervals:1,missedCallbacks:0});
+  time=310;expect(o.sample().maxPauseMs).toBeNull();o.dispose();
+ });
+ it('does not infer a frame interval across a counter reset',()=>{
+  let time=0,callback;const o=observePresentation({requestVideoFrameCallback:fn=>{callback=fn;return 1;}},()=>time);
+  callback(0,{presentedFrames:40,expectedDisplayTime:0});time=300;callback(300,{presentedFrames:1,expectedDisplayTime:300});
+  expect(o.sample().frametimeP95Ms).toBeNull();o.dispose();
  });
  it('prevents concurrent polls and discards results after disposal',async()=>{
   vi.useFakeTimers();let resolve;const pc={getStats:vi.fn(()=>new Promise(r=>{resolve=r;}))},scope=createStatsMonitorScope();
@@ -106,6 +117,12 @@ describe('Quality capability selection and negotiation',()=>{
   const samples=Array.from({length:60},()=>({measuredFps:119,presentedFps:118,intervalMs:1000,width:1280,height:720,codec:'video/AV1',visibility:'visible',maxPauseMs:16}));
   expect(assessQuality(samples,{fps:120,width:1280,height:720}).status).toBe('passed');
  });
+ it('does not certify quality from high FPS alone when frame-interval evidence is unavailable',()=>{
+  const samples=Array.from({length:60},()=>({measuredFps:60,presentedFps:60,intervalMs:1000,width:1280,height:720,codec:'video/H264',visibility:'visible',maxPauseMs:null,callbackMaxGapMs:100}));
+  expect(assessQuality(samples,{fps:60,width:1280,height:720}).status).toBe('insufficient-evidence');
+  samples[20].presentedFps=20;for(let i=21;i<30;i++)samples[i].presentedFps=20;
+  expect(assessQuality(samples,{fps:60,width:1280,height:720}).failureReasons).toContain('composition-cadence-below-target');
+ });
 });
 
 
@@ -120,6 +137,7 @@ describe('Negotiation readiness and diagnosis',()=>{
  it('does not claim an unknown stage is healthy or an inferred bottleneck proven',()=>{
   expect(diagnoseSample({}).stage).toBe('undetermined');
   const diagnosis=diagnoseSample({maxPauseMs:300,measuredFps:59,requestedFps:60});expect(diagnosis.stage).toBe('presentation');expect(diagnosis.confidence).toBe('medium');
+  expect(diagnoseSample({callbackMaxGapMs:300,maxPauseMs:null,measuredFps:59}).stage).toBe('presentation-observation');
  });
  it('counts a genuine stall as zero FPS even if framesPerSecond is stale',()=>{
   const a=sample(rtp({framesPerSecond:60,framesDecoded:120}));const b=sample(rtp({framesPerSecond:60,framesDecoded:120}),a,2000);expect(b.measuredFps).toBe(0);

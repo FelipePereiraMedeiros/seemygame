@@ -48,14 +48,16 @@ pub fn get_native_capture_state() -> Result<NativeCaptureState, String> {
 #[cfg(not(test))]
 #[tauri::command(async)]
 pub fn get_native_stream_stats(session_id: String, viewer_id: String) -> Result<Vec<serde_json::Value>, String> {
-    let (webrtc, produced) = {
+    let (webrtc, produced, bridge_stats) = {
         let guard = active_session().lock().map_err(|_| "Estado de captura indisponível")?;
         let session = guard.as_ref().ok_or("Captura encerrada")?;
         if session.state.session_id.as_deref() != Some(session_id.as_str()) { return Err("Sessão inválida".into()); }
-        (session.viewer_bridges.get(&viewer_id).ok_or("Espectador desconectado")?.bridge.webrtc.clone(), session.fanout.as_ref().map(|fanout| fanout.counters.snapshot()))
+        let bridge = &session.viewer_bridges.get(&viewer_id).ok_or("Espectador desconectado")?.bridge;
+        (bridge.webrtc.clone(), session.fanout.as_ref().map(|fanout| fanout.counters.snapshot()), bridge.transport_stats())
     };
     let mut reports = crate::webrtc_bridge::stats::collect(&webrtc)?;
     if let Some(produced) = produced { reports.push(produced); }
+    reports.extend(bridge_stats);
     Ok(reports)
 }
 

@@ -7,5 +7,6 @@ export function diagnoseSample(sample) {
   if (Number.isFinite(sample.producedFps) && sample.requestedFps && sample.producedFps < sample.requestedFps * .85) return { stage: 'native-producer', confidence: 'medium', message: 'Cadência baixa antes da ponte WebRTC' };
   if (sample.maxPauseMs > 100 && sample.measuredFps >= (sample.requestedFps || 60) * .85) return { stage: 'presentation', confidence: 'medium', message: 'Pausa na apresentação com decode ativo' };
   if (sample.jitterBufferDelayMs > 50 && sample.maxPauseMs > 100) return { stage: 'receiver-buffer', confidence: 'low', message: 'Investigue jitter e sincronização A/V' };
+  if (sample.callbackMaxGapMs > 100) return { stage: 'presentation-observation', confidence: 'low', message: 'Atraso de callback; pausa visual não confirmada' };
   return { stage: 'undetermined', confidence: 'low', message: 'Sem gargalo identificado nesta amostra' };
 }

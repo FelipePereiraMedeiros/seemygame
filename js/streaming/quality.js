@@ -10,7 +10,13 @@ export function assessQuality(samples,{fps,width,height,codec,minSeconds=60}={})
  // Allow 50ms of clock/timer rounding at the boundary; never accept a short smoke run.
  if(durationMs<minSeconds*1000-50||valid.length<minSeconds*.8)return result;
  const canonical=c=>String(c||'').replace(/^video\//i,'').toLowerCase().replace(/^hevc$/,'h265');
- result.status=valid.every(s=>s.width===width&&s.height===height&&s.visibility==='visible'&&s.codec&&(!codec||canonical(codec)==='auto'||canonical(s.codec)===canonical(codec)))&&result.fpsP10>=fps*.9&&result.presentationP10>=fps*.9&&Number.isFinite(result.maxPauseMs)&&result.maxPauseMs<=Math.max(50,4000/fps)?'passed':'failed';
+ result.failureReasons=[];
+ if(!valid.every(s=>s.width===width&&s.height===height&&s.visibility==='visible'&&s.codec&&(!codec||canonical(codec)==='auto'||canonical(s.codec)===canonical(codec))))result.failureReasons.push('profile-or-visibility-mismatch');
+ if(result.fpsP10<fps*.9)result.failureReasons.push('decode-cadence-below-target');
+ if(result.presentationP10<fps*.9)result.failureReasons.push('composition-cadence-below-target');
+ if(Number.isFinite(result.maxPauseMs)&&result.maxPauseMs>Math.max(50,4000/fps))result.failureReasons.push('consecutive-frame-pause');
+ result.pauseEvidence=Number.isFinite(result.maxPauseMs)?'observed-frame-intervals':'unavailable';
+ result.status=result.failureReasons.length?'failed':result.pauseEvidence==='unavailable'?'insufficient-evidence':'passed';
  return result;
 }
 
