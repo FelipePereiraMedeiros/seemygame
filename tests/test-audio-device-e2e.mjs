@@ -151,6 +151,13 @@ async function runAudit() {
     console.log(`  [E2E] ${name} entrou na sala.`);
   }
 
+  // Aguarda confirmação de presença mútua dos 2 membros antes de iniciar transmissão
+  await hostPage.waitForFunction(() => {
+    const badge = document.getElementById('sidebar-members-count');
+    return badge && badge.textContent.includes('2 online');
+  }, { timeout: 20000 });
+  console.log('  [E2E] 2 participantes confirmados online na sala.');
+
   // Verifica opções de áudio na interface web
   console.log('\n[2/2] Validando controles de áudio e transmissão P2P...');
   const audioOptions = await hostPage.evaluate(() => {
