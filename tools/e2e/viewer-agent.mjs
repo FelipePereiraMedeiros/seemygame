@@ -13,6 +13,8 @@ import {machineFingerprint} from './harness/remote-viewer.mjs';
 const require=createRequire(import.meta.url),option=(key,fallback)=>{const i=process.argv.indexOf(key);return i<0?fallback:process.argv[i+1];};
 const port=Number(option('--browser-port','9333')),controlPort=Number(option('--control-port','9334')),minutes=Number(option('--max-minutes','30')),headless=process.argv.includes('--headless');
 const runtime=option('--runtime','chrome'),root=fileURLToPath(new URL('../../',import.meta.url));
+const browserConfig=option('--browser-config','harness');
+if(!['harness','standard'].includes(browserConfig))throw new Error('Invalid browser config');
 if(!['chrome','tauri'].includes(runtime)||runtime==='tauri'&&headless)throw new Error('Use chrome (optionally headless) or tauri in an interactive session');
 const readyFile=option('--ready-file',null),readyPath=readyFile?path.resolve(readyFile):null;
 if(readyPath&&!readyPath.startsWith(path.join(root,'output')+path.sep))throw new Error('Ready file must be in the project output directory');
@@ -28,7 +30,7 @@ try {
   if(!headless&&(session.processSessionId===null||session.processSessionId===0))throw new Error('Headed viewer requires an interactive Windows session. Open this helper in the notebook desktop terminal, or use --headless for decoder/network testing.');
  }
  resources=await startResourceSampler({enabled:!process.argv.includes('--no-system-metrics')});
- const browserArgs=['--disable-background-timer-throttling','--disable-backgrounding-occluded-windows','--disable-renderer-backgrounding','--disable-features=CalculateNativeWinOcclusion','--autoplay-policy=no-user-gesture-required','--window-position=30,30','--window-size=1280,800'];
+ const browserArgs=browserConfig==='harness'?['--disable-background-timer-throttling','--disable-backgrounding-occluded-windows','--disable-renderer-backgrounding','--disable-features=CalculateNativeWinOcclusion','--autoplay-policy=no-user-gesture-required','--window-position=30,30','--window-size=1280,800']:['--window-position=30,30','--window-size=1280,800'];
  if(runtime==='tauri'){
   const exe=path.resolve(option('--exe',path.join(root,'src-tauri/target/release/seemygame.exe')));await stat(exe);
   const profile=path.join(root,'output/playwright',`viewer-profile-${randomUUID()}`);await mkdir(profile,{recursive:true});
@@ -37,9 +39,20 @@ try {
   const deadline=Date.now()+30000;let ready=false;
   while(Date.now()<deadline){if(spawnError)throw spawnError;if(desktop.exitCode!==null)throw new Error('Receiver Tauri exited before CDP readiness: '+desktop.exitCode);try{const response=await fetch(`http://127.0.0.1:${port}/json/version`,{signal:AbortSignal.timeout(1000)});if(response.ok){ready=true;break;}}catch{}await new Promise(resolve=>setTimeout(resolve,300));}
   if(!ready)throw new Error('Receiver WebView2 CDP readiness timeout');
+ }else if(browserConfig==='standard'){
+  if(headless)throw new Error('Standard config requires headed Chrome');
+  const candidates=[process.env.ProgramFiles,process.env['ProgramFiles(x86)'],process.env.LOCALAPPDATA].filter(Boolean).map(p=>path.join(p,'Google/Chrome/Application/chrome.exe'));
+  let exe;for(const candidate of candidates){try{await stat(candidate);exe=candidate;break;}catch{}}
+  if(!exe)throw new Error('Installed Chrome not found');
+  const profile=path.join(root,'output/playwright',`viewer-profile-${randomUUID()}`);await mkdir(profile,{recursive:true});
+  desktop=spawn(exe,[...browserArgs,`--user-data-dir=${profile}`,`--remote-debugging-port=${port}`,'--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','about:blank'],{windowsHide:true,stdio:'ignore'});
+  let spawnError;desktop.on('error',e=>{spawnError=e;});
+  const deadline=Date.now()+30000;let ready=false;
+  while(Date.now()<deadline){if(spawnError)throw spawnError;if(desktop.exitCode!==null)throw new Error('Standard Chrome exited before CDP');try{const response=await fetch(`http://127.0.0.1:${port}/json/version`,{signal:AbortSignal.timeout(1000)});if(response.ok){ready=true;break;}}catch{}await new Promise(resolve=>setTimeout(resolve,300));}
+  if(!ready)throw new Error('Standard Chrome CDP readiness timeout');
  }else browserServer=await chromium.launchServer({channel:option('--channel','chrome'),host:'127.0.0.1',port,headless,args:browserArgs});
  const token=randomUUID(),base=`/smg-viewer/${token}`,expiresAt=Date.now()+minutes*60000;
- const metadata={schemaVersion:1,kind:'seemygame-e2e-viewer',runtime,connectionType:runtime==='tauri'?'cdp':'playwright',machineFingerprint:machineFingerprint(),platform:os.platform(),cpuModel:os.cpus()[0]?.model,logicalProcessors:os.cpus().length,headless,session,...(runtime==='tauri'?{cdpEndpoint:`http://127.0.0.1:${port}`}:{wsEndpoint:browserServer.wsEndpoint()}),playwrightVersion:require('playwright/package.json').version,expiresAt};
+ const metadata={schemaVersion:1,kind:'seemygame-e2e-viewer',runtime,browserConfig,browserArgs,connectionType:runtime==='tauri'||browserConfig==='standard'?'cdp':'playwright',machineFingerprint:machineFingerprint(),platform:os.platform(),cpuModel:os.cpus()[0]?.model,logicalProcessors:os.cpus().length,headless,session,...(runtime==='tauri'||browserConfig==='standard'?{cdpEndpoint:`http://127.0.0.1:${port}`}:{wsEndpoint:browserServer.wsEndpoint()}),playwrightVersion:require('playwright/package.json').version,expiresAt};
  control=http.createServer((request,response)=>{
   response.setHeader('Cache-Control','no-store');response.setHeader('Content-Type','application/json');
   if(request.method==='POST'&&request.url===base+'/shutdown'&&!request.headers.origin){response.end('{"stopping":true}');setImmediate(()=>void stop());return;}

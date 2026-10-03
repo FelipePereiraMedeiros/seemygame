@@ -1,5 +1,9 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
+/** Windows checkouts may mix LF/CRLF. Preserve every other byte of JS content. */
+export function frontendSourceMatches(embedded,source) {
+  return typeof embedded==='string'&&typeof source==='string'&&embedded.replace(/\r\n/g,'\n')===source.replace(/\r\n/g,'\n');
+}
 /** Includes nested modules so native/web source comparisons cannot miss refactors. */
 export async function listFrontendFiles(root, folder = 'js') {
   const files = [];

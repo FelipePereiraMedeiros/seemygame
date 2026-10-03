@@ -1,7 +1,7 @@
 import { startAssetServer } from './harness/server.mjs';
 import { startSignalingServer } from './harness/signaling.mjs';
 import { bounded, createCleanupCollector } from './harness/lifecycle.mjs';
-import { listFrontendFiles, listRustFiles } from './harness/provenance.mjs';
+import { listFrontendFiles, listRustFiles, frontendSourceMatches } from './harness/provenance.mjs';
 import { createMotionFixture } from './fixtures/motion.mjs';
 import { chromium } from 'playwright';
 import { createServer as createTcpServer } from 'node:net';
@@ -24,13 +24,17 @@ import { createRequire } from 'node:module';
 import { machineFingerprint, readViewerControl, prepareRemoteViewer, resourceWindow, redactViewerSecrets } from './harness/remote-viewer.mjs';
 import { summarizeResources } from './harness/resources.mjs';
 import { readDisplayModes, validateWindowPosition } from './harness/displays.mjs';
-import { calibrateCaptureWindow, verifyDeliveredResolution } from './harness/capture-geometry.mjs';
-import { startReverseTunnel } from './harness/ssh-reverse.mjs';
-import { readCaptureBackendEvidence, verifyNegotiatedCodec } from './harness/capture-backend.mjs';
+import { calibrateCaptureWindow } from './harness/capture-geometry.mjs';
+import { readCaptureBackendEvidence } from './harness/capture-backend.mjs';
+import {inspectPhaseConditions} from './harness/phase-validation.mjs';
 import { terminateOwnedMediaWorker } from './harness/worker-failure.mjs';
 import { installNativeWithoutPreview } from './harness/no-preview.mjs';
 import { installNativeReceiverPayloads } from './harness/receiver-payloads.mjs';
 import {classifyStutter} from './harness/stutter-cause.mjs';
+import {nativeStageEvidence} from './harness/native-stage-evidence.mjs';
+import {calibrateBrowserClocks,validateClockCheckpoints} from './harness/clock-calibration.mjs';
+import {startBrowserTrace,installFrameEvidence} from './harness/browser-trace.mjs';
+import {startForwardedFixtures} from './harness/forwarded-fixtures.mjs';
 
 ensureDefaultDesktop();
 
@@ -39,13 +43,27 @@ const args = process.argv.slice(2);
 const option = (key, fallback) => { const i = args.indexOf(key); return i < 0 ? fallback : args[i + 1]; };
 const exe = path.resolve(option('--exe', path.join(root, 'src-tauri/target/debug/seemygame.exe')));
 const duration = Number(option('--seconds', '30'));
+const receiverTraceSeconds=Number(option('--receiver-trace-seconds','0'));
+const receiverTraceTriggerMs=Number(option('--receiver-trace-trigger-ms','0')),traceSender=args.includes('--trace-sender');
+if(!Number.isFinite(receiverTraceTriggerMs)||receiverTraceTriggerMs<0||receiverTraceTriggerMs>1000||receiverTraceTriggerMs>0&&receiverTraceSeconds===0||traceSender&&receiverTraceSeconds===0)throw new Error('Invalid trace trigger/sender');
+const receiverFrameEvidence=args.includes('--receiver-frame-evidence')||receiverTraceSeconds>0;
+const receiverViewportOption=option('--receiver-viewport','1280,720');
+const receiverViewport=receiverViewportOption?.split(',').map(Number)??null;
+if(receiverViewport&&(receiverViewport.length!==2||receiverViewport.some(v=>!Number.isInteger(v)||v<240||v>3840)))throw new Error('Invalid receiver viewport (width,height; 240..3840)');
+if(!Number.isInteger(receiverTraceSeconds)||receiverTraceSeconds<0||receiverTraceSeconds>Math.min(60,duration-8))throw new Error('Invalid trace duration');
 if (!Number.isFinite(duration) || duration < 5 || duration > 1800) throw new Error('--seconds: intervalo permitido 5..1800');
 const minFps = Number(option('--min-fps', '0'));
 if (!Number.isFinite(minFps) || minFps < 0 || minFps > 240) throw new Error('--min-fps: intervalo permitido 0..240');
 const remoteViewerEndpoint = option('--viewer-endpoint', null);
 const viewerSshHost=option('--viewer-ssh-host',null);
+const calibrateClocks=args.includes('--calibrate-clocks');
+const clockMaxErrorMs=Number(option('--clock-max-error-ms','10'));
+if(!Number.isFinite(clockMaxErrorMs)||clockMaxErrorMs<=0||clockMaxErrorMs>100)throw new Error('--clock-max-error-ms: 0 < error <= 100');
+if(calibrateClocks&&!remoteViewerEndpoint)throw new Error('--calibrate-clocks requires a remote receiver');
 if(viewerSshHost&&!remoteViewerEndpoint)throw new Error('--viewer-ssh-host requires --viewer-endpoint');
 const opticalHz = Number(option('--optical-hz', remoteViewerEndpoint ? '0' : '8'));
+const opticalReaderMode = option('--optical-reader', 'gpu-roi');
+if (!['legacy', 'roi', 'gpu-roi'].includes(opticalReaderMode)) throw new Error('Invalid optical reader mode');
 if (!Number.isFinite(opticalHz) || opticalHz < 0 || opticalHz > 60) throw new Error('--optical-hz: 0 (desativado) ou 1..60');
 if (opticalHz > 0 && opticalHz < 1) throw new Error('--optical-hz: 0 (desativado) ou 1..60');
 const requireQuality = args.includes('--require-quality');
@@ -77,7 +95,7 @@ if(!Number.isInteger(bitrateKbps)||bitrateKbps<256||bitrateKbps>50000)throw new 
 if(!['native','web'].includes(senderMode))throw new Error('--sender must be native or web');
 if(senderMode==='web'&&isCompareMode)throw new Error('--sender web is a single forward-direction run, not --compare');
 if(remoteViewerEndpoint&&isCompareMode)throw new Error('Remote receiver currently supports the native phase only; --compare reverses the local sender/receiver roles and is not valid across machines yet');
-if(remoteViewerEndpoint&&opticalHz>0)throw new Error('Optical latency across independent clocks is disabled; use --optical-hz 0 until clock calibration is implemented');
+if(remoteViewerEndpoint&&opticalHz>0&&!calibrateClocks)throw new Error('Remote optical latency requires --calibrate-clocks, or use --optical-hz 0');
 const nativeReplay = args.includes('--native-replay');
 const viewerReplay = args.includes('--viewer-replay');
 const isWebFirst = args.includes('--web-first') || option('--order', 'native-first') === 'web-first';
@@ -97,7 +115,7 @@ const report = {
   checks: [],
   replayConditions: { nativePhase: { transmitter: nativeReplay, receiver: viewerReplay } },
   qualityConditions: { preset, requestedCodec, matchedCodec, matchedResolution, requestedFps: QUALITY_PROFILES[preset].fps, requestedWidth: QUALITY_PROFILES[preset].width, requestedHeight: QUALITY_PROFILES[preset].height },
-  instrumentation: {opticalHz, systemMetrics:!args.includes('--no-system-metrics')},
+  instrumentation: {opticalHz, opticalReaderMode, receiverTraceSeconds,receiverFrameEvidence,systemMetrics:!args.includes('--no-system-metrics')},
   limitations: [
     'Transmitter, synthetic source and receiver share one physical CPU/GPU; performance does not isolate real two-machine usage.',
     'LAN/local test: not a two-network TURN test',
@@ -107,6 +125,7 @@ const report = {
 let desktop, viewerBrowser, sourceBrowser, nativeBrowser, hostPage, viewerPage, server, remoteViewer;
 const resources = await startResourceSampler({enabled:!args.includes('--no-system-metrics')});
 let signaling,reverseTunnel;
+let activeReceiverTrace,pendingReceiverTrace,activeSenderTrace,pendingSenderTrace;
 let viewerContext = null;
 let nativeLogSize = 0;
 let hostId, viewerId;
@@ -117,6 +136,7 @@ const cleanup = createCleanupCollector(report);
 // Tauri rewrites HTML at build time (CSP/bootstrap); compare unmodified JS assets.
 const frontendFiles = await listFrontendFiles(root);
 let sourceStats = null;
+let previousNativeSample = null;
 const sampleBoth = async () => {
   const activeSourcePage = sourceBrowser && sourceBrowser.contexts().length > 0 && sourceBrowser.contexts()[0].pages()[0];
   if (activeSourcePage && !activeSourcePage.isClosed()) {
@@ -126,6 +146,20 @@ const sampleBoth = async () => {
     if (!page || page.isClosed()) continue;
     const sample = await page.evaluate(() => window.__smgE2E?.sample()).catch(() => null);
     if (!sample) continue;
+    if(side==='desktop'&&report.partialPhase?.isNative) {
+      sample.native = await page.evaluate(async viewerId => {
+        const start=performance.now();
+        try {
+          const state=(await import('/js/entries/room-entry.js')).roomState;
+          const sessionId=state.features.nativeMedia.senders.get(viewerId);
+          if(!sessionId)return null;
+          const rows=await (await import('/js/desktop/webrtc.js')).getNativeStreamStats(sessionId,viewerId);
+          return {rows,epoch:Date.now(),perf:performance.now(),collectionMs:performance.now()-start};
+        } catch(error) { return {rows:[],epoch:Date.now(),perf:performance.now(),error:error.message,collectionMs:performance.now()-start}; }
+      },viewerId);
+      sample.nativeStages=nativeStageEvidence(previousNativeSample,sample.native);
+      previousNativeSample=sample.native;
+    }
     for (const row of sample.rows) {
       const id = `${side}:${row.pcId}:${row.id}`;
       if (previous.has(id)) row.delta = deltaMetrics(previous.get(id), row);
@@ -177,7 +211,7 @@ const isolatedInit = async context => {
   await context.route('**/peerjs.min.js', route => route.fulfill({ path: path.join(root, 'node_modules/peerjs/dist/peerjs.min.js') }));
   await context.route('**/api/turn', route => route.fulfill({ status: 404, body: '{}' }));
   await context.addInitScript(config => { window.__SEEMYGAME_PEER_CONFIG__ = config; }, signaling.config);
-  await context.addInitScript(installTelemetry, { expectedSessionMagic: sessionMagic, enableOptical:opticalHz>0, opticalSampleHz:opticalHz||8 });
+  await context.addInitScript(installTelemetry, { expectedSessionMagic: sessionMagic, enableOptical:opticalHz>0, opticalSampleHz:opticalHz||8, opticalReaderMode });
   // Test fixture state in a fresh profile. No personal account/profile is used.
   await context.addInitScript(() => { localStorage.setItem('seemygame_terms_version', '1.1'); localStorage.setItem('seemygame_terms_accepted', 'true'); });
 };
@@ -192,25 +226,26 @@ try {
     if (process.platform !== 'win32') throw new Error('Desktop E2E requer Windows/WebView2');
     if(senderMode==='native'){await stat(exe); report.executable = { path: exe, sha256: hash(await readFile(exe)) };}
     report.displayModes=await readDisplayModes();
-    report.sourceHashes = Object.fromEntries(await Promise.all([...frontendFiles, ...await listRustFiles(root),'tools/e2e/run.mjs','tools/e2e/fixtures/motion.mjs','tools/e2e/telemetry/installer.mjs','tools/e2e/harness/resources.mjs','tools/e2e/harness/resource-counters.cs','tools/e2e/harness/resource-counters.ps1','tools/e2e/harness/verdict.mjs','tools/e2e/harness/source-summary.mjs','tools/e2e/harness/remote-viewer.mjs','tools/e2e/harness/ssh-reverse.mjs','tools/e2e/harness/displays.mjs','tools/e2e/harness/display-info.ps1'].map(async p => [p, hash(await readFile(path.join(root, p)))])));
+    report.sourceHashes = Object.fromEntries(await Promise.all([...frontendFiles, ...await listRustFiles(root),'tools/e2e/run.mjs','tools/e2e/harness/native-stage-evidence.mjs','tools/e2e/harness/stutter-cause.mjs','tools/e2e/harness/phase-validation.mjs','tools/e2e/telemetry/metrics.mjs','tools/e2e/harness/capture-geometry.mjs','tools/e2e/harness/capture-backend.mjs','tools/e2e/harness/browser-trace.mjs','tools/e2e/harness/forwarded-fixtures.mjs','tools/e2e/fixtures/motion.mjs','tools/e2e/telemetry/installer.mjs','tools/e2e/harness/resources.mjs','tools/e2e/harness/resource-counters.cs','tools/e2e/harness/resource-counters.ps1','tools/e2e/harness/verdict.mjs','tools/e2e/harness/source-summary.mjs','tools/e2e/harness/clock-calibration.mjs','tools/e2e/harness/remote-viewer.mjs','tools/e2e/harness/ssh-reverse.mjs','tools/e2e/harness/displays.mjs','tools/e2e/harness/display-info.ps1'].map(async p => [p, hash(await readFile(path.join(root, p)))])));
     if(remoteViewerEndpoint){
       const metadata=await readViewerControl(remoteViewerEndpoint,'metadata');
       remoteViewer=prepareRemoteViewer(metadata,remoteViewerEndpoint,{localPlaywrightVersion:createRequire(import.meta.url)('playwright/package.json').version,localFingerprint:machineFingerprint(),wsPort:option('--viewer-ws-port',undefined),allowSameMachine:args.includes('--allow-same-machine-remote')});
       report.receiverConditions=remoteViewer.conditions;
       report.limitations=report.limitations.filter(s=>!s.startsWith('Transmitter, synthetic source and receiver share'));
       report.limitations.push(remoteViewer.conditions.sameMachine?'Remote-browser harness self-test on one physical machine; not a two-machine performance result':'Receiver runs on a machine with a different hostname/platform/CPU fingerprint; transmitter and synthetic source still share their machine');
-      report.limitations.push(`Independent clocks: optical latency disabled. Receiver resource/quality windows use its own clock. HTTP/signaling use ${viewerSshHost?'explicit reverse SSH forwarding':'requested Playwright loopback forwarding (must be verified across hosts)'}; WebRTC media must establish its own ICE route.`);
+      report.limitations.push(`${calibrateClocks?'Browser clock offset will be calibrated with bounded uncertainty; optical latency requires valid checkpoints':'Independent clocks: optical latency disabled'}. Receiver resource/quality windows use its own clock. HTTP/signaling use ${viewerSshHost?'explicit reverse SSH forwarding':'requested Playwright loopback forwarding (must be verified across hosts)'}; WebRTC media must establish its own ICE route.`);
+      if(calibrateClocks)report.receiverConditions.clockPolicy='Browser clock offset calibration with before/during/after checkpoints; receiver resource windows remain in receiver clock; physical scanout not certified';
       if(remoteViewer.conditions.headless)report.limitations.push('Headless receiver: decode/network/callback cadence tested; physical display presentation is not certified.');
     }
   });
   if (args.includes('--check')) { report.status = 'preflight-only'; console.log('Preflight OK; no capture was started.'); }
   else {
-    const localOrigin = await serve();
-    signaling = await startSignalingServer();
+    let localOrigin;
     if(viewerSshHost){
-      reverseTunnel=await record('forward fixture and signaling to receiver loopback',()=>startReverseTunnel({host:viewerSshHost,ports:[Number(new URL(localOrigin).port),signaling.config.port]}));
+      const forwarded=await record('forward fixture and signaling to receiver loopback',()=>startForwardedFixtures({host:viewerSshHost,startAssets:()=>startAssetServer({root,fixtures:{'/e2e-motion.html':fixture}}),startSignaling:startSignalingServer}));
+      server=forwarded.assets.server;signaling=forwarded.signaling;reverseTunnel=forwarded.tunnel;localOrigin=forwarded.assets.origin;report.forwardingAttempts=forwarded.attempts;
       report.receiverConditions.localServersTransport='explicit SSH reverse forwarding (HTTP/signaling only)';
-    }
+    }else{localOrigin=await serve();signaling=await startSignalingServer();}
     const webOrigin = customWebOrigin || localOrigin;
     report.webOrigin = webOrigin;
     let nativeOrigin;
@@ -263,7 +298,7 @@ try {
     await record('check embedded frontend matches checkout', async () => {
       for (const p of frontendFiles) {
         const embedded = await hostPage.evaluate(async p => (await fetch('/' + p)).text(), p);
-        if (hash(Buffer.from(embedded)) !== report.sourceHashes[p]) throw new Error(`Build desatualizado: ${p}. Execute npm run build:dist e cargo build --manifest-path src-tauri/Cargo.toml --locked --offline`);
+        if (!frontendSourceMatches(embedded,await readFile(path.join(root,p),'utf8'))) throw new Error(`Build desatualizado: ${p}. Execute npm run build:dist e cargo build --manifest-path src-tauri/Cargo.toml --locked --offline`);
       }
     });
 
@@ -338,12 +373,18 @@ try {
     if(remoteViewer?.connectionType!=='cdp')await viewerContext.grantPermissions(['camera', 'microphone']);
     await isolatedInit(viewerContext);
     viewerPage = remoteViewer?.connectionType==='cdp'?(viewerContext.pages()[0]||await viewerContext.newPage()):await viewerContext.newPage();
+    if(receiverViewport)await record('set equal receiver viewport',async()=>{
+      await viewerPage.setViewportSize({width:receiverViewport[0],height:receiverViewport[1]});
+      const actual=await viewerPage.evaluate(()=>({width:innerWidth,height:innerHeight}));
+      if(actual.width!==receiverViewport[0]||actual.height!==receiverViewport[1])throw new Error('Receiver viewport was not applied');
+      report.receiverViewport={requested:{width:receiverViewport[0],height:receiverViewport[1]},actual};
+    });
     let receiverOrigin=webOrigin;
-    if(remoteViewer?.connectionType==='cdp'){
+    if(remoteViewer?.connectionType==='cdp'&&remoteViewer.conditions.runtime==='tauri'){
       await viewerPage.waitForURL(u=>u.href!=='about:blank',{timeout:15000});receiverOrigin=new URL(viewerPage.url()).origin;
       const cdp=await viewerContext.newCDPSession(viewerPage);await cdp.send('Page.setBypassCSP',{enabled:true});
       await record('check receiver embedded frontend matches checkout',async()=>{
-        for(const p of frontendFiles){const embedded=await viewerPage.evaluate(async p=>(await fetch('/'+p)).text(),p);if(hash(Buffer.from(embedded))!==report.sourceHashes[p])throw new Error('Receiver build desatualizado: '+p);}
+        for(const p of frontendFiles){const embedded=await viewerPage.evaluate(async p=>(await fetch('/'+p)).text(),p);if(!frontendSourceMatches(embedded,await readFile(path.join(root,p),'utf8')))throw new Error('Receiver build desatualizado: '+p);}
       });
       report.limitations.push('Isolated receiver WebView2 bypasses CSP for ephemeral test signaling; shipping CSP is not validated.');
     }
@@ -369,15 +410,42 @@ try {
     };
 
     const sampleAndAnalyze = async ({ label, streamerSide, receiverSide, streamerPage, receiverPage, targetPeerId, durationSec, isNative = false }) => {
+      const receiverLayout=await receiverPage.evaluate(id=>{
+        const v=document.getElementById(`card-${id}`)?.querySelector('video'),rect=v?.getBoundingClientRect();
+        return {viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},screen:{width:screen.width,height:screen.height,x:screenX,y:screenY},videoRect:rect?{width:rect.width,height:rect.height}:null,visibility:document.visibilityState,userAgent:navigator.userAgent};
+      },targetPeerId);
+      let receiverTrace=null,frameEvidence=null,senderTrace=null,senderFrameEvidence=null,traceTrigger=null,traceClockCalibration=null;
+      if(receiverFrameEvidence)await installFrameEvidence(receiverPage);
+      if(traceSender){await installFrameEvidence(streamerPage);traceClockCalibration=await calibrateBrowserClocks(streamerPage,receiverPage,{samples:7,maxErrorMs:20});}
+      const endTraces=async()=>{receiverTrace=await activeReceiverTrace.stop({deferRead:true});pendingReceiverTrace=activeReceiverTrace;activeReceiverTrace=null;if(activeSenderTrace){senderTrace=await activeSenderTrace.stop({deferRead:true});pendingSenderTrace=activeSenderTrace;activeSenderTrace=null;}};
+      let clockCalibration=null;
+      if(calibrateClocks){
+        const before=await record(`${label} calibrate browser clocks`,()=>bounded('clock calibration',()=>calibrateBrowserClocks(source,receiverPage,{maxErrorMs:clockMaxErrorMs})));
+        clockCalibration={before,checkpoints:[],after:null,validation:null};
+        (report.clockCalibrations??={})[label]=clockCalibration;
+        await checkpoint();
+        if(before.status!=='valid')throw new Error(`Clock calibration ${before.status}: uncertainty ${before.uncertaintyMs} ms; allowed ${clockMaxErrorMs} ms`);
+        await receiverPage.evaluate(calibration=>{
+          window.__smgClockCalibration=calibration;
+          document.querySelectorAll('video').forEach(v=>v.__smgPresentation?.resetSession());
+        },{status:before.status,offsetMs:before.offsetMs,uncertaintyMs:before.uncertaintyMs});
+        console.log(`Clock offset ${before.offsetMs.toFixed(2)} ms, uncertainty +/-${before.uncertaintyMs.toFixed(2)} ms`);
+      }
       const startIndex = report.measurements.length;
       const videoTimes = [];
       const timeline = [];
       // Retain observations even when a functional gate aborts the phase.
-      report.partialPhase={label,videoTimes,timeline};
+      previousNativeSample=null;
+      report.partialPhase={label,isNative,videoTimes,timeline};
       const measurementStartedAt = Date.now();
       let steadyStartedAt = null, steadyEndedAt = null, receiverSteadyStart = null, receiverSteadyEnd = null;
 
       for (let i = 0; i < durationSec; i++) {
+        if(receiverTraceSeconds&&i===6){activeReceiverTrace=await startBrowserTrace(viewerBrowser,receiverPage,{label,file:path.join(output,label+'-receiver-trace.json'),ringBufferKb:receiverTraceTriggerMs?8192:0});if(traceSender)activeSenderTrace=await startBrowserTrace(nativeBrowser,streamerPage,{label:label+'-sender',file:path.join(output,label+'-sender-trace.json'),ringBufferKb:receiverTraceTriggerMs?8192:0});}
+        if(activeReceiverTrace&&(!receiverTraceTriggerMs&&i===6+receiverTraceSeconds||receiverTraceTriggerMs&&i===durationSec-3))await endTraces();
+        if(clockCalibration&&i>0&&i%15===0){
+          clockCalibration.checkpoints.push(await bounded('clock checkpoint',()=>calibrateBrowserClocks(source,receiverPage,{samples:7,maxErrorMs:clockMaxErrorMs})));
+        }
         if(source.isClosed()||!sourceBrowser.isConnected()||report.sourceLifecycle.some(e=>e.event==='page-crash')) {
           await checkpoint();
           throw new Error(`${label}: janela sintética fechou ou falhou; medição invalidada (sourceLifecycle/partialPhase)`);
@@ -392,6 +460,7 @@ try {
             v.__smgPresentation.setPhase(phase);
           }
           return v && !v.paused && v.readyState >= 2 ? {
+            epoch:Date.now(),perf:performance.now(),
             currentTime: v.currentTime,
             presentation: v.__smgPresentation?.getStats({ reset: true })
           } : null;
@@ -421,6 +490,7 @@ try {
         const presentation = receiverVid?.presentation;
 
         timeline.push({
+          receiverSampleEpoch:receiverVid?.epoch??null,receiverSamplePerf:receiverVid?.perf??null,
           second: i + 1,
           phase: i < 5 ? 'warmup' : (i < durationSec - 2 ? 'steady' : 'cooldown'),
           source: {
@@ -428,6 +498,7 @@ try {
             rafFps: recentStreamer?.sourceStats?.rafFps ?? null,
             framesProduced: recentStreamer?.sourceStats?.framesProduced ?? null
           },
+          nativeStages:recentStreamer?.nativeStages??null,
           bridge: {
             decodedFps: bridgeInbound?.delta?.decodedFps ?? null,
             decodeTimeMs: bridgeInbound?.delta?.decodeTimeMs ?? null,
@@ -448,6 +519,11 @@ try {
             decodedFps: remoteInbound?.delta?.decodedFps ?? null,
             decodeTimeMs: remoteInbound?.delta?.decodeTimeMs ?? null,
             jitterBufferMs: remoteInbound?.delta?.jitterBufferMs ?? null,
+            jitterBufferTargetMs:remoteInbound?.delta?.jitterBufferTargetMs??null,
+            jitterBufferMinimumMs:remoteInbound?.delta?.jitterBufferMinimumMs??null,
+            requestedJitterBufferTargetMs:recentReceiver?.receivers?.find(r=>r.kind==='video'&&r.pcId===remoteInbound?.pcId)?.jitterBufferTarget??null,
+            retransmittedPacketsReceivedDelta:remoteInbound?.delta?.rawDeltaRetransmittedPacketsReceived??null,
+            freezesDelta:remoteInbound?.delta?.rawDeltaFreezeCount??null,
             packetsLost: remoteInbound?.packetsLost ?? 0,
             packetsLostDelta:remoteInbound?.delta?.rawDeltaPacketsLost??null,
             nackDelta:remoteInbound?.delta?.rawDeltaNackCount??null,
@@ -458,6 +534,11 @@ try {
             presentedFrames: presentation?.presentedFrames ?? null,
             duplicateFrames: presentation?.duplicateFrames ?? null,
             intervalMaxPauseMs: presentation?.intervalMaxPauseMs ?? 0,
+            intervalCallbackMaxGapMs:presentation?.intervalCallbackMaxGapMs??null,
+            callbackSilenceMs:presentation?.callbackSilenceMs??null,
+            intervalSkippedCallbackSpans:presentation?.intervalSkippedCallbackSpans??null,
+            intervalConsecutiveFrameIntervals:presentation?.intervalConsecutiveFrameIntervals??null,
+            pauseEvidence:presentation?.pauseEvidence??'unavailable',
             gapsCount: presentation?.gapsCount ?? 0,
             validSamplesCount: presentation?.validSamplesCount ?? 0,
             rejectedCandidatesCount: presentation?.rejectedCandidatesCount ?? 0,
@@ -475,10 +556,20 @@ try {
           }
         });
 
+        const observedPause=Math.max(presentation?.intervalMaxPauseMs??0,presentation?.intervalCallbackMaxGapMs??0);
+        if(receiverTraceTriggerMs&&activeReceiverTrace&&currentPhase==='steady'&&observedPause>=receiverTraceTriggerMs){
+          traceTrigger={second:i+1,pauseMs:observedPause,pauseEvidence:presentation.intervalMaxPauseMs>=receiverTraceTriggerMs?'consecutive-frame-metadata':'callback-gap-only',receiverPerf:receiverVid.perf,receiverEpoch:receiverVid.epoch};
+          await receiverPage.evaluate(detail=>performance.mark('smg-trace-trigger',{detail}),traceTrigger);await endTraces();
+        }
         await checkpoint();
         await sleep(1000);
       }
 
+      if(clockCalibration){
+        clockCalibration.after=await bounded('final clock calibration',()=>calibrateBrowserClocks(source,receiverPage,{maxErrorMs:clockMaxErrorMs}));
+        clockCalibration.validation=validateClockCheckpoints(clockCalibration.before,[...clockCalibration.checkpoints,clockCalibration.after],{maxErrorMs:clockMaxErrorMs});
+        await checkpoint();
+      }
       const decoded = report.measurements.slice(startIndex).filter(s => s.side === receiverSide).flatMap(s => s.rows).filter(r => r.kind === 'video' && r.type === 'inbound-rtp');
       const progressing = videoTimes.slice(1).filter((t, i) => t !== null && videoTimes[i] !== null && t > videoTimes[i]).length;
       if (progressing < Math.ceil((videoTimes.length - 1) * 0.7)) {
@@ -524,7 +615,8 @@ try {
       const recentDecodedSeqs = finalPresentation?.recentSeqs?.length ? finalPresentation.recentSeqs : (lastDecodedSeq != null && lastDecodedSeq > 0 ? [lastDecodedSeq] : []);
       const isProvenanceValid = recentDecodedSeqs.some(s => sourceSeqMap.has(s));
       const validSamples = finalPresentation?.validSamplesCount || 0;
-      const measurementValid = opticalHz>0 ? validSamples >= 5 && isProvenanceValid : null;
+      const clockValid=!clockCalibration||clockCalibration.validation?.status==='valid';
+      const measurementValid = opticalHz>0 ? validSamples >= 5 && isProvenanceValid && clockValid : null;
 
       let glassToGlassLatency = null;
       // Prioridade metodológica estrita: steadyLatency isola o regime permanente sem contaminação do warmup
@@ -539,6 +631,12 @@ try {
           p99Ms: targetLatency.p99,
           minMs: targetLatency.min,
           maxMs: targetLatency.max,
+          clockUncertaintyMs: clockCalibration?.validation?.uncertaintyMs ?? null,
+          p50ClockBoundsMs: clockCalibration ? {
+            lower: targetLatency.p50-clockCalibration.validation.uncertaintyMs,
+            upper: targetLatency.p50+clockCalibration.validation.uncertaintyMs
+          } : null,
+          measurementScope: 'source marker draw timestamp to expected compositor presentation; physical panel scanout not measured',
           validSamplesCount: (steadyLat && steadyLat.samplesCount >= 3) ? steadyLat.samplesCount : validSamples
         };
       }
@@ -546,12 +644,17 @@ try {
       const stutters = [];
       for (const entry of steadyTimeline) {
         const isPause = entry.presentation.intervalMaxPauseMs > 150;
-        const isFpsDrop = entry.webInbound.decodedFps !== null && entry.webInbound.decodedFps < 30 && entry.presentation.intervalMaxPauseMs > 100;
-        if (isPause || isFpsDrop) {
+        const isCallbackGap = entry.presentation.intervalCallbackMaxGapMs > 150;
+        const isFpsDrop = entry.webInbound.decodedFps !== null && entry.webInbound.decodedFps < 30;
+        if (isPause || isCallbackGap || isFpsDrop || entry.webInbound.freezesDelta > 0) {
           const {suspectedCause,confidence}=classifyStutter(entry,isNative);
           stutters.push({
             second: entry.second,
             pauseMs: entry.presentation.intervalMaxPauseMs,
+            callbackGapMs:entry.presentation.intervalCallbackMaxGapMs,
+            pauseEvidence:isPause?'consecutive-frame-metadata':entry.webInbound.freezesDelta>0?'rtc-freeze-counter':isCallbackGap?'callback-gap-only':'decode-cadence-drop',
+            workerFps:entry.nativeStages?.worker?.fps??null,
+            workerLifetimeMaxPauseMs:entry.nativeStages?.worker?.lifetimeMaxPauseMs??null,
             decodedFps: entry.webInbound.decodedFps,
             suspectedCause,
             confidence
@@ -562,9 +665,11 @@ try {
       const diagnostics = {
         steadyDurationSec: steadyTimeline.length,
         stuttersDetected: stutters.length,
+        metadataPauseEvents:stutters.filter(s=>s.pauseEvidence==='consecutive-frame-metadata').length,
+        callbackOnlyEvents:stutters.filter(s=>s.pauseEvidence==='callback-gap-only').length,
         stutterEvents: stutters,
         measurementValid,
-        measurementReason: opticalHz===0 ? 'Medição óptica desativada; latência visual não avaliada' : measurementValid ? 'Proveniência óptica e CRC-16 validados' : 'Leituras ópticas insuficientes ou sequência ausente no log da fonte',
+        measurementReason: opticalHz===0 ? 'Medição óptica desativada; latência visual não avaliada' : !clockValid ? 'Calibração dos relógios inválida; latência não qualificada' : measurementValid ? 'Proveniência óptica e CRC-16 validados; calibração verificada quando remota' : 'Leituras ópticas insuficientes ou sequência ausente no log da fonte',
         provenance: {
           isProvenanceValid,
           lastDecodedSeq,
@@ -594,12 +699,26 @@ try {
         await writeFile(path.join(output,`${label}-receiver-resources.json`),JSON.stringify(receiverResources,null,2));
       }
 
-      const resolutionValidation=matchedResolution?verifyDeliveredResolution(timeline,QUALITY_PROFILES[preset].width,QUALITY_PROFILES[preset].height):null;
-      const codecValidation=matchedCodec?verifyNegotiatedCodec(qualitySamples,requestedCodec):null;
+      const {resolutionValidation,codecValidation,validationErrors}=inspectPhaseConditions({timeline,qualitySamples,width:QUALITY_PROFILES[preset].width,height:QUALITY_PROFILES[preset].height,codec:requestedCodec,matchedResolution,matchedCodec});
+      const samplingGaps=timeline.slice(1).flatMap((t,i)=>Number.isFinite(t.receiverSamplePerf)&&Number.isFinite(timeline[i].receiverSamplePerf)?[t.receiverSamplePerf-timeline[i].receiverSamplePerf]:[]);
+      const samplingEvidence={maxGapMs:samplingGaps.length?Math.max(...samplingGaps):null,gapsOver2Seconds:samplingGaps.filter(g=>g>2000).length,scope:'E2E telemetry sampling gaps; independent of video presentation gaps'};
+      if(receiverFrameEvidence){frameEvidence=await receiverPage.evaluate(()=>window.__smgFrameEvidence.finish());await writeFile(path.join(output,label+'-receiver-frame-evidence.json'),JSON.stringify(frameEvidence,null,2));}
+      if(traceSender){senderFrameEvidence=await streamerPage.evaluate(()=>window.__smgFrameEvidence.finish());await writeFile(path.join(output,label+'-sender-frame-evidence.json'),JSON.stringify(senderFrameEvidence,null,2));}
+      // Transfer the large trace over SSH only after metric/resource/frame windows close.
+      if(receiverTrace?.pending){receiverTrace=await receiverTrace.collect();pendingReceiverTrace=null;}
+      if(senderTrace?.pending){senderTrace=await senderTrace.collect();pendingSenderTrace=null;}
       delete report.partialPhase;
       return {
+        receiverLayout,
+        samplingEvidence,
+        traceTrigger,traceClockCalibration,
+        senderTrace:senderTrace?{file:senderTrace.file,start:senderTrace.start,end:senderTrace.end,bytes:senderTrace.bytes,dataLossOccurred:senderTrace.dataLossOccurred,ringBufferKb:senderTrace.ringBufferKb}:null,
+        senderFrameEvidenceFile:senderFrameEvidence?path.join(output,label+'-sender-frame-evidence.json'):null,
+        receiverTrace:receiverTrace?{file:receiverTrace.file,start:receiverTrace.start,end:receiverTrace.end,bytes:receiverTrace.bytes,dataLossOccurred:receiverTrace.dataLossOccurred}:null,
+        receiverFrameEvidenceFile:frameEvidence?path.join(output,label+'-receiver-frame-evidence.json'):null,
         resolutionValidation,
         codecValidation,
+        validationErrors,
         steadyWindow:{senderStart:steadyStartedAt,senderEnd:steadyEndedAt,receiverStart:receiverSteadyStart,receiverEnd:receiverSteadyEnd},
         sourceEvidenceFile,
         receiverResources,
@@ -610,6 +729,7 @@ try {
         productionDiagnostic: { receiver: receiverDiagnostic, sender: senderDiagnostic },
         timeline,
         performance: perf,
+        clockCalibration,
         glassToGlassLatency,
         startupDynamics,
         warmupLatency,
@@ -657,7 +777,9 @@ try {
         const readCapabilities=async()=>({send:RTCRtpSender.getCapabilities('video'),receive:RTCRtpReceiver.getCapabilities('video')});
         report.codecCapabilities={host:await hostPage.evaluate(readCapabilities),viewer:await viewerPage.evaluate(readCapabilities)};
         await hostPage.locator('#audio-mode-select').selectOption('none', { force: true });
-        await hostPage.locator('#quality-preset').selectOption(preset, { force: true }).catch(() => {});
+        await hostPage.locator('#quality-preset').selectOption(preset, { force: true });
+        report.selectedNativePreset=await hostPage.locator('#quality-preset').inputValue();
+        if(report.selectedNativePreset!==preset)throw new Error('Native quality preset was not applied');
         await hostPage.locator('#video-codec-select').selectOption(requestedCodec, { force: true });
         if (await hostPage.locator('#capture-backend-select').count()) await hostPage.locator('#capture-backend-select').selectOption(captureBackend, { force: true });
         await hostPage.locator('#h264-encoder-select').selectOption(encoder,{force:true});
@@ -785,6 +907,7 @@ try {
         await waitApp(hostPage, async () => (await (await import('/js/desktop.js')).getNativeCaptureState()).state === 'idle', null, 15000);
       });
 
+      if(res.validationErrors.length)throw new Error(res.validationErrors.join('; '));
       return res;
     };
 
@@ -810,7 +933,8 @@ try {
         });
         report.webCapture=await webSenderPage.evaluate(async()=>{
           const app=(await import('/js/diagnostics/session-api.js')).getActiveSession(),track=app.localStream?.getVideoTracks()[0];
-          return track?{label:track.label,settings:track.getSettings(),readyState:track.readyState,audioTracks:app.localStream.getAudioTracks().length}:null;
+          const senderParameters=(window.__smgPeers??[]).flatMap(pc=>pc.getSenders().filter(sender=>sender.track===track).map(sender=>{const p=sender.getParameters();return {encodings:p.encodings,degradationPreference:p.degradationPreference};}));
+          return track?{label:track.label,settings:track.getSettings(),constraints:track.getConstraints(),senderParameters,readyState:track.readyState,audioTracks:app.localStream.getAudioTracks().length}:null;
         });
         if(!report.webCapture||report.webCapture.settings.displaySurface!=='window'||report.webCapture.audioTracks!==0)throw new Error('Expected a live getDisplayMedia window track without audio');
         const deadline = Date.now() + 45000;
@@ -834,7 +958,8 @@ try {
         // Capture settings can change after initial constraint negotiation.
         report.webCapture=await webSenderPage.evaluate(async()=>{
           const app=(await import('/js/diagnostics/session-api.js')).getActiveSession(),track=app.localStream?.getVideoTracks()[0];
-          return track?{label:track.label,settings:track.getSettings(),readyState:track.readyState,audioTracks:app.localStream.getAudioTracks().length}:null;
+          const senderParameters=(window.__smgPeers??[]).flatMap(pc=>pc.getSenders().filter(sender=>sender.track===track).map(sender=>{const p=sender.getParameters();return {encodings:p.encodings,degradationPreference:p.degradationPreference};}));
+          return track?{label:track.label,settings:track.getSettings(),constraints:track.getConstraints(),senderParameters,readyState:track.readyState,audioTracks:app.localStream.getAudioTracks().length}:null;
         });
       });
 
@@ -864,6 +989,7 @@ try {
         await waitApp(webSenderPage,async()=>!(await import('/js/diagnostics/session-api.js')).getActiveSession().localStream,null,15000);
       });
 
+      if(res.validationErrors.length)throw new Error(res.validationErrors.join('; '));
       return res;
     };
 
@@ -1010,8 +1136,11 @@ try {
 
     report.status = report.verdict.overallStatus;
   }
-} catch (error) { report.status = 'failed'; report.error = error.message; process.exitCode = 1; }
+} catch (error) { report.status = 'failed'; report.error = error.message;if(error.forwardingAttempts)report.forwardingAttempts=error.forwardingAttempts; process.exitCode = 1; }
 finally {
+  await activeReceiverTrace?.abort().catch(()=>{});
+  await pendingReceiverTrace?.abort().catch(()=>{});
+  await activeSenderTrace?.abort().catch(()=>{});await pendingSenderTrace?.abort().catch(()=>{});
   await resources.stop();report.resources=resources.report();
   await checkpoint();
   if (report.status === 'failed') {

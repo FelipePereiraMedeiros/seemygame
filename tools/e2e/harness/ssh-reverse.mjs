@@ -9,6 +9,7 @@ export async function startReverseTunnel({host,ports,timeoutMs=15000}) {
   const child=spawn(process.platform==='win32'?'C:/Windows/System32/OpenSSH/ssh.exe':'ssh',args,{windowsHide:true,stdio:['pipe','pipe','pipe']});
   let out='',errors='';
   child.stderr.on('data',d=>errors=(errors+d.toString()).slice(-3000));
+  child.stdin.on('error',e=>{errors=(errors+' '+e.message).slice(-3000);});
   const exited=new Promise(resolve=>{child.once('exit',resolve);child.once('error',()=>resolve(null));});
   const stop=async()=>{child.stdin.end();let timer;await Promise.race([exited,new Promise(resolve=>{timer=setTimeout(()=>{child.kill();resolve();},3000);})]);clearTimeout(timer);};
   try {
