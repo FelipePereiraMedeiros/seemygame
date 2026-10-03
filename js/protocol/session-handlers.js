@@ -9,6 +9,8 @@ export function bindSessionMessageHandlers(session, {
   isAuthorizedPeer = () => true,
   getPeer = () => null,
   getLocalPeerId = () => null,
+  getChatIdentity = () => null,
+  isTrustedChatRelayPeer = () => false,
   getDataConnections = () => [],
   broadcast = null,
   showToast = () => {},
@@ -25,18 +27,27 @@ export function bindSessionMessageHandlers(session, {
 
   register('CHAT_MESSAGE', (data, sourceConn) => {
     if (!data.message || !chatManager) return;
-    const verifiedSenderId = sourceConn?.peer || data.senderPeerId;
+    const transportPeerId = sourceConn?.peer;
+    if (!transportPeerId) return;
+    const trustedRelay = role === 'viewer' && isTrustedChatRelayPeer(transportPeerId);
+    const forwarded = trustedRelay && data.relayedBy === transportPeerId;
+    const verifiedSenderId = forwarded ? data.message.senderId : transportPeerId;
+    if (typeof verifiedSenderId !== 'string' || !verifiedSenderId || verifiedSenderId.length > 64) return;
+    const identity = getChatIdentity(verifiedSenderId);
     const message = { ...data.message };
-    if (verifiedSenderId) {
-      message.senderId = verifiedSenderId;
-      if (role === 'streamer') {
-        message.isSystem = false;
-        if (message.role === 'host') message.role = 'viewer';
-      }
-    }
-    if (chatManager.addMessage(message)) {
-      session.eventBus.emit('chat:message-received', message);
-      relay({ ...data, message }, sourceConn);
+    message.senderId = verifiedSenderId;
+    message.senderName = identity?.name || (forwarded ? message.senderName :
+      (trustedRelay ? 'Streamer' : `Amigo ${verifiedSenderId.slice(-4)}`));
+    message.role = identity?.role || (forwarded && ['viewer', 'player2'].includes(message.role) ? message.role :
+      (trustedRelay && !forwarded ? 'host' : 'viewer'));
+    if (!['host', 'viewer', 'player2'].includes(message.role)) message.role = 'viewer';
+    message.isSystem = false;
+    const stored = chatManager.addMessage(message);
+    if (stored) {
+      session.eventBus.emit('chat:message-received', stored);
+      // Only the Streamer forwards chat. Room members communicate directly;
+      // forwarding there would erase authorship at the next untrusted hop.
+      if (role === 'streamer') relay({ ...data, message: stored, relayedBy: getLocalPeerId() }, sourceConn);
     }
   }, 'Session chat receive and relay');
 

@@ -323,7 +323,7 @@ function callViewerWithStream(viewerId, session = streamerState.session) {
   const existingCall = streamerState.activeCalls.get(viewerId);
   if (existingCall && !existingCall.closed) {
     const pcState = existingCall.peerConnection?.connectionState;
-    const isAlive = existingCall.open || pcState === 'connected' || pcState === 'connecting' || !pcState;
+    const isAlive = existingCall.open || pcState === 'new' || pcState === 'connected' || pcState === 'connecting' || !pcState;
     if (isAlive) {
       console.log(`[Streamer] Chamada de mídia já ativa/em negociação com ${viewerId}, ignorando chamada redundante.`);
       return existingCall;
@@ -550,6 +550,10 @@ async function initStreamerApp(options = {}) {
     role: 'streamer',
     chatManager,
     voiceManager,
+    getChatIdentity: id => {
+      const slot = getCoopState().slots?.find(player => player.occupied && player.peerId === id);
+      return { name: slot?.name || `Amigo ${id.slice(-4)}`, role: slot ? 'player2' : 'viewer' };
+    },
     getPeer: () => streamerState.peer,
     getLocalPeerId: () => streamerState.streamerId,
     showToast,

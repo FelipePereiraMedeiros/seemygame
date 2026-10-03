@@ -815,6 +815,10 @@ async function initRoomApp(options = {}) {
     role: 'room',
     chatManager,
     voiceManager,
+    getChatIdentity: id => {
+      const member = roomState.roomManager?.members.get(id);
+      return member ? { name: member.name, role: member.isMaster ? 'host' : 'viewer' } : null;
+    },
     getPeer: () => roomState.peer,
     getLocalPeerId: () => roomState.peer?.id,
     showToast,
