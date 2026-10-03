@@ -107,6 +107,16 @@ impl NativeMediaWorker {
                 resolved_config.h264_encoder.as_str()
             ));
         }
+        if resolved_config.capture_backend == CaptureBackend::D3d12 {
+            if resolved_config.codec != VideoCodec::H264 || resolved_config.h264_encoder != H264EncoderBackend::Nvenc {
+                return Err("Captura D3D12 experimental requer H.264/NVENC; não há fallback silencioso".into());
+            }
+            for element in ["d3d12screencapturesrc", "d3d12convert", "d3d12download"] {
+                if !runtime.inspect_element(element) {
+                    return Err(format!("Captura D3D12 experimental indisponível: plugin {element} ausente"));
+                }
+            }
+        }
         if resolved_config.audio_mode != AudioMode::None && !capabilities.system_audio_available {
             return Err("O áudio loopback WASAPI/Opus não está disponível".to_string());
         }

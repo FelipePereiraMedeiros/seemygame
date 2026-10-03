@@ -111,6 +111,23 @@ impl AudioMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CaptureBackend {
+    #[default]
+    D3d11,
+    D3d12,
+}
+
+impl CaptureBackend {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "d3d11" => Ok(Self::D3d11),
+            "d3d12" => Ok(Self::D3d12),
+            _ => Err(format!("Backend de captura inválido: {value}; use d3d11 ou d3d12")),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MediaWorkerConfig {
     pub codec: VideoCodec,
@@ -123,6 +140,7 @@ pub struct MediaWorkerConfig {
     pub height: Option<u32>,
     pub gop_size: Option<u32>,
     pub capture_api: Option<String>,
+    pub capture_backend: CaptureBackend,
     pub exclude_process_id: Option<u32>,
 }
 
@@ -139,6 +157,7 @@ impl Default for MediaWorkerConfig {
             height: None,
             gop_size: None,
             capture_api: None,
+            capture_backend: CaptureBackend::D3d11,
             exclude_process_id: None,
         }
     }
@@ -165,6 +184,10 @@ impl MediaWorkerConfig {
 
         if let Ok(value) = env::var("SEEMYGAME_NATIVE_H264_ENCODER") {
             config.h264_encoder = H264EncoderBackend::parse(&value)?;
+        }
+        // Experimental opt-in; never changes the default capture path.
+        if let Ok(value) = env::var("SEEMYGAME_NATIVE_CAPTURE_BACKEND") {
+            config.capture_backend = CaptureBackend::parse(&value)?;
         }
 
         if let Ok(value) = env::var("SEEMYGAME_NATIVE_SHOW_CURSOR") {

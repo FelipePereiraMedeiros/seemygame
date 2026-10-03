@@ -72,23 +72,15 @@ fn benchmark_native_capture_stages() {
     let capture_backend = env::var("SMG_PROBE_CAPTURE").unwrap_or_else(|_| "d3d11".into());
     assert!(matches!(capture_backend.as_str(), "d3d11" | "d3d12"), "unsupported capture probe backend");
     assert!(capture_backend != "d3d12" || backend == H264EncoderBackend::Nvenc, "D3D12 experiment currently isolates capture using the same D3D11 NVENC encoder");
-    let config = MediaWorkerConfig { h264_encoder:backend,fps,width:Some(1280),height:Some(720),bitrate_kbps:4500,..Default::default() };
+    let config = MediaWorkerConfig { capture_backend:CaptureBackend::parse(&capture_backend).unwrap(),h264_encoder:backend,fps,width:Some(1280),height:Some(720),bitrate_kbps:4500,..Default::default() };
     let args = build_pipeline(&source,&config,5000,None).unwrap();
     let end = args.iter().position(|s|s=="udpsink").unwrap()-1;
     let mut chain=Vec::new(); let mut queues=0;
     for arg in &args[..end] {
-        // Test-only alternative: preserve encoder/settings and negotiate GPU memory at interop.
-        // Keep the shipping path unchanged until end-to-end validation.
-        if capture_backend == "d3d12" {
-            if arg == "automatic-eos=false" { continue; }
-            if arg == "queue" && queues == 1 {
-                chain.extend(["d3d12download".into(), "name=stage-interop".into(), "!".into(),
-                    format!("video/x-raw(memory:D3D11Memory),format=NV12,framerate={fps}/1,width=1280,height=720"), "!".into()]);
-            }
-            chain.push(arg.replace("d3d11screencapturesrc", "d3d12screencapturesrc").replace("d3d11convert", "d3d12convert").replace("memory:D3D11Memory", "memory:D3D12Memory"));
-        } else { chain.push(arg.clone()); }
+        // Use the same pipeline builder as the real worker, including GPU interop.
+        chain.push(arg.clone());
         let name=match arg.as_str() {
-            "d3d11screencapturesrc"=>Some("stage-capture"), "videorate"=>Some("stage-rate"), "d3d11convert"=>Some("stage-convert"),
+            "d3d11screencapturesrc"|"d3d12screencapturesrc"=>Some("stage-capture"), "videorate"=>Some("stage-rate"), "d3d11convert"|"d3d12convert"=>Some("stage-convert"), "d3d12download"=>Some("stage-interop"),
             "nvd3d11h264enc"|"mfh264enc"|"x264enc"=>Some("stage-encoder"),
             "queue"=>{queues+=1;Some(if queues==1{"stage-capture-queue"}else{"stage-encoder-queue"})}, _=>None
         };

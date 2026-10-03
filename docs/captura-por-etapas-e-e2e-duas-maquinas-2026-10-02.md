@@ -68,6 +68,8 @@ O probe de encoder sintético também foi repetido com o cronômetro por segment
 
 ## Receptor remoto: primeira entrega e limites
 
+**Atualização:** a primeira transmissão real desktop → notebook foi executada em 720p e 1080p. O controle anterior com `exposeNetwork` falhou ao encaminhar a página entre hosts; agora usar `--viewer-ssh-host notebook` para HTTP/sinalização explícitos por SSH. Entrega aprovada nas duas rodadas, qualidade de 60 FPS reprovada; receptor headless e latência óptica desativada. Resultados, pistas de perdas/NACK e instruções em [e2e-duas-maquinas-2026-10-02.md](e2e-duas-maquinas-2026-10-02.md). Os parágrafos seguintes preservam os testes anteriores.
+
 `tools/e2e/viewer-agent.mjs` inicia no notebook um navegador com perfil isolado e coletor de CPU/GPU. Os endpoints de controle e Playwright escutam somente em loopback e usam caminhos temporários aleatórios. O navegador é controlado pelo transmissor através de duas portas encaminhadas por SSH. O helper expira em 30 minutos por padrão e pode ser encerrado com Ctrl+C.
 
 O E2E nativo conecta esse navegador, entra na mesma sala e transmite diretamente pelo WebRTC nativo. Recursos e janelas de qualidade do receptor usam seu próprio relógio. Recursos do transmissor são registrados separadamente. URLs de controle/WS, que permitem controlar o navegador de teste, não são gravadas nos relatórios finais.

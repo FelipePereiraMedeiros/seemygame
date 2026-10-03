@@ -83,6 +83,34 @@ pub fn probe_capabilities() -> MediaCapabilities {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn d3d12_capture_is_opt_in_and_rejects_invalid_backends() {
+        assert_eq!(MediaWorkerConfig::default().capture_backend, CaptureBackend::D3d11);
+        assert_eq!(CaptureBackend::parse(" D3D12 ").unwrap(), CaptureBackend::D3d12);
+        assert!(CaptureBackend::parse("automatic").is_err());
+        for encoder in [H264EncoderBackend::Auto, H264EncoderBackend::MediaFoundation, H264EncoderBackend::Cpu] {
+            let config = MediaWorkerConfig {capture_backend:CaptureBackend::D3d12,h264_encoder:encoder,..Default::default()};
+            assert!(build_pipeline(&source("window"), &config, 5000, None).is_err());
+        }
+        for codec in [VideoCodec::Av1, VideoCodec::Hevc] {
+            let config = MediaWorkerConfig {capture_backend:CaptureBackend::D3d12,h264_encoder:H264EncoderBackend::Nvenc,codec,..Default::default()};
+            assert!(build_pipeline(&source("window"), &config, 5000, None).is_err());
+        }
+    }
+    #[test]
+    fn d3d12_pipeline_keeps_gpu_memory_until_nvenc_at_both_resolutions() {
+        for (width,height) in [(1280,720),(1920,1080)] {
+            let config = MediaWorkerConfig {capture_backend:CaptureBackend::D3d12,h264_encoder:H264EncoderBackend::Nvenc,width:Some(width),height:Some(height),..Default::default()};
+            let mut src=source("window");src.width=1920;src.height=1080;
+            let args=build_pipeline(&src,&config,5000,None).unwrap();
+            assert_eq!(args[0], "d3d12screencapturesrc");
+            let interop=args.iter().position(|s|s=="d3d12download").unwrap();
+            assert_eq!(args[interop+2],format!("video/x-raw(memory:D3D11Memory),format=NV12,framerate=60/1,width={width},height={height}"));
+            assert!(args.iter().any(|s|s=="nvd3d11h264enc"));
+            assert!(!args.iter().any(|s|s=="d3d11screencapturesrc"||s.starts_with("video/x-raw,format=")));
+        }
+        assert_eq!(build_pipeline(&source("window"),&MediaWorkerConfig::default(),5000,None).unwrap()[0],"d3d11screencapturesrc");
+    }
     include!("media/cadence_probe.rs");
     include!("media/capture_stage_probe.rs");
 

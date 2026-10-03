@@ -22,6 +22,16 @@ describe('Two-machine receiver policy',()=>{
   expect(()=>prepareRemoteViewer({...metadata,kind:'other'},endpoint,options)).toThrow();
   expect(()=>prepareRemoteViewer({...metadata,wsEndpoint:'ws://0.0.0.0:9333/x'},endpoint,options)).toThrow();
  });
+ it('connects to an isolated WebView2 receiver through forwarded HTTP CDP',()=>{
+  const desktop={...metadata,runtime:'tauri',connectionType:'cdp',cdpEndpoint:'http://127.0.0.1:9333'};
+  const result=prepareRemoteViewer(desktop,endpoint,{...options,wsPort:19333});
+  expect(result.connectionType).toBe('cdp');expect(result.wsEndpoint).toBe('http://127.0.0.1:19333/');expect(result.conditions.runtime).toBe('tauri');
+  expect(result.conditions.physicalPresentation).toBe(false);
+ });
+ it('rejects arbitrary protocols, paths and non-loopback CDP destinations',()=>{
+  for(const cdpEndpoint of ['http://192.168.1.2:9333','https://127.0.0.1:9333','http://127.0.0.1:9333/other','http://u:p@127.0.0.1:9333'])expect(()=>prepareRemoteViewer({...metadata,connectionType:'cdp',cdpEndpoint},endpoint,options)).toThrow();
+  expect(()=>prepareRemoteViewer({...metadata,connectionType:'other'},endpoint,options)).toThrow();
+ });
  it('does not silently label loopback self-tests as two physical machines',()=>{
   expect(()=>prepareRemoteViewer({...metadata,machineFingerprint:'local'},endpoint,options)).toThrow();
   expect(prepareRemoteViewer({...metadata,machineFingerprint:'local'},endpoint,{...options,allowSameMachine:true}).conditions.sameMachine).toBe(true);

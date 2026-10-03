@@ -11,3 +11,4 @@ output/
 __pycache__/
 *.pyc
 .agents/
+*.mp4

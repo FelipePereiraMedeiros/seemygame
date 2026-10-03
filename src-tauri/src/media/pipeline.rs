@@ -17,6 +17,11 @@ pub(crate) fn build_pipeline(
     video_rtp_port: u16,
     audio_rtp_port: Option<u16>,
 ) -> Result<Vec<String>, String> {
+    let d3d12 = config.capture_backend == CaptureBackend::D3d12;
+    if d3d12 && (config.codec != VideoCodec::H264 || config.h264_encoder != H264EncoderBackend::Nvenc) {
+        return Err("Captura D3D12 experimental requer H.264/NVENC; não há fallback silencioso".into());
+    }
+    let memory = if d3d12 { "D3D12Memory" } else { "D3D11Memory" };
     let capture_api = if source.hwnd.is_some() {
         "wgc"
     } else {
@@ -27,7 +32,7 @@ pub(crate) fn build_pipeline(
         .unwrap_or_else(|| (config.fps / 2).clamp(15, 30));
 
     let mut args = vec![
-        "d3d11screencapturesrc".to_string(),
+        if d3d12 { "d3d12screencapturesrc" } else { "d3d11screencapturesrc" }.to_string(),
         format!("capture-api={capture_api}"),
         "do-timestamp=true".to_string(),
     ];
@@ -80,7 +85,7 @@ pub(crate) fn build_pipeline(
     args.extend([
         cursor_arg.to_string(),
         "!".to_string(),
-        "video/x-raw(memory:D3D11Memory),format=BGRA".to_string(),
+        format!("video/x-raw(memory:{memory}),format=BGRA"),
         "!".to_string(),
         "queue".to_string(),
         "max-size-buffers=3".to_string(),
@@ -91,17 +96,27 @@ pub(crate) fn build_pipeline(
         "drop-only=true".to_string(),
         "!".to_string(),
         format!(
-            "video/x-raw(memory:D3D11Memory),framerate={}/1",
+            "video/x-raw(memory:{memory}),framerate={}/1",
             config.fps
         ),
         "!".to_string(),
-        "d3d11convert".to_string(),
+        if d3d12 { "d3d12convert" } else { "d3d11convert" }.to_string(),
         "!".to_string(),
         format!(
-            "video/x-raw(memory:D3D11Memory),format={convert_format},framerate={}/1{resolution_caps}",
+            "video/x-raw(memory:{memory}),format={convert_format},framerate={}/1{resolution_caps}",
             config.fps
         ),
         "!".to_string(),
+    ]);
+    if d3d12 {
+        // Explicit GPU-memory interop into the SAME D3D11 NVENC encoder.
+        args.extend([
+            "d3d12download".to_string(), "!".to_string(),
+            format!("video/x-raw(memory:D3D11Memory),format=NV12,framerate={}/1{resolution_caps}", config.fps),
+            "!".to_string(),
+        ]);
+    }
+    args.extend([
         "queue".to_string(),
         "max-size-buffers=3".to_string(),
         "max-size-time=50000000".to_string(),

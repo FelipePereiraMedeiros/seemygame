@@ -19,13 +19,15 @@ export function prepareRemoteViewer(metadata,endpoint,{localPlaywrightVersion,lo
   if(metadata?.kind!=='seemygame-e2e-viewer'||metadata.schemaVersion!==1||typeof metadata.machineFingerprint!=='string'||typeof metadata.headless!=='boolean')throw new Error('Invalid remote viewer metadata');
   const version=v=>String(v||'').split('.').slice(0,2).join('.');
   if(version(metadata.playwrightVersion)!==version(localPlaywrightVersion))throw new Error('Remote/local Playwright major.minor versions must match');
-  const control=validateViewerEndpoint(endpoint),ws=new URL(metadata.wsEndpoint);
-  if(ws.protocol!=='ws:'||!['localhost','127.0.0.1','[::1]'].includes(ws.hostname)||ws.username||ws.password||ws.search||ws.hash||ws.pathname==='/')throw new Error('Invalid loopback Playwright endpoint');
+  const connectionType=metadata.connectionType||'playwright';
+  if(!['playwright','cdp'].includes(connectionType))throw new Error('Invalid receiver connection type');
+  const control=validateViewerEndpoint(endpoint),ws=new URL(connectionType==='cdp'?metadata.cdpEndpoint:metadata.wsEndpoint);
+  if(ws.protocol!==(connectionType==='cdp'?'http:':'ws:')||!['localhost','127.0.0.1','[::1]'].includes(ws.hostname)||ws.username||ws.password||ws.search||ws.hash||(connectionType==='playwright'&&ws.pathname==='/')||(connectionType==='cdp'&&ws.pathname!=='/'))throw new Error('Invalid loopback receiver endpoint');
   const port=Number(wsPort??ws.port);if(!Number.isInteger(port)||port<1||port>65535)throw new Error('Invalid forwarded browser port');
   const sameMachine=metadata.machineFingerprint===localFingerprint;
   if(sameMachine&&!allowSameMachine)throw new Error('Remote viewer is on the same machine; use --allow-same-machine-remote only for harness validation');
   ws.hostname=control.hostname;ws.port=String(port);
-  return {wsEndpoint:ws.toString(),conditions:{sameMachine,headless:metadata.headless,physicalPresentation:false,headedPresentationRequested:!metadata.headless,playwrightVersion:metadata.playwrightVersion,machineFingerprint:metadata.machineFingerprint,platform:metadata.platform,cpuModel:metadata.cpuModel,logicalProcessors:metadata.logicalProcessors,session:metadata.session,clockPolicy:'Independent clocks: optical glass-to-glass disabled; receiver quality/resource windows use receiver clock'}};
+  return {connectionType,wsEndpoint:ws.toString(),conditions:{sameMachine,runtime:metadata.runtime||'chrome',connectionType,headless:metadata.headless,physicalPresentation:false,headedPresentationRequested:!metadata.headless,playwrightVersion:metadata.playwrightVersion,machineFingerprint:metadata.machineFingerprint,platform:metadata.platform,cpuModel:metadata.cpuModel,logicalProcessors:metadata.logicalProcessors,session:metadata.session,clockPolicy:'Independent clocks: optical glass-to-glass disabled; receiver quality/resource windows use receiver clock'}};
 }
 export function resourceWindow(report,start,end) {
   return (report?.samples||[]).filter(s=>s.timestamp>=start&&s.timestamp<=end);
