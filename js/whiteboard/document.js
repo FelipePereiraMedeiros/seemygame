@@ -104,10 +104,17 @@ setBackgroundMode(mode) {
     this.render();
   }
 
-addElement(element, broadcast = true) {
+  saveUndoState() {
+    this.undoStack.push([...this.elements.map(e => ({ ...e }))]);
+    if (this.undoStack.length > 50) {
+      this.undoStack.shift();
+    }
+  }
+
+  addElement(element, broadcast = true) {
     if (!isSafeWhiteboardElement(element) || this.elements.length >= MAX_WHITEBOARD_ELEMENTS) return;
     if (this.elements.some(el => el.id === element.id)) return;
-    this.undoStack.push([...this.elements]);
+    this.saveUndoState();
     this.redoStack = [];
     this.elements.push(element);
     this.render();
@@ -117,11 +124,11 @@ addElement(element, broadcast = true) {
     }
   }
 
-updateElement(element, broadcast = true) {
-    if (!element || !element.id) return;
+  updateElement(element, broadcast = true) {
+    if (!isSafeWhiteboardElement(element)) return;
     const idx = this.elements.findIndex(el => el.id === element.id);
     if (idx !== -1) {
-      this.undoStack.push([...this.elements.map(e => ({ ...e }))]);
+      this.saveUndoState();
       this.redoStack = [];
       this.elements[idx] = element;
       this.render();
@@ -134,10 +141,10 @@ updateElement(element, broadcast = true) {
     }
   }
 
-removeElement(elementId, broadcast = true) {
+  removeElement(elementId, broadcast = true) {
     const idx = this.elements.findIndex(el => el.id === elementId);
     if (idx !== -1) {
-      this.undoStack.push([...this.elements]);
+      this.saveUndoState();
       this.redoStack = [];
       const removed = this.elements.splice(idx, 1)[0];
       if (this.selectedElementId === elementId) {
@@ -168,18 +175,18 @@ undo() {
     return true;
   }
 
-redo() {
+  redo() {
     if (this.redoStack.length === 0) return false;
-    this.undoStack.push([...this.elements]);
+    this.saveUndoState();
     this.elements = this.redoStack.pop();
     this.selectedElementId = null;
     this.render();
     return true;
   }
 
-clear(broadcast = true) {
+  clear(broadcast = true) {
     if (this.elements.length === 0) return;
-    this.undoStack.push([...this.elements]);
+    this.saveUndoState();
     this.redoStack = [];
     this.elements = [];
     this.selectedElementId = null;

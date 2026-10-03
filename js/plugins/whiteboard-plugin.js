@@ -7,6 +7,7 @@
 
 import { BasePlugin } from './base-plugin.js';
 import { whiteboardManager } from '../whiteboard.js';
+import { isSafeWhiteboardElement } from '../whiteboard/shared.js';
 
 export class WhiteboardPlugin extends BasePlugin {
   constructor(options = {}) {
@@ -23,12 +24,26 @@ export class WhiteboardPlugin extends BasePlugin {
 
     if (dispatcher) {
       const incomingChunks = new Map();
+      const MAX_CONCURRENT_CHUNKS = 25;
+      const CHUNK_TTL_MS = 60000;
+
+      const pruneExpiredChunks = () => {
+        const now = Date.now();
+        for (const [id, entry] of incomingChunks.entries()) {
+          if (now - entry.timestamp > CHUNK_TTL_MS) incomingChunks.delete(id);
+        }
+      };
 
       this._dispatcherUnsubs.push(
         dispatcher.register('WHITEBOARD_ELEMENT_CHUNK', (data, sourceConn) => {
           if (!data || !data.chunkId || typeof data.index !== 'number' || typeof data.total !== 'number') return;
+          if (data.total <= 0 || data.total > 200 || data.index < 0 || data.index >= data.total) return;
+          if (typeof data.chunk !== 'string' || data.chunk.length > 65536) return;
+
+          pruneExpiredChunks();
           let entry = incomingChunks.get(data.chunkId);
           if (!entry) {
+            if (incomingChunks.size >= MAX_CONCURRENT_CHUNKS) return;
             entry = { total: data.total, received: new Map(), meta: data.meta, isUpdate: data.isUpdate, timestamp: Date.now() };
             incomingChunks.set(data.chunkId, entry);
           }
@@ -39,7 +54,10 @@ export class WhiteboardPlugin extends BasePlugin {
             for (let i = 0; i < entry.total; i++) {
               fullDataUrl += (entry.received.get(i) || '');
             }
+            if (fullDataUrl.length > 5 * 1024 * 1024) return;
             const fullElement = { ...entry.meta, dataUrl: fullDataUrl };
+            if (!isSafeWhiteboardElement(fullElement)) return;
+
             if (entry.isUpdate) {
               this.manager.updateElement(fullElement, false);
             } else {
@@ -107,22 +125,75 @@ export class WhiteboardPlugin extends BasePlugin {
         dispatcher.register('WHITEBOARD_REQUEST_SYNC', (data, sourceConn) => {
           if (sourceConn && sourceConn.open) {
             const elements = this.manager.elements;
-            if (elements && elements.length > 0) {
-              if (elements.length <= 25) {
-                sourceConn.send({ type: 'WHITEBOARD_SYNC', elements });
+            if (!elements || elements.length === 0) return;
+
+            const MAX_BATCH_BYTES = 48 * 1024;
+            const regularElements = [];
+            const largeImageElements = [];
+
+            for (const el of elements) {
+              if (el?.type === 'image' && el.dataUrl && el.dataUrl.length > 30000) {
+                largeImageElements.push(el);
               } else {
-                const CHUNK_SIZE = 20;
-                const syncId = 'wb_sync_' + Date.now();
-                for (let i = 0; i < elements.length; i += CHUNK_SIZE) {
-                  const chunk = elements.slice(i, i + CHUNK_SIZE);
+                regularElements.push(el);
+              }
+            }
+
+            let regularTotalBytes = 0;
+            try { regularTotalBytes = JSON.stringify(regularElements).length; } catch (_) {}
+
+            if (largeImageElements.length === 0 && regularTotalBytes < MAX_BATCH_BYTES) {
+              sourceConn.send({ type: 'WHITEBOARD_SYNC', elements: regularElements });
+            } else {
+              const syncId = 'wb_sync_' + Date.now();
+              const batches = [];
+              let currentBatch = [];
+              let currentBytes = 0;
+
+              for (const el of regularElements) {
+                const elBytes = JSON.stringify(el).length;
+                if (currentBatch.length > 0 && (currentBytes + elBytes) > MAX_BATCH_BYTES) {
+                  batches.push(currentBatch);
+                  currentBatch = [el];
+                  currentBytes = elBytes;
+                } else {
+                  currentBatch.push(el);
+                  currentBytes += elBytes;
+                }
+              }
+              if (currentBatch.length > 0) batches.push(currentBatch);
+
+              const totalBatches = batches.length;
+              for (let i = 0; i < totalBatches; i++) {
+                try {
+                  sourceConn.send({
+                    type: 'WHITEBOARD_SYNC_BATCH',
+                    syncId,
+                    elements: batches[i],
+                    batchIndex: i,
+                    totalBatches,
+                    isFinal: i === totalBatches - 1 && largeImageElements.length === 0
+                  });
+                } catch (_) {}
+              }
+
+              for (const imgEl of largeImageElements) {
+                const CHUNK_SIZE = 30000;
+                const chunkId = 'wb_sync_img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+                const dataUrl = imgEl.dataUrl;
+                const total = Math.ceil(dataUrl.length / CHUNK_SIZE);
+                const meta = { ...imgEl };
+                delete meta.dataUrl;
+                for (let i = 0; i < total; i++) {
                   try {
                     sourceConn.send({
-                      type: 'WHITEBOARD_SYNC_BATCH',
-                      syncId,
-                      elements: chunk,
-                      batchIndex: Math.floor(i / CHUNK_SIZE),
-                      totalBatches: Math.ceil(elements.length / CHUNK_SIZE),
-                      isFinal: i + CHUNK_SIZE >= elements.length
+                      type: 'WHITEBOARD_ELEMENT_CHUNK',
+                      chunkId,
+                      index: i,
+                      total,
+                      chunk: dataUrl.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE),
+                      meta,
+                      isUpdate: false
                     });
                   } catch (_) {}
                 }
