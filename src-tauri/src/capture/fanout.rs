@@ -23,6 +23,15 @@ impl RtpFanout {
         let video_socket = UdpSocket::bind(("127.0.0.1", video_src_port)).map_err(|e| {
             format!("Falha ao conectar socket fan-out de vídeo na porta {video_src_port}: {e}")
         })?;
+
+        let audio_socket = if let Some(audio_port) = audio_src_port {
+            Some(UdpSocket::bind(("127.0.0.1", audio_port)).map_err(|e| {
+                format!("Falha ao conectar socket fan-out de áudio na porta {audio_port}: {e}")
+            })?)
+        } else {
+            None
+        };
+
         let video_thread = spawn_fanout_thread(
             "vídeo",
             video_socket,
@@ -31,17 +40,21 @@ impl RtpFanout {
             Some(Arc::clone(&counters)),
         )?;
 
-        let audio_thread = if let Some(audio_port) = audio_src_port {
-            let audio_socket = UdpSocket::bind(("127.0.0.1", audio_port)).map_err(|e| {
-                format!("Falha ao conectar socket fan-out de áudio na porta {audio_port}: {e}")
-            })?;
-            Some(spawn_fanout_thread(
+        let audio_thread = if let Some(sock) = audio_socket {
+            match spawn_fanout_thread(
                 "áudio",
-                audio_socket,
+                sock,
                 Arc::clone(&audio_targets),
                 Arc::clone(&running),
                 None,
-            )?)
+            ) {
+                Ok(handle) => Some(handle),
+                Err(e) => {
+                    running.store(false, Ordering::SeqCst);
+                    let _ = video_thread.join();
+                    return Err(e);
+                }
+            }
         } else {
             None
         };

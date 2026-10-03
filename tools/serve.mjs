@@ -26,6 +26,8 @@ const MIME_TYPES = {
   '.gltf': 'model/gltf+json'
 };
 
+const HOST = process.env.HOST || '127.0.0.1';
+
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -37,14 +39,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const url = new URL(req.url, `http://localhost:${PORT}`);
-  let pathname = decodeURIComponent(url.pathname);
+  let pathname;
+  try {
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    pathname = decodeURIComponent(url.pathname);
+  } catch (_) {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Bad Request: Invalid URI');
+    return;
+  }
+
   if (pathname === '/') pathname = '/index.html';
 
-  const filePath = path.normalize(path.join(root, pathname));
+  // Bloqueia acesso a arquivos e pastas ocultos (.git, .env, etc.)
+  if (pathname.split('/').some(segment => segment.startsWith('.'))) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Acesso negado');
+    return;
+  }
 
-  if (!filePath.startsWith(root)) {
-    res.writeHead(403);
+  const filePath = path.normalize(path.join(root, pathname));
+  const relative = path.relative(root, filePath);
+
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Acesso negado');
     return;
   }
@@ -64,6 +82,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[SeeMyGame Local Web] Servidor rodando em: http://localhost:${PORT}/room.html`);
+server.listen(PORT, HOST, () => {
+  console.log(`[SeeMyGame Local Web] Servidor rodando em: http://${HOST}:${PORT}/room.html`);
 });

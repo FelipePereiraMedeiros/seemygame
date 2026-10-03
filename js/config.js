@@ -77,6 +77,9 @@ function isProductionWebOrigin() {
 }
 
 function getStaticFallbackIceServers() {
+  if (isProductionWebOrigin()) {
+    return PUBLIC_STUN_ICE_SERVERS;
+  }
   return DEFAULT_ICE_SERVERS;
 }
 
