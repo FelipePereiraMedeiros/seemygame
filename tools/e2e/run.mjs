@@ -14,6 +14,7 @@ import os from 'node:os';
 import { installTelemetry, deltaMetrics } from './telemetry.mjs';
 import { computeSessionMagic, crc16, MARKER_CONFIG } from './optical.mjs';
 import { waitForAsync } from './wait.mjs';
+import { exerciseVoiceControls } from './harness/voice-controls.mjs';
 import { ensureDefaultDesktop } from './desktop-affinity.mjs';
 import { QUALITY_PROFILES } from '../../js/config.js';
 import { assessQuality } from '../../js/streaming/quality.js';
@@ -40,6 +41,7 @@ ensureDefaultDesktop();
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const args = process.argv.slice(2);
+const exerciseVoice = args.includes('--exercise-voice-controls');
 const option = (key, fallback) => { const i = args.indexOf(key); return i < 0 ? fallback : args[i + 1]; };
 const exe = path.resolve(option('--exe', path.join(root, 'src-tauri/target/debug/seemygame.exe')));
 const duration = Number(option('--seconds', '30'));
@@ -303,7 +305,7 @@ try {
     });
 
     }else{
-      nativeBrowser=await chromium.launch({channel,headless:false,args:['--disable-background-timer-throttling','--disable-backgrounding-occluded-windows','--disable-renderer-backgrounding','--disable-features=CalculateNativeWinOcclusion','--autoplay-policy=no-user-gesture-required','--window-position=80,80','--window-size=1280,800',`--auto-select-desktop-capture-source=${syntheticTitle}`,'--enable-usermedia-screen-capturing','--allow-http-screen-capture']});
+      nativeBrowser=await chromium.launch({channel,headless:false,args:['--disable-background-timer-throttling','--disable-backgrounding-occluded-windows','--disable-renderer-backgrounding','--disable-features=CalculateNativeWinOcclusion','--autoplay-policy=no-user-gesture-required','--window-position=80,80','--window-size=1280,800',`--auto-select-desktop-capture-source=${syntheticTitle}`,'--enable-usermedia-screen-capturing','--allow-http-screen-capture',...(exerciseVoice?['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']:[])]});
       const senderContext=await nativeBrowser.newContext();await senderContext.grantPermissions(['camera','microphone']);await isolatedInit(senderContext);
       hostPage=await senderContext.newPage();watchErrors(hostPage,'desktop');nativeOrigin=localOrigin;
       report.senderBrowserVersion=nativeBrowser.version();
@@ -364,7 +366,8 @@ try {
         '--window-size=1280,720',
         `--auto-select-desktop-capture-source=${syntheticTitle}`,
         '--enable-usermedia-screen-capturing',
-        '--allow-http-screen-capture'
+        '--allow-http-screen-capture',
+        ...(exerciseVoice ? ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] : [])
       ],
       timeout: 30000
     });
@@ -404,6 +407,10 @@ try {
       if (!hostId || !viewerId || hostId === viewerId) throw new Error('Identidades dos clientes inválidas');
       for (const [page, expected] of [[hostPage, viewerId], [viewerPage, hostId]]) await waitApp(page, async id => { const r = (await import('/js/diagnostics/session-api.js')).getActiveSession().roomManager; return r?.members.has(id) && r.isPeerAuthorized(id); }, expected);
     });
+    if (exerciseVoice) {
+      report.limitations.push('Voice controls use fake microphone devices; actual WebRTC audio tracks and remote output gains are asserted, physical audio hardware is not tested.');
+      report.voiceControls = await record('verify microphone, deafen, drawer and quick controls on both endpoints', () => exerciseVoiceControls([hostPage, viewerPage]));
+    }
     const averageOf = (arr, fn) => {
       const vals = arr.map(fn).filter(n => Number.isFinite(n) && n !== null);
       return vals.length ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : null;
@@ -1016,6 +1023,8 @@ try {
     }
 
     if (isCompareMode) {
+      const nativeBackendLabel = report.nativeState?.captureBackend || report.nativeState?.capture_backend || 'unknown';
+      const sourceProfile = QUALITY_PROFILES[preset];
       // Matriz Comparativa A/B Rigorosa
       const natLat = nativeResult.glassToGlassLatency?.p50Ms ?? null;
       const webLat = webResult.glassToGlassLatency?.p50Ms ?? null;
@@ -1036,9 +1045,9 @@ try {
         declaredFactors: [
           'Streamer: WebView2 (Nativo) vs Chromium (Web)',
           'Receiver: Chromium (Nativo) vs WebView2 (Web)',
-          'Fonte: Janela sintética idêntica SMG E2E Motion (1280x720)',
-          'Superfície de Captura: Janela vs Janela (Direct3D 11/WGC vs getDisplayMedia)',
-          'Fonte solicitada: 1280x720 @ 60 FPS; resolução entregue registrada separadamente',
+          `Fonte: Janela sintética idêntica SMG E2E Motion (${sourceProfile.width}x${sourceProfile.height})`,
+          `Superfície de Captura: Janela vs Janela (${nativeBackendLabel}/WGC vs getDisplayMedia)`,
+          `Fonte solicitada: ${sourceProfile.width}x${sourceProfile.height} @ ${sourceProfile.fps} FPS; resolução entregue registrada separadamente`,
           'Os receptores são diferentes; esta execução não isola apenas o método de captura'
         ],
         deliveredResolutions: { native: nativeResult.deliveredResolutions, web: webResult.deliveredResolutions },
@@ -1099,7 +1108,7 @@ try {
 
       console.log('\n=== Comparação observada (Nativo vs Web; veja condições no relatório) ===');
       console.table({
-        'Nativo (Direct3D 11)': {
+        [`Nativo (${nativeBackendLabel})`]: {
           'FPS Mediano (Steady)': natFps?.toFixed(1),
           'Latência p50 Steady (ms)': natLat ?? 'Inconclusivo',
           'Latência p90 Steady (ms)': nativeResult.glassToGlassLatency?.p90Ms ?? 'N/A',
