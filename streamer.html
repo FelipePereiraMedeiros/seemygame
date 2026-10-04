@@ -544,6 +544,8 @@
         <option value="ultra">⚡ Modo Competitivo (720p - Fluidez Máxima)</option>
         <option value="balanced" selected>🎮 Modo Dinâmico (1080p - Equilibrado & Fluido)</option>
         <option value="high">💎 Alta Fidelidade (1080p - Alta Nitidez)</option>
+        <option value="lanFhd">🏠 Modo LAN (1080p / 60 FPS - 30 Mbps)</option>
+        <option value="lanFhd120">🏠 Modo LAN Ultra (1080p / 120 FPS - 45 Mbps)</option>
       </select>
       <div class="fps-lock-badge" title="Instrui o codificador WebRTC a manter taxa de quadros contínua">
         <span>🎯</span> Alta Fluidez
@@ -556,7 +558,7 @@
         type="range" 
         id="bitrate-slider" 
         min="2500" 
-        max="16000" 
+        max="50000" 
         step="500" 
         value="7500" 
         aria-label="Ajuste fino de bitrate em megabits por segundo">
