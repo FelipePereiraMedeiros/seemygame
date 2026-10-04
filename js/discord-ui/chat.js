@@ -1,15 +1,13 @@
-import { chatManager } from ".././chat.js";
-import { voiceManager } from ".././voice.js";
-import { SOUNDBOARD_PRESETS, soundboardManager } from ".././soundboard.js";
+import { SOUNDBOARD_PRESETS } from ".././soundboard.js";
 import { EMOJI_REACTION_PRESETS } from './shared.js';
 /** DiscordUIController: chat. State and lifetime remain owned by the composed engine. */
 export const withDiscordUIControllerChat = Base => class extends Base {
 bindChatEvents() {
-    this.observe(chatManager, 'message', (msg) => {
+    this.observe(this.chatManager, 'message', (msg) => {
       this.renderChatMessage(msg);
     });
 
-    this.observe(chatManager, 'unread', ({ total }) => {
+    this.observe(this.chatManager, 'unread', ({ total }) => {
       if (!this.isDrawerOpen || this.activeTab !== 'chat') {
         this.updateChatBadge(total);
       }

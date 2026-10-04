@@ -1,6 +1,4 @@
-import { chatManager } from ".././chat.js";
-import { voiceManager } from ".././voice.js";
-import { SOUNDBOARD_PRESETS, soundboardManager } from ".././soundboard.js";
+import { SOUNDBOARD_PRESETS } from ".././soundboard.js";
 import { EMOJI_REACTION_PRESETS } from './shared.js';
 /** DiscordUIController: drawer. State and lifetime remain owned by the composed engine. */
 export const withDiscordUIControllerDrawer = Base => class extends Base {
@@ -115,23 +113,23 @@ bindEvents() {
     // Controles de voz
     if (voiceMuteBtn) {
       this.listen(voiceMuteBtn, 'click', () => {
-        voiceManager.toggleMute();
+        this.onToggleMic(this.voiceManager.toggleMute());
       });
     }
     if (voiceDeafBtn) {
       this.listen(voiceDeafBtn, 'click', () => {
-        voiceManager.toggleDeafen();
+        this.onToggleDeaf(this.voiceManager.toggleDeafen());
       });
     }
     if (voiceModeBtn) {
       this.listen(voiceModeBtn, 'click', () => {
-        const nextMode = voiceManager.voiceMode === 'vad' ? 'ptt' : 'vad';
-        voiceManager.setVoiceMode(nextMode);
+        const nextMode = this.voiceManager.voiceMode === 'vad' ? 'ptt' : 'vad';
+        this.voiceManager.setVoiceMode(nextMode);
       });
     }
     if (voiceConnectBtn) {
       this.listen(voiceConnectBtn, 'click', () => {
-        if (voiceManager.isInVoice) {
+        if (this.voiceManager.isInVoice) {
           this.onLeaveVoice();
         } else {
           this.onJoinVoice();
@@ -142,27 +140,27 @@ bindEvents() {
     // Controles de Volume Pessoal (Mic e Saída Master)
     const { voiceSelfMicSlider, voiceSelfMicVal, voiceSelfOutputSlider, voiceSelfOutputVal, voiceSelfResetBtn } = this.elements;
     if (voiceSelfMicSlider) {
-      voiceSelfMicSlider.value = voiceManager.inputVolume;
-      if (voiceSelfMicVal) voiceSelfMicVal.textContent = `${voiceManager.inputVolume}%`;
+      voiceSelfMicSlider.value = this.voiceManager.inputVolume;
+      if (voiceSelfMicVal) voiceSelfMicVal.textContent = `${this.voiceManager.inputVolume}%`;
       this.listen(voiceSelfMicSlider, 'input', (e) => {
-        const vol = voiceManager.setInputVolume(e.target.value);
+        const vol = this.voiceManager.setInputVolume(e.target.value);
         if (voiceSelfMicVal) voiceSelfMicVal.textContent = `${vol}%`;
       });
     }
 
     if (voiceSelfOutputSlider) {
-      voiceSelfOutputSlider.value = voiceManager.outputVolume;
-      if (voiceSelfOutputVal) voiceSelfOutputVal.textContent = `${voiceManager.outputVolume}%`;
+      voiceSelfOutputSlider.value = this.voiceManager.outputVolume;
+      if (voiceSelfOutputVal) voiceSelfOutputVal.textContent = `${this.voiceManager.outputVolume}%`;
       this.listen(voiceSelfOutputSlider, 'input', (e) => {
-        const vol = voiceManager.setOutputVolume(e.target.value);
+        const vol = this.voiceManager.setOutputVolume(e.target.value);
         if (voiceSelfOutputVal) voiceSelfOutputVal.textContent = `${vol}%`;
       });
     }
 
     if (voiceSelfResetBtn) {
       this.listen(voiceSelfResetBtn, 'click', () => {
-        voiceManager.setInputVolume(100);
-        voiceManager.setOutputVolume(100);
+        this.voiceManager.setInputVolume(100);
+        this.voiceManager.setOutputVolume(100);
         if (voiceSelfMicSlider) voiceSelfMicSlider.value = 100;
         if (voiceSelfMicVal) voiceSelfMicVal.textContent = '100%';
         if (voiceSelfOutputSlider) voiceSelfOutputSlider.value = 100;
@@ -185,7 +183,7 @@ openDrawer(tab = 'chat') {
       this.elements.drawer.classList.add('open');
     }
     this.switchTab(tab);
-    chatManager.setChatOpen(true);
+    this.chatManager.setChatOpen(true);
     this.updateChatBadge(0);
   }
 
@@ -215,7 +213,7 @@ closeDrawer() {
     if (railEmojisBtn) railEmojisBtn.classList.remove('active');
     if (railSoundboardBtn) railSoundboardBtn.classList.remove('active');
 
-    chatManager.setChatOpen(false);
+    this.chatManager.setChatOpen(false);
   }
 
 switchTab(tab) {
@@ -260,7 +258,7 @@ switchTab(tab) {
     if (railSoundboardBtn) railSoundboardBtn.classList.toggle('active', tab === 'soundboard');
 
     if (tab === 'chat') {
-      chatManager.markChannelAsRead();
+      this.chatManager.markChannelAsRead();
       this.updateChatBadge(0);
       if (this.elements.chatInput) this.elements.chatInput.focus();
     }
