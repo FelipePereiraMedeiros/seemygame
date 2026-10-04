@@ -7,7 +7,7 @@
 
 import { BasePlugin } from './base-plugin.js';
 import { whiteboardManager } from '../whiteboard.js';
-import { isSafeWhiteboardElement } from '../whiteboard/shared.js';
+import { createWhiteboardTransfers, sendWhiteboardImage, sendWhiteboardSnapshot } from '../whiteboard/transfer.js';
 
 export class WhiteboardPlugin extends BasePlugin {
   constructor(options = {}) {
@@ -23,52 +23,16 @@ export class WhiteboardPlugin extends BasePlugin {
     const broadcast = (data, excludePeer) => this.context?.broadcastDataMessage?.(data, excludePeer);
 
     if (dispatcher) {
-      const incomingChunks = new Map();
-      const MAX_CONCURRENT_CHUNKS = 25;
-      const CHUNK_TTL_MS = 60000;
-
-      const pruneExpiredChunks = () => {
-        const now = Date.now();
-        for (const [id, entry] of incomingChunks.entries()) {
-          if (now - entry.timestamp > CHUNK_TTL_MS) incomingChunks.delete(id);
+      const transfers = createWhiteboardTransfers(this.manager, {
+        relayImage: (element, isUpdate, sourceConn) => {
+          if (shouldRelay()) sendWhiteboardImage(element, data => broadcast(data, sourceConn?.peer), { isUpdate });
         }
-      };
+      });
+      this.registerCleanup(() => transfers.dispose());
 
       this._dispatcherUnsubs.push(
-        dispatcher.register('WHITEBOARD_ELEMENT_CHUNK', (data, sourceConn) => {
-          if (!data || !data.chunkId || typeof data.index !== 'number' || typeof data.total !== 'number') return;
-          if (data.total <= 0 || data.total > 200 || data.index < 0 || data.index >= data.total) return;
-          if (typeof data.chunk !== 'string' || data.chunk.length > 65536) return;
-
-          pruneExpiredChunks();
-          let entry = incomingChunks.get(data.chunkId);
-          if (!entry) {
-            if (incomingChunks.size >= MAX_CONCURRENT_CHUNKS) return;
-            entry = { total: data.total, received: new Map(), meta: data.meta, isUpdate: data.isUpdate, timestamp: Date.now() };
-            incomingChunks.set(data.chunkId, entry);
-          }
-          entry.received.set(data.index, data.chunk);
-          if (entry.received.size === entry.total) {
-            incomingChunks.delete(data.chunkId);
-            let fullDataUrl = '';
-            for (let i = 0; i < entry.total; i++) {
-              fullDataUrl += (entry.received.get(i) || '');
-            }
-            if (fullDataUrl.length > 5 * 1024 * 1024) return;
-            const fullElement = { ...entry.meta, dataUrl: fullDataUrl };
-            if (!isSafeWhiteboardElement(fullElement)) return;
-
-            if (entry.isUpdate) {
-              this.manager.updateElement(fullElement, false);
-            } else {
-              const exists = this.manager.elements.some(el => el.id === fullElement.id);
-              if (!exists) {
-                this.manager.addElement(fullElement, false);
-                if (shouldRelay()) broadcast({ type: 'WHITEBOARD_ELEMENT_ADD', element: fullElement }, sourceConn?.peer);
-              }
-            }
-          }
-        }, { description: 'Whiteboard: Element Chunk' })
+        dispatcher.register('WHITEBOARD_ELEMENT_CHUNK', (data, sourceConn) => transfers.receiveChunk(data, sourceConn),
+          { description: 'Whiteboard: Element Chunk' })
       );
 
       this._dispatcherUnsubs.push(
@@ -124,100 +88,21 @@ export class WhiteboardPlugin extends BasePlugin {
       this._dispatcherUnsubs.push(
         dispatcher.register('WHITEBOARD_REQUEST_SYNC', (data, sourceConn) => {
           if (sourceConn && sourceConn.open) {
-            const elements = this.manager.elements;
-            if (!elements || elements.length === 0) return;
-
-            const MAX_BATCH_BYTES = 48 * 1024;
-            const regularElements = [];
-            const largeImageElements = [];
-
-            for (const el of elements) {
-              if (el?.type === 'image' && el.dataUrl && el.dataUrl.length > 30000) {
-                largeImageElements.push(el);
-              } else {
-                regularElements.push(el);
-              }
-            }
-
-            let regularTotalBytes = 0;
-            try { regularTotalBytes = JSON.stringify(regularElements).length; } catch (_) {}
-
-            if (largeImageElements.length === 0 && regularTotalBytes < MAX_BATCH_BYTES) {
-              sourceConn.send({ type: 'WHITEBOARD_SYNC', elements: regularElements });
-            } else {
-              const syncId = 'wb_sync_' + Date.now();
-              const batches = [];
-              let currentBatch = [];
-              let currentBytes = 0;
-
-              for (const el of regularElements) {
-                const elBytes = JSON.stringify(el).length;
-                if (currentBatch.length > 0 && (currentBytes + elBytes) > MAX_BATCH_BYTES) {
-                  batches.push(currentBatch);
-                  currentBatch = [el];
-                  currentBytes = elBytes;
-                } else {
-                  currentBatch.push(el);
-                  currentBytes += elBytes;
-                }
-              }
-              if (currentBatch.length > 0) batches.push(currentBatch);
-
-              const totalBatches = batches.length;
-              for (let i = 0; i < totalBatches; i++) {
-                try {
-                  sourceConn.send({
-                    type: 'WHITEBOARD_SYNC_BATCH',
-                    syncId,
-                    elements: batches[i],
-                    batchIndex: i,
-                    totalBatches,
-                    isFinal: i === totalBatches - 1 && largeImageElements.length === 0
-                  });
-                } catch (_) {}
-              }
-
-              for (const imgEl of largeImageElements) {
-                const CHUNK_SIZE = 30000;
-                const chunkId = 'wb_sync_img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-                const dataUrl = imgEl.dataUrl;
-                const total = Math.ceil(dataUrl.length / CHUNK_SIZE);
-                const meta = { ...imgEl };
-                delete meta.dataUrl;
-                for (let i = 0; i < total; i++) {
-                  try {
-                    sourceConn.send({
-                      type: 'WHITEBOARD_ELEMENT_CHUNK',
-                      chunkId,
-                      index: i,
-                      total,
-                      chunk: dataUrl.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE),
-                      meta,
-                      isUpdate: false
-                    });
-                  } catch (_) {}
-                }
-              }
-            }
+            sendWhiteboardSnapshot(this.manager.elements || [], data => sourceConn.send(data));
           }
         }, { description: 'Whiteboard: Request Sync' })
       );
 
       this._dispatcherUnsubs.push(
-        dispatcher.register('WHITEBOARD_SYNC', (data) => {
-          this.manager.setElements(data.elements);
-        }, { description: 'Whiteboard: Full Sync' })
+        dispatcher.register('WHITEBOARD_SYNC', (data, sourceConn) => transfers.receiveFull(data, sourceConn),
+          { description: 'Whiteboard: Full Sync' })
       );
 
       this._dispatcherUnsubs.push(
-        dispatcher.register('WHITEBOARD_SYNC_BATCH', (data) => {
-          if (data.batchIndex === 0) {
-            this.manager.elements = [];
-          }
-          if (Array.isArray(data.elements)) {
-            data.elements.forEach(el => this.manager.addElement(el, false));
-          }
-        }, { description: 'Whiteboard: Batch Sync' })
+        dispatcher.register('WHITEBOARD_SYNC_BATCH', (data, sourceConn) => transfers.receiveBatch(data, sourceConn),
+          { description: 'Whiteboard: Batch Sync' }),
+        dispatcher.register('WHITEBOARD_SYNC_END', (data, sourceConn) => transfers.endSnapshot(data, sourceConn),
+          { description: 'Whiteboard: Snapshot Complete' })
       );
     }
 

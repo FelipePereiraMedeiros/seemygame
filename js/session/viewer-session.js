@@ -385,6 +385,9 @@ async function initViewerApp(options = {}) {
     role: 'viewer',
     chatManager,
     voiceManager,
+    isTrustedChatRelayPeer: id =>
+      (id === viewerState.targetHostId && viewerState.activeConn?.peer === id && viewerState.activeConn.open) ||
+      Boolean(watchingHosts.get(id)?.conn?.open),
     getPeer: () => viewerState.peer,
     getLocalPeerId: () => viewerState.peer?.id,
     showToast,

@@ -85,7 +85,7 @@ describe('syncMediaControlsEnvironment (Web vs Desktop)', () => {
     delete globalThis.__TAURI__;
   });
 
-  it('no ambiente Web (navegador): oculta encoder, trava H.264 e desabilita AV1/HEVC', async () => {
+  it('no ambiente Web: mantém encoder visível, gerenciado pelo navegador, sem confundir codec e encoder', async () => {
     const { syncMediaControlsEnvironment } = await import('../js/app.js');
     syncMediaControlsEnvironment();
 
@@ -93,15 +93,16 @@ describe('syncMediaControlsEnvironment (Web vs Desktop)', () => {
     const codecSelect = document.getElementById('video-codec-select');
     const note = document.getElementById('video-codec-note');
 
-    expect(encoderGroup.style.display).toBe('none');
+    expect(encoderGroup.style.display).not.toBe('none');
+    expect(document.getElementById('h264-encoder-select').disabled).toBe(true);
     expect(codecSelect.value).toBe('h264');
 
     const optAv1 = Array.from(codecSelect.options).find(o => o.value === 'av1');
     const optHevc = Array.from(codecSelect.options).find(o => o.value === 'hevc');
     const optH264 = Array.from(codecSelect.options).find(o => o.value === 'h264');
 
-    expect(optAv1.disabled).toBe(true);
-    expect(optHevc.disabled).toBe(true);
+    expect(optAv1.disabled).toBe(false);
+    expect(optHevc.disabled).toBe(false);
     expect(optH264.disabled).toBe(false);
     expect(note.textContent).toContain('No navegador');
   });
@@ -116,7 +117,7 @@ describe('syncMediaControlsEnvironment (Web vs Desktop)', () => {
     const codecSelect = document.getElementById('video-codec-select');
     const note = document.getElementById('video-codec-note');
 
-    expect(encoderGroup.style.display).toBe('block');
+    expect(encoderGroup.style.display).not.toBe('none');
 
     const optAv1 = Array.from(codecSelect.options).find(o => o.value === 'av1');
     const optHevc = Array.from(codecSelect.options).find(o => o.value === 'hevc');
@@ -124,10 +125,11 @@ describe('syncMediaControlsEnvironment (Web vs Desktop)', () => {
     expect(optHevc.disabled).toBe(false);
     expect(note.textContent).toContain('Pipeline nativo');
 
-    // Se trocar para AV1 no desktop, o encoder group de H.264 se oculta
+    // AV1 mantém o campo separado e identifica o encoder por CPU.
     codecSelect.value = 'av1';
     syncH264EncoderVisibility();
-    expect(encoderGroup.style.display).toBe('none');
+    expect(encoderGroup.style.display).not.toBe('none');
+    expect(document.getElementById('h264-encoder-select').disabled).toBe(false);
   });
 });
 

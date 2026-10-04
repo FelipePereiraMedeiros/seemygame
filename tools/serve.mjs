@@ -27,6 +27,8 @@ const MIME_TYPES = {
 };
 
 const HOST = process.env.HOST || '127.0.0.1';
+const PUBLIC_PAGES = new Set(['index.html', 'lobby.html', 'room.html', 'streamer.html', 'viewer.html', 'test-audio.html']);
+const PUBLIC_DIRECTORIES = new Set(['css', 'js']);
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -42,7 +44,9 @@ const server = http.createServer((req, res) => {
   let pathname;
   try {
     const url = new URL(req.url, `http://localhost:${PORT}`);
-    pathname = decodeURIComponent(url.pathname);
+    // Windows treats backslashes as path separators too. Validate the same
+    // representation that will be resolved by the filesystem below.
+    pathname = decodeURIComponent(url.pathname).replace(/\\/g, '/');
   } catch (_) {
     res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Bad Request: Invalid URI');
@@ -52,7 +56,7 @@ const server = http.createServer((req, res) => {
   if (pathname === '/') pathname = '/index.html';
 
   // Bloqueia acesso a arquivos e pastas ocultos (.git, .env, etc.)
-  if (pathname.split('/').some(segment => segment.startsWith('.'))) {
+  if (pathname.includes('\0') || pathname.includes(':') || pathname.split('/').some(segment => segment.startsWith('.'))) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Acesso negado');
     return;
@@ -62,6 +66,16 @@ const server = http.createServer((req, res) => {
   const relative = path.relative(root, filePath);
 
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Acesso negado');
+    return;
+  }
+
+  // Match the web assets shipped by build-dist; never expose the rest of the
+  // checkout (native sources, test fixtures, reports or package metadata).
+  const segments = relative.split(path.sep);
+  if (!(segments.length === 1 && PUBLIC_PAGES.has(segments[0].toLowerCase())) &&
+      !PUBLIC_DIRECTORIES.has(segments[0].toLowerCase())) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Acesso negado');
     return;

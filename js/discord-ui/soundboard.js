@@ -1,6 +1,4 @@
-import { chatManager } from ".././chat.js";
-import { voiceManager } from ".././voice.js";
-import { SOUNDBOARD_PRESETS, soundboardManager } from ".././soundboard.js";
+import { SOUNDBOARD_PRESETS } from ".././soundboard.js";
 import { EMOJI_REACTION_PRESETS } from './shared.js';
 /** DiscordUIController: soundboard. State and lifetime remain owned by the composed engine. */
 export const withDiscordUIControllerSoundboard = Base => class extends Base {

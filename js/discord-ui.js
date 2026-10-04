@@ -30,8 +30,8 @@ constructor(options = {}) {
       onLeaveRoom,
     } = options;
 
-    this.chatManager = customChat || null;
-    this.voiceManager = customVoice || null;
+    this.chatManager = customChat || chatManager;
+    this.voiceManager = customVoice || voiceManager;
     this.soundboardManager = customSoundboard || soundboardManager;
     this.roomManager = customRoom || null;
 
@@ -147,6 +147,8 @@ init() {
     this.bindEvents();
     this.bindChatEvents();
     this.bindVoiceEvents();
+    this.updateVoiceControls(this.voiceManager.getLocalVoiceState());
+    this.renderVoiceParticipants(this.voiceManager.getParticipantsList());
     this.bindRoomDockEvents();
     this.initSoundboard();
     this.initEmojis();

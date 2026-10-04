@@ -27,7 +27,7 @@ export function prepareRemoteViewer(metadata,endpoint,{localPlaywrightVersion,lo
   const sameMachine=metadata.machineFingerprint===localFingerprint;
   if(sameMachine&&!allowSameMachine)throw new Error('Remote viewer is on the same machine; use --allow-same-machine-remote only for harness validation');
   ws.hostname=control.hostname;ws.port=String(port);
-  return {connectionType,wsEndpoint:ws.toString(),conditions:{sameMachine,runtime:metadata.runtime||'chrome',connectionType,headless:metadata.headless,physicalPresentation:false,headedPresentationRequested:!metadata.headless,playwrightVersion:metadata.playwrightVersion,machineFingerprint:metadata.machineFingerprint,platform:metadata.platform,cpuModel:metadata.cpuModel,logicalProcessors:metadata.logicalProcessors,session:metadata.session,clockPolicy:'Independent clocks: optical glass-to-glass disabled; receiver quality/resource windows use receiver clock'}};
+  return {connectionType,wsEndpoint:ws.toString(),conditions:{sameMachine,runtime:metadata.runtime||'chrome',browserConfig:metadata.browserConfig??'unspecified',browserArgs:metadata.browserArgs??null,connectionType,headless:metadata.headless,physicalPresentation:false,headedPresentationRequested:!metadata.headless,playwrightVersion:metadata.playwrightVersion,machineFingerprint:metadata.machineFingerprint,platform:metadata.platform,cpuModel:metadata.cpuModel,logicalProcessors:metadata.logicalProcessors,session:metadata.session,clockPolicy:'Independent clocks: optical glass-to-glass disabled; receiver quality/resource windows use receiver clock'}};
 }
 export function resourceWindow(report,start,end) {
   return (report?.samples||[]).filter(s=>s.timestamp>=start&&s.timestamp<=end);

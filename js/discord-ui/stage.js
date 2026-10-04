@@ -1,6 +1,4 @@
-import { chatManager } from ".././chat.js";
-import { voiceManager } from ".././voice.js";
-import { SOUNDBOARD_PRESETS, soundboardManager } from ".././soundboard.js";
+import { SOUNDBOARD_PRESETS } from ".././soundboard.js";
 import { EMOJI_REACTION_PRESETS } from './shared.js';
 /** DiscordUIController: stage. State and lifetime remain owned by the composed engine. */
 export const withDiscordUIControllerStage = Base => class extends Base {
@@ -18,20 +16,20 @@ bindRoomDockEvents() {
     } = this.elements;
 
     const handleMicToggle = () => {
-      if (!voiceManager.isInVoice) {
+      if (!this.voiceManager.isInVoice) {
         this.onJoinVoice();
         return;
       }
-      const isMuted = voiceManager.toggleMute();
+      const isMuted = this.voiceManager.toggleMute();
       this.onToggleMic(isMuted);
     };
 
     const handleDeafToggle = () => {
-      if (!voiceManager.isInVoice) {
+      if (!this.voiceManager.isInVoice) {
         this.onJoinVoice();
         return;
       }
-      const isDeaf = voiceManager.toggleDeafen();
+      const isDeaf = this.voiceManager.toggleDeafen();
       this.onToggleDeaf(isDeaf);
     };
 
@@ -43,7 +41,7 @@ bindRoomDockEvents() {
 
     if (this.elements.sidebarVoiceStatusContainer) {
       this.listen(this.elements.sidebarVoiceStatusContainer, 'click', () => {
-        if (!voiceManager.isInVoice) {
+        if (!this.voiceManager.isInVoice) {
           this.onJoinVoice();
         } else {
           this.openDrawer('voice');
@@ -187,6 +185,11 @@ initStageDockAutoHide() {
 
 updateRoomPresence(members) {
     const { roomParticipantsList, voiceStageGrid, sidebarMembersCount } = this.elements;
+    const onlineCount = document.querySelector('#viewer-count strong');
+    if (onlineCount && Array.isArray(members)) onlineCount.textContent = String(members.length);
+    const self = members?.find(member => member.peerId === this.roomManager?.myPeerId);
+    if (self && this.elements.localUserName) this.elements.localUserName.textContent = self.name || 'Você';
+    if (self && this.elements.localAvatar) this.elements.localAvatar.textContent = (self.name || 'V').charAt(0).toUpperCase();
 
     if (sidebarMembersCount && Array.isArray(members)) {
       sidebarMembersCount.textContent = `${members.length} online`;

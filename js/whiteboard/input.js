@@ -237,7 +237,7 @@ attachEvents() {
         if (this.canvas && this.canvas.style) this.canvas.style.cursor = 'default';
         const el = this.elements.find(e => e.id === this.selectedElementId);
         if (el && this._resizeUndoSnapshot) {
-          this.undoStack.push(this._resizeUndoSnapshot);
+          this.saveUndoState(this._resizeUndoSnapshot);
           this.redoStack = [];
           if (typeof this.onElementUpdated === 'function') {
             this.onElementUpdated(el);
@@ -262,7 +262,7 @@ attachEvents() {
             (el.x !== undefined && initial.x !== undefined && (Math.abs(el.x - initial.x) > 1 || Math.abs(el.y - initial.y) > 1));
 
           if (hasMoved) {
-            this.undoStack.push(this._dragUndoSnapshot);
+            this.saveUndoState(this._dragUndoSnapshot);
             this.redoStack = [];
             if (typeof this.onElementUpdated === 'function') {
               this.onElementUpdated(el);

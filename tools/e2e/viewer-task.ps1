@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$RunId,[ValidateSet('chrome','tauri')][string]$Runtime='chrome',[string]$Exe,[ValidateSet('start','stop')][string]$Mode='start')
+param([Parameter(Mandatory=$true)][string]$RunId,[ValidateSet('chrome','tauri')][string]$Runtime='chrome',[string]$Exe,[ValidateSet('start','stop')][string]$Mode='start',[ValidateSet('harness','standard')][string]$BrowserConfig='harness',[switch]$KeepDisplayAwake)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 if($RunId -notmatch '^matrix-[a-zA-Z0-9-]{1,80}$'){throw 'Invalid test run id'}
@@ -35,10 +35,15 @@ $ready=Join-Path $stage 'ready.json'
 $agent=Join-Path $projectRoot 'tools/e2e/viewer-agent.mjs'
 $runner=Join-Path $stage 'start.ps1'
 $escape={param($text) "'"+$text.Replace("'","''")+"'"}
-$script="`$ErrorActionPreference='Stop'; Set-Location -LiteralPath $(&$escape $projectRoot); & $(&$escape $node) $(&$escape $agent) --runtime $Runtime --channel chrome --browser-port 19333 --control-port 19334 --max-minutes 6 --ready-file $(&$escape $ready)"
+$script="`$ErrorActionPreference='Stop'; Set-Location -LiteralPath $(&$escape $projectRoot); & $(&$escape $node) $(&$escape $agent) --runtime $Runtime --browser-config $BrowserConfig --channel chrome --browser-port 19333 --control-port 19334 --max-minutes 6 --ready-file $(&$escape $ready)"
 if($Runtime -eq 'tauri'){$script+=" --exe $(&$escape $Exe)"}
 $errorLog=Join-Path $stage 'errors.log'
 $script+=" 2> $(&$escape $errorLog) | Out-Null"
+if($KeepDisplayAwake){
+ # Scoped to this runner thread; Windows releases the request when the process exits.
+ $lease='Add-Type -TypeDefinition ''using System; using System.Runtime.InteropServices; public static class SmgDisplayLease { [DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint flags); }''; $previousState=[SmgDisplayLease]::SetThreadExecutionState([uint32]2147483651); if($previousState -eq 0){throw ''Display awake request failed''}; '
+ $script=$lease+'try { '+$script+' } finally { [SmgDisplayLease]::SetThreadExecutionState($previousState) | Out-Null }'
+}
 [IO.File]::WriteAllText($runner,$script)
 $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runner`"" -WorkingDirectory $projectRoot
 $principal=New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited

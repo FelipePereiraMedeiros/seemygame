@@ -75,13 +75,17 @@ handleRoomMessage(senderPeerId, message, conn) {
 
         // SEGURANÇA (A02): Validação rigorosa de PIN se configurado no Master
         if (this.isMaster && this.roomPin) {
+          if (this.pinAttemptLimiter.isRateLimited(senderPeerId)) {
+            conn?.send?.({ type: 'ROOM_PIN_REQUIRED', error: 'Excesso de tentativas. Aguarde 30 segundos.' });
+            if (this.pendingConnections.get(senderPeerId) === conn) this.pendingConnections.delete(senderPeerId);
+            try { conn?.close(); } catch (_) {}
+            return true;
+          }
           const providedPin = message.pin ? String(message.pin).trim() : '';
-          if (!this.pinFailures) this.pinFailures = new Map();
-          const failures = (this.pinFailures.get(senderPeerId) || 0) + 1;
 
           if (providedPin !== this.roomPin) {
-            this.pinFailures.set(senderPeerId, failures);
-            const isExceeded = failures > 5;
+            const failures = this.pinAttemptLimiter.recordFailedAttempt(senderPeerId);
+            const isExceeded = failures >= 5;
             conn?.send?.({
               type: 'ROOM_PIN_REQUIRED',
               error: isExceeded ? 'Excesso de tentativas incorretas de PIN.' : 'PIN incorreto para esta sala.'
@@ -94,7 +98,7 @@ handleRoomMessage(senderPeerId, message, conn) {
             }
             return true;
           }
-          this.pinFailures.delete(senderPeerId);
+          this.pinAttemptLimiter.resetPeer(senderPeerId);
         }
 
         const cleanName = typeof message.name === 'string' && message.name.trim()

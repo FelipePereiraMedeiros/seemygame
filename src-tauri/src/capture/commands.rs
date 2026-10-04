@@ -48,14 +48,16 @@ pub fn get_native_capture_state() -> Result<NativeCaptureState, String> {
 #[cfg(not(test))]
 #[tauri::command(async)]
 pub fn get_native_stream_stats(session_id: String, viewer_id: String) -> Result<Vec<serde_json::Value>, String> {
-    let (webrtc, produced) = {
+    let (webrtc, produced, bridge_stats) = {
         let guard = active_session().lock().map_err(|_| "Estado de captura indisponível")?;
         let session = guard.as_ref().ok_or("Captura encerrada")?;
         if session.state.session_id.as_deref() != Some(session_id.as_str()) { return Err("Sessão inválida".into()); }
-        (session.viewer_bridges.get(&viewer_id).ok_or("Espectador desconectado")?.bridge.webrtc.clone(), session.fanout.as_ref().map(|fanout| fanout.counters.snapshot()))
+        let bridge = &session.viewer_bridges.get(&viewer_id).ok_or("Espectador desconectado")?.bridge;
+        (bridge.webrtc.clone(), session.fanout.as_ref().map(|fanout| fanout.counters.snapshot()), bridge.transport_stats())
     };
     let mut reports = crate::webrtc_bridge::stats::collect(&webrtc)?;
     if let Some(produced) = produced { reports.push(produced); }
+    reports.extend(bridge_stats);
     Ok(reports)
 }
 
@@ -67,6 +69,7 @@ pub fn start_native_capture(
     audio_mode: Option<String>,
     video_codec: Option<String>,
     h264_encoder: Option<String>,
+    capture_backend: Option<String>,
     show_cursor: Option<bool>,
     width: Option<u32>,
     height: Option<u32>,
@@ -161,6 +164,12 @@ pub fn start_native_capture(
             Ok(config) => config,
             Err(error) => return fail_start(&app, &starting_state, &error),
         };
+    if let Some(backend) = capture_backend.as_deref() {
+        config.capture_backend = match media::CaptureBackend::parse(backend) {
+            Ok(value) => value,
+            Err(error) => return fail_start(&app, &starting_state, &error),
+        };
+    }
     if let Some(enc) = h264_encoder.as_deref() {
         let trimmed = enc.trim();
         if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("auto") {
@@ -352,6 +361,7 @@ pub fn reconfigure_native_capture(
     audio_mode: Option<String>,
     video_codec: Option<String>,
     h264_encoder: Option<String>,
+    capture_backend: Option<String>,
     show_cursor: Option<bool>,
     width: Option<u32>,
     height: Option<u32>,
@@ -370,6 +380,13 @@ pub fn reconfigure_native_capture(
     }
     if session.state.state != "live" || session.worker.is_none() {
         return Err("A captura nativa ainda não está ativa".to_string());
+    }
+    // Validate before taking ownership of the live worker; changing the API is a next-start setting.
+    if let Some(value) = capture_backend.as_deref() {
+        let requested = media::CaptureBackend::parse(value)?;
+        if session.worker.as_ref().is_some_and(|worker| worker.config.capture_backend != requested) {
+            return Err("A troca de API de captura requer reiniciar a transmissão.".to_string());
+        }
     }
 
     let current_worker = session.worker.take().expect("worker present");

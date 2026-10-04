@@ -1,4 +1,5 @@
 import { isValidPeerId } from './shared/peer-id.js';
+import { PinAttemptLimiter } from './protocol/pin-attempt-limiter.js';
 import { sanitizeRoomId } from './room/room-id.js';
 import { ROOM_PREFIX, MASTER_SUFFIX, MAX_ROOM_MEMBERS, MAX_PENDING_ROOM_CONNECTIONS, MAX_ROOM_MESSAGE_BYTES, ROOM_HEARTBEAT_INTERVAL_MS, ROOM_MEMBER_TIMEOUT_MS, sanitizeText, hashRoomKey, getRoomMasterPeerId, isWithinMessageLimit } from './room/shared.js';
 export * from './room/shared.js';
@@ -43,6 +44,7 @@ constructor({ roomId = 'general', userName = null, clientSessionId = null, roomP
 
     // Peers autenticados: Set de peerIds
     this.authenticatedPeers = new Set();
+    this.pinAttemptLimiter = new PinAttemptLimiter();
 
     this.heartbeatIntervalMs = ROOM_HEARTBEAT_INTERVAL_MS;
     this.memberTimeoutMs = ROOM_MEMBER_TIMEOUT_MS;
@@ -135,6 +137,7 @@ leave() {
     this.meshConnections.clear();
     this.pendingConnections.clear();
     this.authenticatedPeers.clear();
+    this.pinAttemptLimiter.clear();
     this.members.clear();
     this.isInRoom = false;
     this.emit('roomClosed', { roomId: this.roomId });

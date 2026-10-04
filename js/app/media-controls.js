@@ -1,3 +1,4 @@
+import { syncStreamingOptions } from '../streaming/options-ui.js';
 /** media-controls: commands receive explicit compatibility ports; no page initialization. */
 export function syncClipDurationUI(compatibilityContext, seconds) {
   const num = Number(seconds);
@@ -14,80 +15,14 @@ export function syncClipDurationUI(compatibilityContext, seconds) {
 }
 
 export function syncH264EncoderVisibility(compatibilityContext) {
-  const encoderGroup = document.getElementById('h264-encoder-group') || compatibilityContext.h264EncoderGroup;
-  const codecSelect = document.getElementById('video-codec-select') || compatibilityContext.videoCodecSelect;
-  if (encoderGroup) {
-    const isDesktop = compatibilityContext.isDesktopApp();
-    if (!isDesktop) {
-      encoderGroup.style.display = 'none';
-      return;
-    }
-    encoderGroup.style.display = (codecSelect && codecSelect.value === 'h264') ? 'block' : 'none';
-  }
+  syncStreamingOptions({ desktop: compatibilityContext.isDesktopApp() });
 }
 
 export function syncMediaControlsEnvironment(compatibilityContext) {
-  const isDesktop = compatibilityContext.isDesktopApp();
-  const videoCodecNote = document.getElementById('video-codec-note');
-  const encoderGroup = document.getElementById('h264-encoder-group') || compatibilityContext.h264EncoderGroup;
-  const codecSelect = document.getElementById('video-codec-select') || compatibilityContext.videoCodecSelect;
-  const exclusionGroup = document.getElementById('desktop-audio-exclusion-group') || compatibilityContext.desktopAudioExclusionGroup;
-
-  if (exclusionGroup) {
-    exclusionGroup.style.display = (isDesktop && (compatibilityContext.audioModeSelect?.value === 'system')) ? 'block' : 'none';
-  }
-
-  if (!isDesktop) {
-    // 🌐 AMBIENTE WEB:
-    // 1. Oculta o seletor de encoder, pois o navegador é uma sandbox/caixa-preta (não permite forçar NVENC/CPU/MF).
-    if (encoderGroup) {
-      encoderGroup.style.display = 'none';
-    }
-
-    // 2. Trava no H.264 acelerado por hardware do navegador.
-    // Desabilita opções que causariam travamento de CPU ou incompatibilidade de rede no WebRTC.
-    if (codecSelect) {
-      Array.from(codecSelect.options).forEach((opt) => {
-        if (opt.value === 'av1') {
-          opt.disabled = true;
-          opt.text = 'AV1 (Exclusivo App Desktop - CPU pesada na Web)';
-        } else if (opt.value === 'hevc') {
-          opt.disabled = true;
-          opt.text = 'HEVC / H.265 (Exclusivo App Desktop - Sem suporte WebRTC)';
-        } else if (opt.value === 'h264') {
-          opt.disabled = false;
-          opt.text = 'H.264 / AVC (Padrão Web acelerado por hardware)';
-        }
-      });
-      codecSelect.value = 'h264';
-    }
-
-    if (videoCodecNote) {
-      videoCodecNote.textContent = '🌐 No navegador, o codec H.264 e a aceleração gráfica são gerenciados automaticamente pelo browser para máxima fluidez. Encoders dedicados (NVENC/Media Foundation/HEVC/AV1) estão disponíveis no App Desktop.';
-      videoCodecNote.style.color = 'var(--text-muted)';
-    }
-  } else {
-    // 🖥️ AMBIENTE DESKTOP (Tauri v2 + Rust + GStreamer):
-    if (codecSelect) {
-      Array.from(codecSelect.options).forEach((opt) => {
-        opt.disabled = false;
-        if (opt.value === 'av1') {
-          opt.text = 'AV1 (Próxima Geração - 30% menos banda com alta nitidez)';
-        } else if (opt.value === 'hevc') {
-          opt.text = 'HEVC / H.265 (Alta Eficiência)';
-        } else if (opt.value === 'h264') {
-          opt.text = 'H.264 / AVC (Padrão e Máxima Compatibilidade)';
-        }
-      });
-    }
-
-    if (videoCodecNote) {
-      videoCodecNote.textContent = '🖥️ Pipeline nativo desktop ativo com controle direto de aceleração de hardware.';
-      videoCodecNote.style.color = 'var(--accent-purple, #a855f7)';
-    }
-
-    compatibilityContext.syncH264EncoderVisibility();
-  }
+  const desktop = compatibilityContext.isDesktopApp();
+  const group = document.getElementById('desktop-audio-exclusion-group') || compatibilityContext.desktopAudioExclusionGroup;
+  if (group) group.style.display = desktop && compatibilityContext.audioModeSelect?.value === 'system' ? 'block' : 'none';
+  syncStreamingOptions({ desktop });
 }
 
 export async function queueNativeReconfigure(compatibilityContext, params) {
@@ -138,7 +73,7 @@ export function applyLiveBitrateChange(compatibilityContext, isAutomatic = false
       width: compatibilityContext.selectedProfile.width,
       height: compatibilityContext.selectedProfile.height,
       fps: compatibilityContext.selectedProfile.fps,
-      h264Encoder: compatibilityContext.h264EncoderSelect ? compatibilityContext.h264EncoderSelect.value : undefined,
+      h264Encoder: compatibilityContext.activeNativeCaptureProvider.session.h264Encoder || undefined,
       showCursor: compatibilityContext.captureCursorToggle ? compatibilityContext.captureCursorToggle.checked : undefined
     });
   }

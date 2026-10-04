@@ -67,6 +67,8 @@ impl GStreamerRuntime {
         let has = |element: &str| available.contains(&element);
         let h264_available = has("mfh264enc");
         let nvenc_h264_available = self.inspect_element("nvd3d11h264enc");
+        let d3d12_available = ["d3d12screencapturesrc", "d3d12convert", "d3d12download"]
+            .iter().all(|element| self.inspect_element(element));
         let x264_available = self.inspect_element("x264enc");
         let hevc_available = has("mfh265enc") && self.inspect_element("h265parse") && self.inspect_element("rtph265pay") && self.inspect_element("rtph265depay");
         let av1_available = self.inspect_element("svtav1enc")
@@ -99,6 +101,7 @@ impl GStreamerRuntime {
             process_audio_available,
             h264_available,
             nvenc_h264_available,
+            d3d12_available,
             x264_available,
             hevc_available,
             av1_available,

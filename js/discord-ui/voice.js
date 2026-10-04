@@ -1,15 +1,13 @@
-import { chatManager } from ".././chat.js";
-import { voiceManager } from ".././voice.js";
-import { SOUNDBOARD_PRESETS, soundboardManager } from ".././soundboard.js";
+import { SOUNDBOARD_PRESETS } from ".././soundboard.js";
 import { EMOJI_REACTION_PRESETS } from './shared.js';
 /** DiscordUIController: voice. State and lifetime remain owned by the composed engine. */
 export const withDiscordUIControllerVoice = Base => class extends Base {
 bindVoiceEvents() {
-    this.observe(voiceManager, 'participantUpdate', (participants) => {
+    this.observe(this.voiceManager, 'participantUpdate', (participants) => {
       this.renderVoiceParticipants(participants);
     });
 
-    this.observe(voiceManager, 'speakingChange', ({ peerId, isSpeaking }) => {
+    this.observe(this.voiceManager, 'speakingChange', ({ peerId, isSpeaking }) => {
       const avatar = document.getElementById(`voice-avatar-${peerId}`);
       if (avatar) {
         if (isSpeaking) {
@@ -20,16 +18,16 @@ bindVoiceEvents() {
       }
     });
 
-    this.observe(voiceManager, 'voiceStateChange', (state) => {
+    this.observe(this.voiceManager, 'voiceStateChange', (state) => {
       this.updateVoiceControls(state);
     });
 
-    this.observe(voiceManager, 'inputVolumeChange', ({ volume }) => {
+    this.observe(this.voiceManager, 'inputVolumeChange', ({ volume }) => {
       if (this.elements.voiceSelfMicSlider) this.elements.voiceSelfMicSlider.value = volume;
       if (this.elements.voiceSelfMicVal) this.elements.voiceSelfMicVal.textContent = `${volume}%`;
     });
 
-    this.observe(voiceManager, 'outputVolumeChange', ({ volume }) => {
+    this.observe(this.voiceManager, 'outputVolumeChange', ({ volume }) => {
       if (this.elements.voiceSelfOutputSlider) this.elements.voiceSelfOutputSlider.value = volume;
       if (this.elements.voiceSelfOutputVal) this.elements.voiceSelfOutputVal.textContent = `${volume}%`;
     });
@@ -123,8 +121,8 @@ renderVoiceParticipants(participants) {
 
       // Controle de volume individual para amigos remotos
       if (!p.isLocal && p.peerId) {
-        const userVol = typeof p.userVolume === 'number' ? p.userVolume : voiceManager.getUserVolume(p.peerId);
-        const isLocallyMuted = Boolean(p.isLocallyMuted ?? voiceManager.isUserLocallyMuted(p.peerId));
+        const userVol = typeof p.userVolume === 'number' ? p.userVolume : this.voiceManager.getUserVolume(p.peerId);
+        const isLocallyMuted = Boolean(p.isLocallyMuted ?? this.voiceManager.isUserLocallyMuted(p.peerId));
 
         const volRow = document.createElement('div');
         volRow.className = 'voice-user-volume-row';
@@ -152,9 +150,9 @@ renderVoiceParticipants(participants) {
 
         this.listen(muteBtn, 'click', (e) => {
           e.stopPropagation();
-          const currentMute = voiceManager.isUserLocallyMuted(p.peerId);
+          const currentMute = this.voiceManager.isUserLocallyMuted(p.peerId);
           const nextMute = !currentMute;
-          voiceManager.setUserMuted(p.peerId, nextMute);
+          this.voiceManager.setUserMuted(p.peerId, nextMute);
           muteBtn.textContent = nextMute ? '🔇' : '🔊';
           muteBtn.classList.toggle('muted', nextMute);
           muteBtn.title = nextMute ? 'Desmutar este amigo para você' : 'Mutar este amigo só para você';
@@ -163,12 +161,12 @@ renderVoiceParticipants(participants) {
         this.listen(slider, 'input', (e) => {
           e.stopPropagation();
           const newVol = parseInt(e.target.value, 10) || 0;
-          voiceManager.setUserVolume(p.peerId, newVol);
+          this.voiceManager.setUserVolume(p.peerId, newVol);
           valSpan.textContent = `${newVol}%`;
           slider.title = `Volume de ${p.name || 'Amigo'}: ${newVol}%`;
           if (newVol === 0) {
             muteBtn.textContent = '🔇';
-          } else if (!voiceManager.isUserLocallyMuted(p.peerId)) {
+          } else if (!this.voiceManager.isUserLocallyMuted(p.peerId)) {
             muteBtn.textContent = '🔊';
           }
         });
@@ -181,7 +179,7 @@ renderVoiceParticipants(participants) {
         const selfRow = document.createElement('div');
         selfRow.className = 'voice-user-volume-row voice-self-indicator-row';
         selfRow.innerHTML = `
-          <span class="voice-self-mic-badge">🎙️ Ganho Mic: <strong>${voiceManager.inputVolume}%</strong></span>
+          <span class="voice-self-mic-badge">🎙️ Ganho Mic: <strong>${this.voiceManager.inputVolume}%</strong></span>
         `;
         card.appendChild(selfRow);
       }

@@ -36,7 +36,7 @@ class MockCall extends EventEmitter {
     this.metadata = metadata;
     this.closed = false;
     this.peerConnection = {
-      connectionState: 'connected',
+      connectionState: 'new',
       setLocalDescription: async () => {},
       getTransceivers: () => [],
       getSenders: () => [],
@@ -432,9 +432,9 @@ describe('Audit Findings Regression Suite (A01 - A15)', () => {
     }
 
     expect(conn.sent.length).toBe(5);
-    expect(conn.open).toBe(true);
+    expect(conn.open).toBe(false);
 
-    // 6th attempt exceeds max failures
+    // Further attempts remain blocked during the cooldown.
     rm.handleRoomMessage(conn.peer, { type: 'ROOM_JOIN_REQUEST', pin: 'wrong' }, conn);
 
     expect(conn.sent.length).toBe(6);
@@ -486,6 +486,9 @@ describe('Audit Findings Regression Suite (A01 - A15)', () => {
       // A14: Dotfile access must be forbidden (403)
       const dotfileRes = await request('/.git/HEAD');
       expect(dotfileRes.status).toBe(403);
+      for (const uri of ['/%5C.git%5CHEAD', '/css/%5C..%5C.git%5CHEAD', '/%2Egit%2FHEAD', '/.git/HEAD::$DATA', '/src-tauri/Cargo.toml', '/package.json']) {
+        expect((await request(uri)).status, uri).toBe(403);
+      }
 
       // A15: Malformed URI must return 400 Bad Request and server remains alive
       const malformedRes = await request('/%ZZ');
@@ -494,6 +497,7 @@ describe('Audit Findings Regression Suite (A01 - A15)', () => {
       // Verify server is still responding normally
       const normalRes = await request('/');
       expect(normalRes.status).toBe(200);
+      expect((await request('/js/config.js')).status).toBe(200);
     } finally {
       if (child.exitCode === null) child.kill();
     }

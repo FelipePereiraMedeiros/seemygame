@@ -56,6 +56,8 @@ import {
 import { globalBus } from '../core/event-bus.js';
 import { createSessionContext } from '../core/session-context.js';
 import { bindSessionMessageHandlers } from '../protocol/session-handlers.js';
+import { bindRoomIdentity } from './room-identity.js';
+import { bindRoomVoiceState } from './room-voice-state.js';
 import { registerSessionFeatures } from '../plugins/session-composition.js';
 import { createCoopController } from '../coop/controller.js';
 
@@ -167,6 +169,7 @@ async function setupRoomSession(peerId, session = roomState.session) {
     }
   });
   roomState.roomManager = rm;
+  bindRoomVoiceState(session, { roomManager: rm, voiceManager });
   const submitPinBtn = document.getElementById('viewer-pin-submit-btn');
   const cancelPinBtn = document.getElementById('viewer-pin-cancel-btn');
   const pinInput = document.getElementById('viewer-pin-input');
@@ -379,8 +382,6 @@ async function setupRoomSession(peerId, session = roomState.session) {
       onLeaveVoice: () => {
         leaveRoomVoice(rm, session);
       },
-      onToggleMic: (isMuted) => rm.setLocalVoiceState({ isMuted }),
-      onToggleDeaf: (isDeafened) => rm.setLocalVoiceState({ isDeafened }),
       onOpenWhiteboard: () => roomState.features?.whiteboardUI?.open(),
       onPlaySound: (soundId) => {
         roomState.session?.pluginManager.get('soundboard')?.manager.playSound(soundId);
@@ -535,7 +536,6 @@ async function joinRoomVoice(rm, session) {
   if (voiceManager.isInVoice) return;
   try {
     const stream = await voiceManager.joinVoice({ peerId: rm.myPeerId, name: rm.userName, role: rm.isMaster ? 'host' : 'member' });
-    rm.setLocalVoiceState({ isMuted: voiceManager.isMuted, isDeafened: voiceManager.isDeafened, isSpeaking: false });
     rm.broadcast({ type: 'VOICE_SIGNAL', action: 'VOICE_JOINED', peerId: rm.myPeerId, name: rm.userName, role: rm.isMaster ? 'host' : 'member' });
     for (const [memberId, conn] of rm.meshConnections) {
       if (!conn.open || !rm.isPeerAuthorized(memberId) || rm.myPeerId.localeCompare(memberId) >= 0) continue;
@@ -643,11 +643,22 @@ async function initRoomPeer(customId = null, session = roomState.session) {
     let settled = false;
     peer.on('open', (openedId) => {
       if (session?.isDisposed) { peer.destroy(); return; }
+      if (peer !== roomState.peer) return;
       settled = true;
       console.log(`[Room] Peer registrado com ID: ${openedId}`);
+      roomState.identityUI?.update('ready');
       resolve(peer);
     });
+    peer.on('disconnected', () => {
+      if (peer !== roomState.peer || session?.isDisposed) return;
+      roomState.identityUI?.update('connecting');
+      if (!peer.destroyed) { try { peer.reconnect(); } catch (_) {} }
+    });
+    peer.on('close', () => {
+      if (peer === roomState.peer && !session?.isDisposed) roomState.identityUI?.update('error');
+    });
     peer.on('error', (err) => {
+      if (peer !== roomState.peer || session?.isDisposed) return;
       if (err?.type === 'unavailable-id' && !settled) {
         if (wasMaster && id === coordinatorId && masterRetries < MAX_MASTER_RETRIES && !session?.isDisposed) {
           masterRetries++;
@@ -668,10 +679,17 @@ async function initRoomPeer(customId = null, session = roomState.session) {
           return;
         }
       }
-      if (settled) return;
+      if (settled) {
+        // A failed media/data call does not mean the signaling server is offline.
+        if (peer.disconnected || peer.destroyed || ['network', 'server-error', 'socket-error', 'socket-closed'].includes(err?.type)) {
+          roomState.identityUI?.update('error');
+        }
+        return;
+      }
       settled = true;
       console.error('[Room] Erro no Peer:', err);
       showToast('Erro de conexão ao servidor de sinalização.', 'error');
+      roomState.identityUI?.update('error');
       reject(err);
     });
   });
@@ -783,6 +801,12 @@ async function initRoomApp(options = {}) {
   });
   roomState.session = session;
   session.getPeerId = () => roomState.peer?.id;
+  roomState.identityUI = bindRoomIdentity(session, {
+    getRoomInfo: () => ({ ...getRoomInfoFromUrl(), roomId: roomState.roomManager?.roomId || getRoomInfoFromUrl().roomId,
+      roomPin: roomState.roomManager?.roomPin || roomState.currentPin, roomKey: roomState.roomManager?.roomKey || getRoomInfoFromUrl().roomKey }),
+    showToast
+  });
+  session.registerCleanup(() => { roomState.identityUI = null; });
   audioScope = session.audioScope;
   session.services = { chatManager, voiceManager, coopController, statsScope };
   bindQualityCapabilities(session);
@@ -815,6 +839,10 @@ async function initRoomApp(options = {}) {
     role: 'room',
     chatManager,
     voiceManager,
+    getChatIdentity: id => {
+      const member = roomState.roomManager?.members.get(id);
+      return member ? { name: member.name, role: member.isMaster ? 'host' : 'viewer' } : null;
+    },
     getPeer: () => roomState.peer,
     getLocalPeerId: () => roomState.peer?.id,
     showToast,

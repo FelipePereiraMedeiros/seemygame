@@ -901,64 +901,18 @@ if (clipBufferDurationSelect) {
   });
 }
 if (videoCodecSelect) {
-  let activeConfirmedCodec = localStorage.getItem('seemygame_video_codec') || 'h264';
-  if (!isDesktopApp()) {
-    activeConfirmedCodec = 'h264';
-  }
-  videoCodecSelect.value = activeConfirmedCodec;
-
-  videoCodecSelect.addEventListener('change', async (e) => {
-    if (!isDesktopApp() && e.target.value !== 'h264') {
-      e.target.value = 'h264';
-      showToast('⚠️ No navegador, utilize H.264. Encoders avançados (AV1/HEVC) exigem o App Desktop.', 'warning');
-      return;
-    }
-    const targetCodec = e.target.value;
-    const isLiveNative = isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId;
-
-    if (isLiveNative) {
-      try {
-        await activeNativeCaptureProvider.reconfigure({ videoCodec: targetCodec });
-        activeConfirmedCodec = targetCodec;
-      } catch (err) {
-        console.warn('Falha ao reconfigurar codec nativo:', err);
-        videoCodecSelect.value = activeConfirmedCodec;
-        syncMediaControlsEnvironment();
-        const msg = err?.message || 'A troca de codec de vídeo durante a transmissão requer reiniciar a transmissão.';
-        showToast(`⚠️ ${msg}`, 'error', 6000);
-        return;
-      }
-    } else {
-      activeConfirmedCodec = targetCodec;
-    }
-
+  videoCodecSelect.addEventListener('change', () => {
     syncMediaControlsEnvironment();
-    try { localStorage.setItem('seemygame_video_codec', activeConfirmedCodec); } catch (err) {}
-
-    const isCurrentlyStreaming = Boolean(localStream || (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId));
-    if (isCurrentlyStreaming) {
-      const codecMsg = { type: 'STREAM_CONFIG_UPDATED', videoCodec: activeConfirmedCodec };
-      connectedViewers.forEach((conn) => {
-        try { conn.send(codecMsg); } catch (err) {}
-      });
-      if (roomManager) {
-        roomManager.broadcast(codecMsg);
-      }
-    }
-    showToast(`Codec de vídeo alterado: ${activeConfirmedCodec.toUpperCase()}`, 'info');
+    try { localStorage.setItem('seemygame_video_codec', videoCodecSelect.value); } catch (_) {}
+    if (localStream || activeNativeCaptureProvider?.session) showToast('O novo codec será usado ao reiniciar a transmissão.', 'info');
   });
   syncMediaControlsEnvironment();
 }
 if (h264EncoderSelect) {
-  h264EncoderSelect.addEventListener('change', (e) => {
-    try { localStorage.setItem('seemygame_h264_encoder', e.target.value); } catch (err) {}
-    if (isDesktopApp() && activeNativeCaptureProvider?.session?.sessionId) {
-      activeNativeCaptureProvider.reconfigure({ h264Encoder: e.target.value }).catch((err) => {
-        console.warn('Falha ao reconfigurar encoder H.264 nativo:', err);
-      });
-    }
-    const encoderLabels = { auto: 'Automático', cpu: 'CPU Software (x264)', nvenc: 'NVIDIA NVENC', mf: 'Media Foundation' };
-    showToast(`Encoder H.264 alterado: ${encoderLabels[e.target.value] || e.target.value}`, 'info');
+  h264EncoderSelect.addEventListener('change', () => {
+    syncMediaControlsEnvironment();
+    try { localStorage.setItem('seemygame_h264_encoder', h264EncoderSelect.value); } catch (_) {}
+    if (localStream || activeNativeCaptureProvider?.session) showToast('O novo encoder será usado ao reiniciar a transmissão.', 'info');
   });
 }
 if (captureCursorToggle) {

@@ -80,6 +80,14 @@ it('E2E: campos ausentes, reset e denominador zero não viram zero de sucesso', 
   expect(result.bridgeObservableMs).toBeNull();
 });
 
+it('E2E: separa alvo, mínimo e atraso efetivo de jitter usando deltas dos acumuladores',()=>{
+ const a={timestamp:1000,jitterBufferEmittedCount:100,jitterBufferDelay:4,jitterBufferTargetDelay:2,jitterBufferMinimumDelay:1,retransmittedPacketsReceived:4};
+ const b={timestamp:2000,jitterBufferEmittedCount:150,jitterBufferDelay:7,jitterBufferTargetDelay:3,jitterBufferMinimumDelay:1.25,retransmittedPacketsReceived:7};
+ expect(deltaMetrics(a,b)).toMatchObject({jitterBufferMs:60,jitterBufferTargetMs:20,jitterBufferMinimumMs:5,rawDeltaRetransmittedPacketsReceived:3});
+ expect(deltaMetrics(a,{...b,jitterBufferEmittedCount:100}).jitterBufferTargetMs).toBeNull();
+ expect(deltaMetrics(a,{...b,jitterBufferTargetDelay:.5}).jitterBufferTargetMs).toBeNull();
+});
+
 it('E2E Telemetria: sample() preserva intervalMaxPauseMs e somente reset:true consome a pausa', async () => {
   // Configura ambiente básico
   if (!window.RTCPeerConnection) {
@@ -111,6 +119,25 @@ it('E2E Telemetria: sample() preserva intervalMaxPauseMs e somente reset:true co
   expect(consumed.intervalMaxPauseMs).toBe(0);
 
   document.body.removeChild(video);
+});
+
+it('E2E: preserva contadores cumulativos de playback e ausência da API sem confundir descarte com callback', async () => {
+  window.RTCPeerConnection=class {};
+  installTelemetry({enableOptical:false});
+  const video=document.createElement('video');
+  video.id='playback-quality-test';
+  document.body.append(video);
+  try {
+    video.getVideoPlaybackQuality=()=>({totalVideoFrames:120,droppedVideoFrames:45,creationTime:1000});
+    const sample=await window.__smgE2E.sample();
+    const row=sample.videos.find(v=>v.id===video.id);
+    expect(row.playbackQuality).toEqual({totalVideoFrames:120,droppedVideoFrames:45,creationTime:1000});
+    expect(row.presentation.callbackCadence.callbackCount).toBe(0);
+    video.getVideoPlaybackQuality=undefined;
+    expect((await window.__smgE2E.sample()).videos.find(v=>v.id===video.id).playbackQuality).toBeNull();
+    video.getVideoPlaybackQuality=()=>{throw new Error('Not supported');};
+    expect((await window.__smgE2E.sample()).videos.find(v=>v.id===video.id).playbackQuality).toBeNull();
+  } finally {video.remove();}
 });
 
 describe('Módulo Óptico E2E Robusto (Protocolo 96 bits e CRC-16)', () => {

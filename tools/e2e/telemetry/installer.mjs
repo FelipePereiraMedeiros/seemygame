@@ -1,7 +1,9 @@
 // Injected only into isolated E2E browser contexts. Never ships with dist.
-export function installTelemetry({ expectedSessionMagic = null, enableOptical = null, opticalSampleHz = 8 } = {}) {
+export function installTelemetry({ expectedSessionMagic = null, enableOptical = null, opticalSampleHz = 8, opticalReaderMode = 'gpu-roi' } = {}) {
   const opticalEnabled = enableOptical ?? (expectedSessionMagic !== null);
   if (!Number.isFinite(opticalSampleHz) || opticalSampleHz < 1 || opticalSampleHz > 60) throw new Error('Optical sampling must be 1..60 Hz');
+  if (!['legacy', 'roi', 'gpu-roi'].includes(opticalReaderMode)) throw new Error('Invalid optical reader mode');
+  const legacyReader = opticalReaderMode === 'legacy';
   const Base = window.RTCPeerConnection;
   const peers = [];
   window.RTCPeerConnection = class extends Base {
@@ -16,12 +18,13 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
     'type', 'id', 'kind', 'codecId', 'mimeType', 'ssrc', 'trackIdentifier',
     'encoderImplementation', 'decoderImplementation', 'powerEfficientEncoder',
     'powerEfficientDecoder', 'timestamp', 'bytesSent', 'bytesReceived',
-    'framesEncoded', 'framesDecoded', 'framesReceived', 'framesDropped',
+    'framesEncoded', 'framesDecoded', 'framesReceived', 'framesDropped', 'framesRendered',
     'keyFramesDecoded', 'keyFramesEncoded', 'qpSum',
     'framesPerSecond', 'frameWidth', 'frameHeight', 'totalEncodeTime',
     'totalDecodeTime', 'totalPacketSendDelay', 'packetsSent', 'packetsReceived',
     'packetsLost', 'packetsDiscarded', 'jitter', 'jitterBufferDelay', 'jitterBufferEmittedCount',
-    'jitterBufferTarget', 'jitterBufferMinimumDelay', 'freezeCount', 'totalFreezesDuration', 'nackCount', 'pliCount',
+    'jitterBufferTargetDelay', 'jitterBufferMinimumDelay', 'freezeCount', 'totalFreezesDuration', 'nackCount', 'pliCount',
+    'retransmittedPacketsReceived', 'retransmittedBytesReceived',
     'qualityLimitationReason', 'qualityLimitationDurations',
     'selectedCandidatePairId', 'currentRoundTripTime', 'availableOutgoingBitrate',
     'localCandidateId', 'remoteCandidateId', 'candidateType', 'protocol', 'state', 'nominated',
@@ -149,12 +152,12 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
       fullCanvas = document.createElement('canvas');
       fullCanvas.width = 1920;
       fullCanvas.height = 200;
-      fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+      fullCtx = fullCanvas.getContext('2d', { willReadFrequently: opticalReaderMode !== 'gpu-roi' });
 
       roiCanvas = document.createElement('canvas');
       roiCanvas.width = 1200;
       roiCanvas.height = 64;
-      roiCtx = roiCanvas.getContext('2d', { willReadFrequently: true });
+      roiCtx = roiCanvas.getContext('2d', { willReadFrequently: opticalReaderMode !== 'gpu-roi' });
     }
 
     let lastRoi = null; // { startX, y, blockW }
@@ -169,11 +172,17 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
     let presentedFramesCount = 0;
     let duplicateFrames = 0;
     let intervalMaxPauseMs = 0;
+    let intervalCallbackMaxGapMs = 0, intervalSkippedCallbackSpans = 0, intervalConsecutiveFrameIntervals = 0;
     let recentLatencies = [];
     let validSamplesCount = 0;
     let rejectedCandidatesCount = 0;
     let lastValidTimeMs = null;
     const analysisDurations = [];
+    const opticalStages = [];
+    const readerCounts = { fastAttempts: 0, fastSuccesses: 0, roiBypasses: 0, fullSearches: 0, errors: 0 };
+    let callbackCount = 0, missedCallbacks = 0, metadataResets = 0;
+    let lastMetadataCount = null, lastExpectedDisplay = null;
+    const callbackTimings = [];
 
     let currentPhase = 'warmup';
     const phaseLatencies = {
@@ -187,6 +196,25 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
 
     function onFrame(now, metadata) {
       const callbackEntryPerfNow = performance.now();
+      callbackCount++;
+      const metadataCount = metadata?.presentedFrames;
+      const frameDelta = Number.isFinite(metadataCount) && lastMetadataCount !== null ? metadataCount - lastMetadataCount : null;
+      if (frameDelta > 1) missedCallbacks += frameDelta - 1;
+      if (frameDelta < 0) metadataResets++;
+      if (Number.isFinite(metadataCount)) lastMetadataCount = metadataCount;
+      const expectedDisplay = metadata?.expectedDisplayTime ?? metadata?.presentationTime;
+      const expectedGap = Number.isFinite(expectedDisplay) && lastExpectedDisplay !== null ? expectedDisplay - lastExpectedDisplay : null;
+      if (frameDelta === 1 && expectedGap > 0) {
+        intervalConsecutiveFrameIntervals++;
+        if (expectedGap > 100) {
+          intervalMaxPauseMs = Math.max(intervalMaxPauseMs, expectedGap);
+          gaps.push({ at: Date.now(), gapMs: expectedGap, phase: currentPhase, evidence: 'consecutive-frame-metadata' });
+          if (currentPhase === 'warmup') startupMaxPauseMs = Math.max(startupMaxPauseMs, expectedGap);
+        }
+      } else if (frameDelta > 1) intervalSkippedCallbackSpans++;
+      if (Number.isFinite(expectedDisplay)) lastExpectedDisplay = expectedDisplay;
+      callbackTimings.push({ expectedDisplayGapMs: expectedGap, frameDelta, callbackLatenessMs: Number.isFinite(expectedDisplay) ? Math.max(0, callbackEntryPerfNow - expectedDisplay) : null });
+      if (callbackTimings.length > 256) callbackTimings.shift();
 
       // Semântica estrita: usa metadata.presentedFrames se fornecido pela W3C spec
       if (metadata && typeof metadata.presentedFrames === 'number') {
@@ -205,21 +233,21 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
       } else {
         framePresentationEpoch = performance.timeOrigin + callbackEntryPerfNow;
       }
-      const now32 = (Math.floor(framePresentationEpoch) >>> 0);
+      // Calibrate the exact presentation epoch against the source marker's Date.now.
+      // Keep correction fixed through a phase; checkpoints validate its uncertainty.
+      const calibration = window.__smgClockCalibration;
+      const offsetMs = calibration?.status === 'valid' && Number.isFinite(calibration.offsetMs) ? calibration.offsetMs : 0;
+      const now32 = (Math.floor(framePresentationEpoch - offsetMs) >>> 0);
 
       const callbackNow = performance.now();
       const gap = callbackNow - lastCallbackTime;
       lastCallbackTime = callbackNow;
-      if (gap > 100) {
-        gaps.push({ at: Date.now(), gapMs: Math.round(gap), phase: currentPhase });
-        if (gap > intervalMaxPauseMs) intervalMaxPauseMs = Math.round(gap);
-        if (currentPhase === 'warmup' && gap > startupMaxPauseMs) {
-          startupMaxPauseMs = Math.round(gap);
-        }
-      }
+      // Delayed/missed callbacks remain diagnostic evidence, but do not certify a visual pause.
+      if (callbackCount > 1) intervalCallbackMaxGapMs = Math.max(intervalCallbackMaxGapMs, gap);
 
       // Amostragem óptica com cadência controlada (8 Hz) - apenas se habilitado
       const shouldAnalyzeOptical = opticalEnabled && (callbackNow - lastOpticalAnalysisTime >= opticalIntervalMs);
+      let copyMs = 0, readbackMs = 0, searchMs = 0;
 
       try {
         if (shouldAnalyzeOptical && video.videoWidth > 0 && video.readyState >= 2) {
@@ -227,16 +255,26 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
           let decoded = null;
           const expectedMagicNum = expectedSessionMagic != null ? expectedSessionMagic & 0xFFFF : null;
 
-          // 1. FAST PATH: Se já conhecemos a posição (lastRoi), amostra apenas uma ROI mínima (<1ms)
+          // Cached rows; retain the old geometry only as an explicit A/B control.
           if (lastRoi) {
             const cropX = Math.max(0, Math.floor(lastRoi.startX - 6));
-            const cropY = Math.max(0, Math.floor(lastRoi.y - 6));
-            const cropW = Math.min(video.videoWidth - cropX, Math.ceil(96 * (lastRoi.blockW + 0.5)) + 24);
-            const cropH = Math.min(video.videoHeight - cropY, 60);
+            const cropY = Math.max(0, Math.floor(lastRoi.y - (legacyReader ? 6 : 3)));
+            const cropW = Math.min(video.videoWidth - cropX, Math.ceil(96 * (lastRoi.blockW + (legacyReader ? 0.5 : 0.2))) + 24);
+            const cropH = Math.min(video.videoHeight - cropY, legacyReader ? 60 : 8);
 
-            if (cropW > 0 && cropH > 0 && cropW <= 1200 && cropH <= 64) {
+            if (cropW > 0 && cropH > 0 && cropW <= (legacyReader ? 1200 : 3840) && cropH <= 64) {
+              readerCounts.fastAttempts++;
+              if (!legacyReader) {
+                if (roiCanvas.width !== cropW) roiCanvas.width = cropW;
+                if (roiCanvas.height !== cropH) roiCanvas.height = cropH;
+              }
+              let stageStart = performance.now();
               roiCtx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+              copyMs += performance.now() - stageStart;
+              stageStart = performance.now();
               const roiImg = roiCtx.getImageData(0, 0, cropW, cropH);
+              readbackMs += performance.now() - stageStart;
+              stageStart = performance.now();
               const localStartX = lastRoi.startX - cropX;
               const localY = lastRoi.y - cropY;
 
@@ -268,15 +306,24 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
                 }
                 if (decoded) break;
               }
-            }
+              searchMs += performance.now() - stageStart;
+              if (decoded) readerCounts.fastSuccesses++;
+            } else readerCounts.roiBypasses++;
           }
 
           // 2. FALLBACK PATH: Primeira detecção ou caso a ROI tenha falhado (redimensionamento / movimento)
           if (!decoded) {
-            const sampleW = Math.min(video.videoWidth, 1920);
+            readerCounts.fullSearches++;
+            const sampleW = Math.min(video.videoWidth, legacyReader ? 1920 : 3840);
             const sampleH = Math.min(video.videoHeight, 200);
+            if (fullCanvas.width !== sampleW) fullCanvas.width = sampleW;
+            let stageStart = performance.now();
             fullCtx.drawImage(video, 0, 0, sampleW, sampleH, 0, 0, sampleW, sampleH);
+            copyMs += performance.now() - stageStart;
+            stageStart = performance.now();
             const img = fullCtx.getImageData(0, 0, sampleW, sampleH);
+            readbackMs += performance.now() - stageStart;
+            stageStart = performance.now();
             const nomScale = video.videoWidth > 0 ? (video.videoWidth / 1280) : 1;
             const nomW = Number((8 * nomScale).toFixed(2));
             const candidateWidths = [];
@@ -289,6 +336,7 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
               if (!candidateWidths.includes(w)) candidateWidths.push(w);
             }
             decoded = decodeOptical(img.data, sampleW, sampleH, candidateWidths, expectedSessionMagic);
+            searchMs += performance.now() - stageStart;
             if (decoded) {
               lastRoi = {
                 startX: decoded.startX,
@@ -327,12 +375,14 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
             rejectedCandidatesCount++;
           }
         }
-      } catch {}
+      } catch { readerCounts.errors++; }
 
       if (shouldAnalyzeOptical) {
         const durationMs = performance.now() - callbackEntryPerfNow;
         analysisDurations.push(durationMs);
         if (analysisDurations.length > 100) analysisDurations.shift();
+        opticalStages.push({ copyMs, readbackMs, searchMs });
+        if (opticalStages.length > 100) opticalStages.shift();
       }
 
       if ('requestVideoFrameCallback' in video) {
@@ -354,9 +404,14 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
         phaseLatencies.steady.length = 0;
         phaseLatencies.cooldown.length = 0;
         analysisDurations.length = 0;
+        opticalStages.length = 0;
+        for (const key of Object.keys(readerCounts)) readerCounts[key] = 0;
+        callbackCount = 0; missedCallbacks = 0; metadataResets = 0;
+        lastMetadataCount = null; lastExpectedDisplay = null; callbackTimings.length = 0;
         presentedFramesCount = 0;
         duplicateFrames = 0;
         intervalMaxPauseMs = 0;
+        intervalCallbackMaxGapMs = 0; intervalSkippedCallbackSpans = 0; intervalConsecutiveFrameIntervals = 0;
         validSamplesCount = 0;
         rejectedCandidatesCount = 0;
         lastValidTimeMs = null;
@@ -402,14 +457,36 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
 
         // Leitura da pausa do intervalo e reset SOMENTE se explicitamente requisitado (ex: ao consumir intervalo na timeline)
         const maxPause = intervalMaxPauseMs;
+        const callbackSilenceMs = callbackCount ? Math.max(0, performance.now() - lastCallbackTime) : null;
+        const callbackMaxGapMs = callbackCount ? Math.max(intervalCallbackMaxGapMs, callbackSilenceMs) : null;
+        const skippedSpans = intervalSkippedCallbackSpans, consecutiveIntervals = intervalConsecutiveFrameIntervals;
         if (reset) {
           intervalMaxPauseMs = 0;
+          intervalCallbackMaxGapMs = 0; intervalSkippedCallbackSpans = 0; intervalConsecutiveFrameIntervals = 0;
         }
 
         return {
+          clockCalibration: window.__smgClockCalibration ? {
+            status: window.__smgClockCalibration.status,
+            offsetMs: window.__smgClockCalibration.offsetMs,
+            uncertaintyMs: window.__smgClockCalibration.uncertaintyMs
+          } : null,
           presentedFrames: presentedFramesCount,
+          callbackCadence: {
+            callbackCount, missedCallbacks, metadataResets,
+            windowSize: callbackTimings.length,
+            callbackLatenessMs: computePercentiles(callbackTimings.map(t => t.callbackLatenessMs).filter(Number.isFinite)),
+            observedDisplayGapMs: computePercentiles(callbackTimings.map(t => t.expectedDisplayGapMs).filter(v => Number.isFinite(v) && v >= 0)),
+            consecutiveFrameDisplayGapMs: computePercentiles(callbackTimings.filter(t => t.frameDelta === 1).map(t => t.expectedDisplayGapMs).filter(v => Number.isFinite(v) && v >= 0)),
+            scope: 'recent callback metadata; gaps spanning missed callbacks are not certified frame freezes'
+          },
           duplicateFrames,
           intervalMaxPauseMs: maxPause,
+          intervalCallbackMaxGapMs: callbackMaxGapMs,
+          callbackSilenceMs,
+          intervalSkippedCallbackSpans: skippedSpans,
+          intervalConsecutiveFrameIntervals: consecutiveIntervals,
+          pauseEvidence: consecutiveIntervals ? 'consecutive-frame-metadata' : callbackCount ? 'callback-only' : 'unavailable',
           gapsCount: gaps.length,
           lastSeq,
           recentSeqs: [...recentSeqs],
@@ -419,6 +496,14 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
           instrumentationOverheadMs: {
             p50: overheadP50,
             p95: overheadP95
+          },
+          opticalReader: {
+            mode: opticalReaderMode, ...readerCounts,
+            recentStageMs: {
+              copy: computePercentiles(opticalStages.map(t => t.copyMs)),
+              readback: computePercentiles(opticalStages.map(t => t.readbackMs)),
+              search: computePercentiles(opticalStages.map(t => t.searchMs))
+            }
           },
           currentPhase,
           steadyLatency,
@@ -497,6 +582,15 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
         receivers,
         videos: [...document.querySelectorAll('video')].map(v => {
           hookVideo(v);
+          let playbackQuality=null;
+          try {
+            const quality=v.getVideoPlaybackQuality?.();
+            if(quality)playbackQuality={
+              totalVideoFrames:Number.isFinite(quality.totalVideoFrames)?quality.totalVideoFrames:null,
+              droppedVideoFrames:Number.isFinite(quality.droppedVideoFrames)?quality.droppedVideoFrames:null,
+              creationTime:Number.isFinite(quality.creationTime)?quality.creationTime:null
+            };
+          } catch {}
           return {
             id: v.id || v.closest?.('.video-card')?.id || null,
             isLocal: v.closest?.('.video-card')?.dataset?.isLocal === 'true',
@@ -507,6 +601,7 @@ export function installTelemetry({ expectedSessionMagic = null, enableOptical = 
             currentTime: v.currentTime,
             readyState: v.readyState,
             paused: v.paused,
+            playbackQuality,
             presentation: v.__smgPresentation?.getStats({ reset: false })
           };
         })

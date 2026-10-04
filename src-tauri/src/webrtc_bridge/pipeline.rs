@@ -8,6 +8,9 @@ pub struct NativeWebRtcBridge {
     pub(crate) error_state: Arc<Mutex<Option<String>>>,
     pub(crate) shutdown: Arc<AtomicBool>,
     pub(crate) bus_thread: Option<JoinHandle<()>>,
+    pub(crate) video_input: Arc<crate::media::RtpCounters>,
+    pub(crate) video_output: Arc<crate::media::RtpCounters>,
+    pub(crate) video_queue: gst::Element,
 }
 
 impl NativeWebRtcBridge {
@@ -122,6 +125,10 @@ impl NativeWebRtcBridge {
         video_queue.set_property("max-size-buffers", 0u32);
         video_queue.set_property("max-size-time", 120_000_000u64);
         video_queue.set_property("max-size-bytes", 0u32);
+        let video_input = Arc::new(crate::media::RtpCounters::default());
+        let video_output = Arc::new(crate::media::RtpCounters::default());
+        stats::attach_rtp_probe(&video_src, "src", Arc::clone(&video_input))?;
+        stats::attach_rtp_probe(&video_queue, "src", Arc::clone(&video_output))?;
         pipeline
             .add_many([
                 &video_src,
@@ -302,6 +309,7 @@ impl NativeWebRtcBridge {
             error_state,
             shutdown,
             bus_thread: Some(bus_thread),
+            video_input, video_output, video_queue,
         })
     }
 
@@ -386,6 +394,20 @@ impl NativeWebRtcBridge {
             return Err(format!("Pipeline WebRTC nativo falhou: {error}"));
         }
         Ok(())
+    }
+
+    pub(crate) fn transport_stats(&self) -> Vec<serde_json::Value> {
+        [("bridge-input", &self.video_input), ("bridge-output", &self.video_output)].into_iter().map(|(stage, counters)| {
+            let mut row = counters.snapshot();
+            row["id"] = stage.into(); row["type"] = "native-rtp-stage".into(); row["stage"] = stage.into();
+            row["scope"] = "Local RTP pad; bridge-output is before webrtcbin, not NIC departure or remote delivery".into();
+            if stage == "bridge-output" {
+                row["queueLevelTimeMs"] = (self.video_queue.property::<u64>("current-level-time") as f64 / 1_000_000.0).into();
+                row["queueLevelBuffers"] = self.video_queue.property::<u32>("current-level-buffers").into();
+                row["queueLevelBytes"] = self.video_queue.property::<u32>("current-level-bytes").into();
+            }
+            row
+        }).collect()
     }
 }
 

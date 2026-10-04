@@ -11,6 +11,24 @@ const FIELDS: &[&str] = &[
     "fraction-lost", "available-outgoing-bitrate", "nack-count", "pli-count",
 ];
 
+/// Header-only observation: neither decode nor GPU readback. Payload data is never exported.
+pub(crate) fn attach_rtp_probe(element: &gst::Element, pad_name: &str, counters: Arc<crate::media::RtpCounters>) -> Result<(), String> {
+    let pad = element.static_pad(pad_name).ok_or("RTP probe pad missing")?;
+    pad.add_probe(gst::PadProbeType::BUFFER | gst::PadProbeType::BUFFER_LIST, move |_, info| {
+        match info.data.as_ref() {
+            Some(gst::PadProbeData::Buffer(buffer)) => {
+                if let Ok(map) = buffer.map_readable() { counters.observe(map.as_slice()); }
+            }
+            Some(gst::PadProbeData::BufferList(list)) => {
+                for buffer in list.iter() { if let Ok(map) = buffer.map_readable() { counters.observe(map.as_slice()); } }
+            }
+            _ => {}
+        }
+        gst::PadProbeReturn::Ok
+    }).ok_or("RTP probe installation failed")?;
+    Ok(())
+}
+
 fn camel(key: &str) -> String {
     let mut upper = false;
     key.chars().filter_map(|c| {
@@ -58,6 +76,26 @@ pub(crate) fn collect(webrtc: &gst::Element) -> Result<Vec<serde_json::Value>, S
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rtp_pad_probe_counts_fragmented_buffer_lists_without_decoding() {
+        let runtime = GStreamerRuntime::discover().expect("runtime empacotado de teste");
+        initialize_gstreamer(&runtime).unwrap();
+        let pipeline = gst::parse::launch("appsrc name=input is-live=true format=time caps=\"application/x-rtp,media=video,encoding-name=H264,clock-rate=90000,payload=96\" ! identity name=stage ! fakesink sync=false async=false").unwrap().downcast::<gst::Pipeline>().unwrap();
+        let counters = Arc::new(crate::media::RtpCounters::default());
+        attach_rtp_probe(&pipeline.by_name("stage").unwrap(), "src", Arc::clone(&counters)).unwrap();
+        let mut list = gst::BufferList::new();
+        for (seq, marker) in [(0u16, false), (1, true)] {
+            let mut bytes=vec![0u8;13];bytes[0]=0x80;bytes[1]=96 | if marker { 0x80 } else { 0 };bytes[2..4].copy_from_slice(&seq.to_be_bytes());
+            list.get_mut().unwrap().add(gst::Buffer::from_mut_slice(bytes));
+        }
+        pipeline.set_state(gst::State::Playing).unwrap();
+        let flow=pipeline.by_name("input").unwrap().emit_by_name::<gst::FlowReturn>("push-buffer-list", &[&list]);
+        assert_eq!(flow, gst::FlowReturn::Ok);
+        let deadline=Instant::now()+Duration::from_secs(2);
+        while counters.snapshot()["packetsProduced"]!=2 && Instant::now()<deadline { thread::sleep(Duration::from_millis(5)); }
+        pipeline.set_state(gst::State::Null).unwrap();
+        let report=counters.snapshot();assert_eq!(report["packetsProduced"],2);assert_eq!(report["framesProduced"],1);assert_eq!(report["sequenceGapPackets"],0);
+    }
     #[test]
     fn stats_export_is_allowlisted_and_preserves_units() {
         let runtime = GStreamerRuntime::discover().expect("runtime empacotado de teste");

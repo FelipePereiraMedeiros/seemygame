@@ -6,7 +6,7 @@ import {startReverseTunnel} from '../tools/e2e/harness/ssh-reverse.mjs';
 
 function fakeChild() {
  const child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();
- child.stdin={end:vi.fn(()=>queueMicrotask(()=>child.emit('exit',0)))};
+ child.stdin=new EventEmitter();child.stdin.end=vi.fn(()=>queueMicrotask(()=>child.emit('exit',0)));
  child.kill=vi.fn(()=>child.emit('exit',null));return child;
 }
 describe('Receiver fixture SSH forwarding lifecycle',()=>{
@@ -37,5 +37,11 @@ describe('Receiver fixture SSH forwarding lifecycle',()=>{
   const child=fakeChild();mocks.spawn.mockReturnValue(child);
   await expect(startReverseTunnel({host:'notebook',ports:[20001],timeoutMs:10})).rejects.toThrow('readiness timeout');
   expect(child.stdin.end).toHaveBeenCalledOnce();
+ });
+ it('retains broken-pipe evidence instead of crashing the test runner',async()=>{
+  const child=fakeChild();mocks.spawn.mockReturnValue(child);
+  const promise=startReverseTunnel({host:'notebook',ports:[20001]});
+  child.stdin.emit('error',new Error('write EPIPE'));child.emit('exit',255);
+  await expect(promise).rejects.toThrow('write EPIPE');expect(child.stdin.end).toHaveBeenCalledOnce();
  });
 });

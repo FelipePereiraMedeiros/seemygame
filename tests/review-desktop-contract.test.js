@@ -23,6 +23,7 @@ it('encaminha videoCodec e h264Encoder para o comando IPC start_native_capture',
     sourceId: 'window:123',
     videoCodec: 'h264',
     h264Encoder: 'cpu',
+    captureBackend: 'd3d11',
     width: 1920,
     height: 1080,
     fps: 60,
@@ -30,7 +31,8 @@ it('encaminha videoCodec e h264Encoder para o comando IPC start_native_capture',
   });
   expect(invoke).toHaveBeenCalledWith('start_native_capture', expect.objectContaining({
     videoCodec: 'h264',
-    h264Encoder: 'cpu'
+    h264Encoder: 'cpu',
+    captureBackend: 'd3d11'
   }));
   expect(state.h264Encoder).toBe('cpu');
 });

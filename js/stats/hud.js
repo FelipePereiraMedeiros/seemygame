@@ -16,7 +16,7 @@ export function createStatsHud(peerId) {
  const legend=document.createElement('div');legend.className='stats-legend';legend.textContent='Histórico · FPS 0–120 / p95 0–100 ms';hud.append(legend);
  const disclosure=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Tempos e estabilidade';disclosure.append(summary);details.forEach(item=>add(disclosure,item));hud.append(disclosure);
  [['produced','FPS na saída nativa'],['producer-gap','Pausa nativa (sessão)'],['producer-age','Último frame nativo']].forEach(item=>add(disclosure,item));
- const note=document.createElement('p');note.className='stats-note';note.textContent='RTT não é latência visual. N/D = métrica indisponível.';hud.append(note);
+ const note=document.createElement('p');note.className='stats-note';note.textContent='RTT não é latência visual. Pausa e frametime usam metadados de frames consecutivos. N/D = métrica indisponível.';hud.append(note);
  const diagnosis=document.createElement('p');diagnosis.className='stats-note';diagnosis.id=`stat-diagnosis-${peerId}`;diagnosis.textContent='Hipóteses aguardando amostras.';hud.append(diagnosis);
  const button=document.createElement('button');button.type='button';button.className='stats-export';button.textContent='Exportar diagnóstico';button.disabled=true;hud.append(button);return hud;
 }
